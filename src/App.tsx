@@ -12,7 +12,8 @@ export default function App() {
   const { activeProjectId, activePlanPageId, setActiveProject, setActivePlanPage } = useAppStore();
 
   const pagesForActiveProject = useLiveQuery(
- () => (activeProjectId ? db.planPages.where({ projectId: activeProjectId }).sortBy('order') : Promise.resolve([])),
+    () => (activeProjectId ? db.planPages.where({ projectId: activeProjectId }).sortBy('order') : Promise.resolve([])),
+    [activeProjectId],
   );
 
   // Every opened project needs at least one plan page to draw on.
