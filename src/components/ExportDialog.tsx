@@ -50,7 +50,7 @@ export default function ExportDialog({
     setIsExporting(true);
     setError(null);
     try {
-      const canvasJson = canvas.toJSON(['plandroid', 'plandroidId']);
+      const canvasJson = canvas.toObject(['plandroid', 'plandroidId']);
       const records = await collectProjectRecords(projectId, activePlanPageId, canvasJson);
       const takeoffLines = computeTakeoff(records);
 

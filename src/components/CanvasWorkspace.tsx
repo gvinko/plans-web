@@ -178,7 +178,7 @@ export default function CanvasWorkspace() {
     const engine = engineRef.current;
     if (!engine || !activePlanPageId) return;
     const persist = debounce(() => {
-      saveCanvasState(activePlanPageId, JSON.stringify(engine.canvas.toJSON(['plandroid', 'plandroidId'])));
+      saveCanvasState(activePlanPageId, JSON.stringify(engine.canvas.toObject(['plandroid', 'plandroidId'])));
     }, 600);
     engine.canvas.on('object:added', persist);
     engine.canvas.on('object:modified', persist);
@@ -435,7 +435,7 @@ export default function CanvasWorkspace() {
         <BomPanel
           projectId={activeProjectId}
           activePlanPageId={activePlanPageId}
-          getLiveCanvasJson={() => engineRef.current?.canvas.toJSON(['plandroid', 'plandroidId']) ?? null}
+          getLiveCanvasJson={() => engineRef.current?.canvas.toObject(['plandroid', 'plandroidId']) ?? null}
           onClose={() => setShowBom(false)}
         />
       )}
