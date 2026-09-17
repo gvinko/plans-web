@@ -115,6 +115,7 @@ export default function CanvasWorkspace() {
     const engine = new CanvasEngine(canvasElRef.current, {
       onCalibrationPoints: (p1, p2) => setPendingCalibration({ p1, p2 }),
       onZoomChange: (zoom) => setZoomPct(Math.round(zoom * 100)),
+      onToolShortcut: (mode) => handleToolChange(mode),
     });
     engineRef.current = engine;
 

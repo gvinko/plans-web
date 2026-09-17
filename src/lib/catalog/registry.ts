@@ -11,7 +11,8 @@ import type { ComponentDef } from './types';
 
 export const CATALOG: ComponentDef[] = [
   { id: 'fan-coil-unit', category: 'equipment', label: 'Fan Coil Unit', build: (style) => buildFanCoilUnit(style) },
-  { id: 'plenum-supply', category: 'fitting', label: 'Supply Plenum', build: (style) => buildPlenum('supply', 3, style) },
+  { id: 'plenum-supply-2way', category: 'fitting', label: 'Supply Plenum — 2-Way', build: (style) => buildPlenum('supply', 2, style) },
+  { id: 'plenum-supply-3way', category: 'fitting', label: 'Supply Plenum — 3-Way', build: (style) => buildPlenum('supply', 3, style) },
   { id: 'plenum-return', category: 'fitting', label: 'Return Plenum', build: (style) => buildPlenum('return', 3, style) },
   { id: 'diffuser-round', category: 'terminal', label: 'Diffuser — Round', build: (style) => buildDiffuser('round', style) },
   { id: 'diffuser-supply4way', category: 'terminal', label: 'Diffuser — 4-Way', build: (style) => buildDiffuser('supply4way', style) },
@@ -19,6 +20,7 @@ export const CATALOG: ComponentDef[] = [
   { id: 'diffuser-linear-slot', category: 'terminal', label: 'Grille — Linear Slot', build: (style) => buildDiffuser('linearSlot', style) },
   { id: 'grille-wall', category: 'terminal', label: 'Grille — Wall', build: (style) => buildGrille('wall', style) },
   { id: 'grille-linear-bar', category: 'terminal', label: 'Grille — Linear Bar', build: (style) => buildGrille('linearBar', style) },
+  { id: 'grille-return-air', category: 'terminal', label: 'Grille — Return Air (Eggcrate)', build: (style) => buildGrille('returnAirEggcrate', style) },
   { id: 'fitting-straight', category: 'fitting', label: 'Straight Coupling', build: (style) => buildFittingStraight(style) },
   { id: 'fitting-reducer', category: 'fitting', label: 'Reducer / Transition', build: (style) => buildFittingReducer(style) },
   { id: 'fitting-elbow-90', category: 'fitting', label: '90° Elbow', build: (style) => buildElbow(90, style) },

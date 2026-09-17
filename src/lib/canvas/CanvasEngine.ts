@@ -1,9 +1,20 @@
-import { Canvas, Circle, FabricImage, FabricText, Line, Point, type TPointerEventInfo, type TPointerEvent } from 'fabric';
+import { Canvas, Circle, FabricImage, FabricText, Line, Point, type FabricObject, type TPointerEventInfo, type TPointerEvent } from 'fabric';
 
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 20;
+const UNDO_STACK_LIMIT = 25;
 
 export type ToolMode = 'select' | 'pan' | 'calibrate' | 'place-component' | 'duct-rigid' | 'duct-flex' | 'trace-wall';
+
+/** Number-key shortcuts, in toolbar order. */
+const TOOL_SHORTCUTS: Record<string, ToolMode> = {
+  '1': 'select',
+  '2': 'pan',
+  '3': 'calibrate',
+  '4': 'duct-rigid',
+  '5': 'duct-flex',
+  '6': 'trace-wall',
+};
 
 export interface CalibrationPoint {
   x: number;
@@ -14,6 +25,8 @@ interface CanvasEngineOptions {
   /** Fired after the second calibration click. React owns the "enter real-world length" prompt. */
   onCalibrationPoints: (p1: CalibrationPoint, p2: CalibrationPoint) => void;
   onZoomChange?: (zoom: number) => void;
+  /** Fired on a number-key tool shortcut (1–6) — React owns updating its own active-tool state and then calls setToolMode itself, same as a toolbar click. */
+  onToolShortcut?: (mode: ToolMode) => void;
 }
 
 export class CanvasEngine {
@@ -29,6 +42,8 @@ export class CanvasEngine {
   private calibrationDraftObjects: (Circle | Line | FabricText)[] = [];
   private pendingCalibrationLabel: FabricText | null = null;
   private sketchImageObj: FabricImage | null = null;
+  private undoStack: FabricObject[] = [];
+  private isLoadingFromJSON = false;
 
   constructor(el: HTMLCanvasElement, opts: CanvasEngineOptions) {
     this.opts = opts;
@@ -40,6 +55,7 @@ export class CanvasEngine {
     });
     this.bindPanZoom();
     this.bindKeyboard();
+    this.bindUndoTracking();
   }
 
   setToolMode(mode: ToolMode): void {
@@ -122,8 +138,14 @@ export class CanvasEngine {
   }
 
   loadFromJSON(json: string): Promise<void> {
+    this.isLoadingFromJSON = true;
     return this.canvas.loadFromJSON(JSON.parse(json)).then(() => {
       this.canvas.requestRenderAll();
+      // Loading a saved page fires object:added for every restored object — don't let those
+      // count as "undoable" actions, or the first Ctrl+Z after opening a project would delete
+      // something that was already there.
+      this.undoStack = [];
+      this.isLoadingFromJSON = false;
     });
   }
 
@@ -189,11 +211,47 @@ export class CanvasEngine {
     window.addEventListener('keyup', this.handleKeyUp);
   }
 
+  private bindUndoTracking(): void {
+    this.canvas.on('object:added', (opt: { target: FabricObject }) => {
+      if (this.isLoadingFromJSON) return;
+      this.undoStack.push(opt.target);
+      if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
+    });
+  }
+
   private handleKeyDown = (e: KeyboardEvent): void => {
-    if (e.code === 'Space' && !this.isTypingTarget(e.target) && !this.spaceHeld) {
+    if (this.isTypingTarget(e.target)) return;
+
+    if (e.code === 'Space' && !this.spaceHeld) {
       this.spaceHeld = true;
       this.canvas.defaultCursor = 'grab';
       this.canvas.selection = false;
+      e.preventDefault();
+      return;
+    }
+
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.canvas.getActiveObject()) {
+      const active = this.canvas.getActiveObjects();
+      active.forEach((o) => this.canvas.remove(o));
+      this.canvas.discardActiveObject();
+      this.canvas.requestRenderAll();
+      e.preventDefault();
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      const last = this.undoStack.pop();
+      if (last) {
+        this.canvas.remove(last);
+        this.canvas.requestRenderAll();
+      }
+      e.preventDefault();
+      return;
+    }
+
+    const shortcutMode = TOOL_SHORTCUTS[e.key];
+    if (shortcutMode && this.opts.onToolShortcut) {
+      this.opts.onToolShortcut(shortcutMode);
       e.preventDefault();
     }
   };

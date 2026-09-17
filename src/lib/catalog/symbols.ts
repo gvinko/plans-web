@@ -292,13 +292,13 @@ export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STY
   return group;
 }
 
-export type GrilleType = 'wall' | 'linearBar';
+export type GrilleType = 'wall' | 'linearBar' | 'returnAirEggcrate';
 
 export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE): Group {
   const isBar = type === 'linearBar';
-  const w = isBar ? 100 : 50;
-  const h = isBar ? 14 : 35;
-  const barCount = isBar ? 8 : 5;
+  const isEggcrate = type === 'returnAirEggcrate';
+  const w = isBar ? 100 : isEggcrate ? 55 : 50;
+  const h = isBar ? 14 : isEggcrate ? 45 : 35;
 
   const body = new Rect({
     left: 0,
@@ -312,23 +312,35 @@ export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE):
     strokeWidth: 1.5,
   });
 
-  // Louver bars — closely spaced for a linear bar grille, more open for a standard wall grille.
-  const bars: Line[] = [];
-  const inset = 6;
-  const spacing = (h - inset * 2) / (barCount - 1 || 1);
-  for (let i = 0; i < barCount; i++) {
-    const yOffset = -h / 2 + inset + spacing * i;
-    bars.push(
-      new Line([-w / 2 + 5, yOffset, w / 2 - 5, yOffset], {
-        stroke: style === 'professional' ? '#f59e0b' : '#94a3b8',
-        strokeWidth: 0.8,
-        originX: 'center',
-        originY: 'center',
-      }),
-    );
+  const children: FabricObject[] = [footprint(w + 10, h + 10), body];
+  const barColor = style === 'professional' ? '#f59e0b' : '#94a3b8';
+
+  if (isEggcrate) {
+    // Eggcrate core: a crosshatch grid, not parallel bars — the visual giveaway for a return air grille.
+    const cols = 4;
+    const rows = 4;
+    const insetX = 6;
+    const insetY = 6;
+    for (let i = 1; i < cols; i++) {
+      const xOffset = -w / 2 + insetX + ((w - insetX * 2) / cols) * i;
+      children.push(new Line([xOffset, -h / 2 + insetY, xOffset, h / 2 - insetY], { stroke: barColor, strokeWidth: 0.6, originX: 'center', originY: 'center' }));
+    }
+    for (let i = 1; i < rows; i++) {
+      const yOffset = -h / 2 + insetY + ((h - insetY * 2) / rows) * i;
+      children.push(new Line([-w / 2 + insetX, yOffset, w / 2 - insetX, yOffset], { stroke: barColor, strokeWidth: 0.6, originX: 'center', originY: 'center' }));
+    }
+  } else {
+    // Louver bars — closely spaced for a linear bar grille, more open for a standard wall grille.
+    const barCount = isBar ? 8 : 5;
+    const inset = 6;
+    const spacing = (h - inset * 2) / (barCount - 1 || 1);
+    for (let i = 0; i < barCount; i++) {
+      const yOffset = -h / 2 + inset + spacing * i;
+      children.push(new Line([-w / 2 + 5, yOffset, w / 2 - 5, yOffset], { stroke: barColor, strokeWidth: 0.8, originX: 'center', originY: 'center' }));
+    }
   }
 
-  const group = new Group([footprint(w + 10, h + 10), body, ...bars], { originX: 'center', originY: 'center' });
+  const group = new Group(children, { originX: 'center', originY: 'center' });
 
   const ports: PortDef[] = [
     { id: 'neck', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: isBar ? 500 : 250, depth: 150 } },

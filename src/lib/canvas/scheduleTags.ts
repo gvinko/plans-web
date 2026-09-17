@@ -3,7 +3,8 @@ import { getPlandroidData } from './plandroidData';
 
 const PREFIX_BY_COMPONENT_ID: Record<string, string> = {
   'fan-coil-unit': 'FCU',
-  'plenum-supply': 'PLN-S',
+  'plenum-supply-2way': 'PLN-S',
+  'plenum-supply-3way': 'PLN-S',
   'plenum-return': 'PLN-R',
   'diffuser-supply4way': 'DIFF',
   'diffuser-swirl': 'DIFF',
