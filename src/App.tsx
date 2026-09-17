@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { db } from './db';
+import type { PlanPage } from './db/schema';
 import { createProject, createPlanPage } from './db/repository';
 import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
@@ -12,7 +13,10 @@ export default function App() {
   const { activeProjectId, activePlanPageId, setActiveProject, setActivePlanPage } = useAppStore();
 
   const pagesForActiveProject = useLiveQuery(
-    () => (activeProjectId ? db.planPages.where({ projectId: activeProjectId }).sortBy('order') : Promise.resolve([])),
+    () =>
+      activeProjectId
+        ? db.planPages.where({ projectId: activeProjectId }).sortBy('order')
+        : Promise.resolve<PlanPage[]>([]),
     [activeProjectId],
   );
 
