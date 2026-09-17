@@ -3,6 +3,7 @@ import type { CanvasEngine } from './CanvasEngine';
 import { distance, distancePointToSegment, midpoint, type Vec2 } from './geometry';
 import { getPlandroidData, getPlandroidId, setPlandroidId } from './plandroidData';
 import { buildTracedRoomObject } from './wallTracing';
+import { refreshAreaLabel } from './roomArea';
 
 export interface WallEdgeSelection {
   objId: string;
@@ -100,7 +101,7 @@ export function getTraceVertices(canvas: Canvas, objId: string): Vec2[] | null {
 
 /** Rebuilds the room object in place (Fabric can't cheaply resize an existing Polygon's points array).
  * Carries over whatever zone the room was already assigned, if any, so a dimension edit never resets its color. */
-export function rebuildTracedRoom(canvas: Canvas, objId: string, newVertices: Vec2[]): void {
+export function rebuildTracedRoom(canvas: Canvas, objId: string, newVertices: Vec2[], pxPerMm: number | null): void {
   const old = canvas.getObjects().find((o) => getPlandroidId(o) === objId);
   const zoneId = old ? getPlandroidData(old)?.plandroidZoneId : undefined;
   const color = old && typeof old.stroke === 'string' ? old.stroke : undefined;
@@ -108,11 +109,12 @@ export function rebuildTracedRoom(canvas: Canvas, objId: string, newVertices: Ve
   const rebuilt = buildTracedRoomObject(newVertices, zoneId && color ? { id: zoneId, color } : null);
   setPlandroidId(rebuilt, objId); // keep the same identity — CostItem/BOM refs, if any, stay stable
   canvas.add(rebuilt);
+  refreshAreaLabel(canvas, objId, newVertices, pxPerMm);
   canvas.requestRenderAll();
 }
 
 /** Applies (or clears, if zone is null) a zone's color to an existing traced room without touching its geometry. */
-export function applyZoneToRoom(canvas: Canvas, objId: string, zone: { id: string; color: string } | null): void {
+export function applyZoneToRoom(canvas: Canvas, objId: string, zone: { id: string; color: string } | null, pxPerMm: number | null): void {
   const vertices = getTraceVertices(canvas, objId);
   if (!vertices) return;
   const old = canvas.getObjects().find((o) => getPlandroidId(o) === objId);
@@ -120,5 +122,6 @@ export function applyZoneToRoom(canvas: Canvas, objId: string, zone: { id: strin
   const rebuilt = buildTracedRoomObject(vertices, zone);
   setPlandroidId(rebuilt, objId);
   canvas.add(rebuilt);
+  refreshAreaLabel(canvas, objId, vertices, pxPerMm);
   canvas.requestRenderAll();
 }

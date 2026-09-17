@@ -94,3 +94,14 @@ Four features added on top of the deployed app, in one batch:
 
 ## Required assets before first deploy
 `public/icons/icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `favicon.svg` — not generated here (binary/art assets, out of scope for a code scaffold).
+
+## Echo-drawing style pass (duct colors/rendering, joint nodes, room areas, title block, north arrow, 3 new terminals)
+Matched to a real Echo Air Conditioning working drawing the user supplied:
+- **Duct rendering** (`ductGeometry.ts`) — switched from hollow double-line technical outlines to solid, rounded (capsule-ended) colored fills, reading as a real pipe run rather than a drafting symbol. Rigid duct now defaults to green (supply) / red (return) via a new Supply/Return toggle in `DuctToolOptions`; flex defaults to grey. Round-size color presets (8"–18") and per-project overrides still apply on top of the function default, resolved in `ductColors.ts`.
+- **Joint nodes** — every rigid duct segment gets a small filled circle at each endpoint, colored to match the duct, approximating the branch/bend nodes visible on the reference drawing. Flex duct doesn't get nodes (none visible on the reference for flex runs).
+- **Room area labels** (`roomArea.ts`) — shoelace-formula m² computed and drawn at each traced room's centroid; recalculated on trace-complete, dimension edits, and zone reassignment. Shows "—" on an uncalibrated page rather than a fabricated number.
+- **Title block** (`titleBlock.ts`) — restructured to Echo's actual layout: brand strip, then job/client address + drawing title block, then a 5-column mini-table (Drawn By / Scale / Rev / Date / Dwg No.) — replacing the previous flat 8-row field list. New `drawingNumber` field, input added to `ExportDialog`.
+- **North arrow** — replaced the simple triangle with an 8-point compass star (alternating filled/outline spikes), matching the reference drawing's convention.
+- **Three new terminal catalog items**: Diffuser — Round (plain concentric-ring symbol, distinct from the existing 4-way/swirl variants), Grille — Wall, Grille — Linear Bar (denser louver spacing than the existing Linear Slot). All in `symbols.ts`/`registry.ts`, same port/placement machinery as everything else.
+
+**Scope note**: duct color is still a *function* default (supply=green/return=red) chosen at draw time via the toolbar toggle — there's no automatic supply-vs-return detection from how duct connects to equipment. If you draw a return run with the toggle left on "Supply," it'll be green; the toggle is the source of truth, not inferred topology.

@@ -37,6 +37,7 @@ export default function ExportDialog({
   const [client, setClient] = useState('');
   const [address, setAddress] = useState('');
   const [systemType, setSystemType] = useState('');
+  const [drawingNumber, setDrawingNumber] = useState('M01');
   const [notes, setNotes] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +75,7 @@ export default function ExportDialog({
           date: new Date().toLocaleDateString(),
           revision,
           notes,
+          drawingNumber,
           companyName: appSettings.companyName,
           contactName: appSettings.contactName,
           contactPhone: appSettings.contactPhone,
@@ -152,6 +154,12 @@ export default function ExportDialog({
             value={systemType}
             onChange={(e) => setSystemType(e.target.value)}
             placeholder="System Type (e.g. Ducted Split A/C)"
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5"
+          />
+          <input
+            value={drawingNumber}
+            onChange={(e) => setDrawingNumber(e.target.value)}
+            placeholder="Drawing No. (e.g. M01)"
             className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5"
           />
           <textarea

@@ -41,7 +41,7 @@ import CompanySettingsDialog from './CompanySettingsDialog';
 import ExcelImporterDialog from './ExcelImporterDialog';
 import ExportDialog from './ExportDialog';
 
-const DEFAULT_DUCT_PARAMS: DuctToolParams = { widthMm: 400, depthMm: 250, diameterMm: 200 };
+const DEFAULT_DUCT_PARAMS: DuctToolParams = { widthMm: 400, depthMm: 250, diameterMm: 200, ductFunction: 'supply' };
 
 const TOOLBAR_MODES: ToolMode[] = ['select', 'pan', 'calibrate', 'duct-rigid', 'duct-flex', 'trace-wall'];
 
@@ -136,7 +136,7 @@ export default function CanvasWorkspace() {
       () => ductColorOverridesRef.current,
       () => {},
     );
-    const detachWallTracing = attachWallTracing(engine, () => {});
+    const detachWallTracing = attachWallTracing(engine, () => pxPerMmRef.current, () => {});
     const detachWallDimensionEdit = attachWallDimensionEdit(engine, (sel) => {
       const vpt = engine.canvas.viewportTransform;
       setWallEdgeSelection(sel);
@@ -317,7 +317,7 @@ export default function CanvasWorkspace() {
       const vertices = getTraceVertices(engine.canvas, wallEdgeSelection.objId);
       if (vertices) {
         const newVertices = applyWallLength(vertices, wallEdgeSelection.edgeIndex, mm * pxPerMm);
-        rebuildTracedRoom(engine.canvas, wallEdgeSelection.objId, newVertices);
+        rebuildTracedRoom(engine.canvas, wallEdgeSelection.objId, newVertices, pxPerMm);
       }
     }
     setWallEdgeSelection(null);
@@ -326,7 +326,7 @@ export default function CanvasWorkspace() {
 
   function handleAssignZone(zoneId: string | null, color: string | null) {
     if (!roomSelection || !engineRef.current) return;
-    applyZoneToRoom(engineRef.current.canvas, roomSelection.objId, zoneId && color ? { id: zoneId, color } : null);
+    applyZoneToRoom(engineRef.current.canvas, roomSelection.objId, zoneId && color ? { id: zoneId, color } : null, pxPerMmRef.current);
     setRoomSelection(null);
   }
 
@@ -439,6 +439,7 @@ export default function CanvasWorkspace() {
               widthMm={ductParams.widthMm}
               depthMm={ductParams.depthMm}
               diameterMm={ductParams.diameterMm}
+              ductFunction={ductParams.ductFunction}
               onChange={setDuctParams}
             />
           )}

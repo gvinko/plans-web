@@ -207,7 +207,7 @@ export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: I
   return group;
 }
 
-export type DiffuserType = 'supply4way' | 'swirl' | 'linearSlot';
+export type DiffuserType = 'supply4way' | 'swirl' | 'linearSlot' | 'round';
 
 export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STYLE): Group {
   const isSlot = type === 'linearSlot';
@@ -240,6 +240,12 @@ export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STY
         });
       });
       decorations.push(hub, ...blades);
+    } else if (type === 'round') {
+      // Plain round ceiling diffuser: concentric rings, no throw/swirl decoration — the common "basic" supply symbol.
+      decorations.push(
+        new Circle({ left: 0, top: 0, radius: 16, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#f59e0b', strokeWidth: 1 }),
+        new Circle({ left: 0, top: 0, radius: 9, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#f59e0b', strokeWidth: 1 }),
+      );
     } else {
       const slots = [-4, 0, 4].map(
         (yOffset) =>
@@ -261,6 +267,10 @@ export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STY
     decorations.push(
       new Circle({ left: 0, top: 0, radius: 10, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#f59e0b', strokeWidth: 1.2 }),
     );
+  } else if (type === 'round') {
+    decorations.push(
+      new Circle({ left: 0, top: 0, radius: 12, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#f59e0b', strokeWidth: 1.2 }),
+    );
   } else {
     decorations.push(
       new Line([-w / 2 + 8, 0, w / 2 - 8, 0], { stroke: '#f59e0b', strokeWidth: 1.2, originX: 'center', originY: 'center' }),
@@ -277,6 +287,55 @@ export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STY
   setPlandroidData(group, {
     plandroidKind: 'terminal',
     plandroidComponentId: `diffuser-${type}`,
+    plandroidPorts: ports,
+  });
+  return group;
+}
+
+export type GrilleType = 'wall' | 'linearBar';
+
+export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE): Group {
+  const isBar = type === 'linearBar';
+  const w = isBar ? 100 : 50;
+  const h = isBar ? 14 : 35;
+  const barCount = isBar ? 8 : 5;
+
+  const body = new Rect({
+    left: 0,
+    top: 0,
+    width: w,
+    height: h,
+    originX: 'center',
+    originY: 'center',
+    fill: '#1e293b',
+    stroke: '#94a3b8',
+    strokeWidth: 1.5,
+  });
+
+  // Louver bars — closely spaced for a linear bar grille, more open for a standard wall grille.
+  const bars: Line[] = [];
+  const inset = 6;
+  const spacing = (h - inset * 2) / (barCount - 1 || 1);
+  for (let i = 0; i < barCount; i++) {
+    const yOffset = -h / 2 + inset + spacing * i;
+    bars.push(
+      new Line([-w / 2 + 5, yOffset, w / 2 - 5, yOffset], {
+        stroke: style === 'professional' ? '#f59e0b' : '#94a3b8',
+        strokeWidth: 0.8,
+        originX: 'center',
+        originY: 'center',
+      }),
+    );
+  }
+
+  const group = new Group([footprint(w + 10, h + 10), body, ...bars], { originX: 'center', originY: 'center' });
+
+  const ports: PortDef[] = [
+    { id: 'neck', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: isBar ? 500 : 250, depth: 150 } },
+  ];
+  setPlandroidData(group, {
+    plandroidKind: 'terminal',
+    plandroidComponentId: `grille-${type}`,
     plandroidPorts: ports,
   });
   return group;

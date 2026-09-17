@@ -3,7 +3,8 @@ import { Circle, Polygon, Polyline, type TPointerEventInfo, type TPointerEvent }
 import type { CanvasEngine } from './CanvasEngine';
 import type { Vec2 } from './geometry';
 import { snapToOrtho } from './orthoSnap';
-import { setPlandroidData, setPlandroidId } from './plandroidData';
+import { setPlandroidData, setPlandroidId, getPlandroidId } from './plandroidData';
+import { refreshAreaLabel } from './roomArea';
 
 const CLOSE_LOOP_RADIUS_SCREEN_PX = 20;
 const NEUTRAL_FILL = 'rgba(56, 189, 248, 0.08)';
@@ -37,7 +38,7 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export function attachWallTracing(engine: CanvasEngine, onRoomTraced: () => void): () => void {
+export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number | null, onRoomTraced: () => void): () => void {
   const canvas = engine.canvas;
   let points: Vec2[] = [];
   let markers: Circle[] = [];
@@ -94,6 +95,8 @@ export function attachWallTracing(engine: CanvasEngine, onRoomTraced: () => void
       clearDraft();
       const room = buildTracedRoomObject(finalVertices);
       canvas.add(room);
+      const roomId = getPlandroidId(room);
+      if (roomId) refreshAreaLabel(canvas, roomId, finalVertices, getPxPerMm());
       canvas.requestRenderAll();
       onRoomTraced();
       return;

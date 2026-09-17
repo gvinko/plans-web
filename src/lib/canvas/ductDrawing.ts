@@ -1,20 +1,38 @@
 import { nanoid } from 'nanoid';
-import type { FabricObject, TPointerEventInfo, TPointerEvent } from 'fabric';
+import { Circle, type FabricObject, type TPointerEventInfo, type TPointerEvent } from 'fabric';
 import type { CanvasEngine } from './CanvasEngine';
 import type { Vec2 } from './geometry';
 import { buildRigidDuctObject, buildFlexDuctObject } from './ductGeometry';
 import { setPlandroidId } from './plandroidData';
 import { findNearestPortToPoint } from './ports';
 import type { PortKind } from '../catalog/types';
-import { resolveRoundDuctColor, resolveRectDuctColor } from './ductColors';
+import { resolveRoundDuctColor, resolveRectDuctColor, DEFAULT_SUPPLY_COLOR, DEFAULT_RETURN_COLOR, DEFAULT_FLEX_COLOR } from './ductColors';
+
+export type DuctFunction = 'supply' | 'return';
 
 export interface DuctToolParams {
   widthMm: number;
   depthMm: number;
   diameterMm: number;
+  ductFunction: DuctFunction;
 }
 
 const CLICK_SNAP_RADIUS_SCREEN_PX = 15;
+const JOINT_MARKER_RADIUS_PX = 5;
+
+function buildJointMarker(p: Vec2, color: string): Circle {
+  return new Circle({
+    left: p.x,
+    top: p.y,
+    radius: JOINT_MARKER_RADIUS_PX,
+    originX: 'center',
+    originY: 'center',
+    fill: color,
+    stroke: 'transparent',
+    selectable: false,
+    evented: false,
+  });
+}
 
 export function attachDuctDrawing(
   engine: CanvasEngine,
@@ -58,12 +76,13 @@ export function attachDuctDrawing(
     const params = getParams();
     const overrides = getDuctColorOverrides();
     if (mode === 'duct-rigid') {
-      const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, '#94a3b8');
+      const functionFallback = params.ductFunction === 'return' ? DEFAULT_RETURN_COLOR : DEFAULT_SUPPLY_COLOR;
+      const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, functionFallback);
       const { rect, label } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm, color);
       setPlandroidId(rect, nanoid());
-      canvas.add(rect, label);
+      canvas.add(rect, label, buildJointMarker(startPoint, color), buildJointMarker(point, color));
     } else {
-      const color = resolveRoundDuctColor(params.diameterMm, overrides, '#38bdf8');
+      const color = resolveRoundDuctColor(params.diameterMm, overrides, DEFAULT_FLEX_COLOR);
       const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
       setPlandroidId(path, nanoid());
       canvas.add(path);
@@ -86,12 +105,13 @@ export function attachDuctDrawing(
 
     clearPreview();
     if (mode === 'duct-rigid') {
-      const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, '#94a3b8');
+      const functionFallback = params.ductFunction === 'return' ? DEFAULT_RETURN_COLOR : DEFAULT_SUPPLY_COLOR;
+      const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, functionFallback);
       const { rect } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm, color);
-      rect.set({ opacity: 0.5, strokeDashArray: [4, 4], selectable: false, evented: false });
+      rect.set({ opacity: 0.5, selectable: false, evented: false });
       previewObj = rect;
     } else {
-      const color = resolveRoundDuctColor(params.diameterMm, overrides, '#38bdf8');
+      const color = resolveRoundDuctColor(params.diameterMm, overrides, DEFAULT_FLEX_COLOR);
       const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
       path.set({ opacity: 0.5, selectable: false, evented: false });
       previewObj = path;

@@ -4,15 +4,21 @@ export interface RoundSizePreset {
   color: string;
 }
 
+/** Function-based defaults matching common site drawing convention — green supply, red return/mains, grey flex. */
+export const DEFAULT_SUPPLY_COLOR = '#22c55e';
+export const DEFAULT_RETURN_COLOR = '#ef4444';
+export const DEFAULT_FLEX_COLOR = '#9ca3af';
+
 /** Standard nominal round duct sizes with a default color-code — a common site convention
- * for telling sizes apart at a glance on a printed drawing. */
+ * for telling sizes apart at a glance on a printed drawing. Only applied when a size-specific
+ * override hasn't been set; otherwise the supply/return function color above wins. */
 export const ROUND_DUCT_PRESETS: RoundSizePreset[] = [
-  { inch: 8, mm: 200, color: '#38bdf8' }, // sky
-  { inch: 10, mm: 250, color: '#34d399' }, // emerald
-  { inch: 12, mm: 300, color: '#f59e0b' }, // amber
-  { inch: 14, mm: 350, color: '#f472b6' }, // pink
-  { inch: 16, mm: 400, color: '#a78bfa' }, // violet
-  { inch: 18, mm: 450, color: '#fb7185' }, // rose
+  { inch: 8, mm: 200, color: '#38bdf8' },
+  { inch: 10, mm: 250, color: '#34d399' },
+  { inch: 12, mm: 300, color: '#f59e0b' },
+  { inch: 14, mm: 350, color: '#f472b6' },
+  { inch: 16, mm: 400, color: '#a78bfa' },
+  { inch: 18, mm: 450, color: '#fb7185' },
 ];
 
 const NOMINAL_TOLERANCE_MM = 15;

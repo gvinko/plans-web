@@ -14,26 +14,29 @@ export function buildRigidDuctObject(
   widthMm: number,
   depthMm: number,
   pxPerMm: number,
-  strokeColor = '#94a3b8',
+  fillColor = '#22c55e',
 ): RigidDuctResult {
   const lengthPx = distance(p1, p2);
   const lengthMm = lengthPx / pxPerMm;
-  const thicknessPx = Math.max(widthMm * pxPerMm, 2);
+  const thicknessPx = Math.max(widthMm * pxPerMm, 6);
   const ang = angleDeg(p1, p2);
   const mid = midpoint(p1, p2);
   const normal = unitNormal(p1, p2);
 
+  // Solid, rounded (capsule-ended) colored line — reads as a real pipe/duct run on a printed
+  // drawing, matching common site-drawing convention, rather than a hollow technical double-line.
   const rect = new Rect({
     left: mid.x,
     top: mid.y,
     width: lengthPx,
     height: thicknessPx,
+    rx: thicknessPx / 2,
+    ry: thicknessPx / 2,
     originX: 'center',
     originY: 'center',
     angle: ang,
-    fill: 'transparent',
-    stroke: strokeColor,
-    strokeWidth: 1.5,
+    fill: fillColor,
+    stroke: 'transparent',
   });
 
   const labelOffset = thicknessPx / 2 + 10;
@@ -72,11 +75,11 @@ export function buildFlexDuctObject(
   p2: Vec2,
   diameterMm: number,
   pxPerMm: number,
-  strokeColor = '#38bdf8',
+  strokeColor = '#9ca3af',
 ): Path {
   const lengthPx = distance(p1, p2);
   const lengthMm = lengthPx / pxPerMm;
-  const diameterPx = Math.min(Math.max(diameterMm * pxPerMm, 6), 40);
+  const diameterPx = Math.min(Math.max(diameterMm * pxPerMm, 8), 40);
 
   const n = unitNormal(p1, p2);
   const bulge = lengthPx * FLEX_CURVE_BULGE;
@@ -108,14 +111,18 @@ export function buildFlexDuctObject(
     if (i % FLEX_RIB_INTERVAL === 0) ribs.push([a, b]);
   }
 
-  const railPath = (pts: Vec2[]) => pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+  // Filled envelope between the two rails (a solid grey "pipe" body) plus periodic rib lines for
+  // the corrugated-flex-duct texture — closer to how flex reads on a real site drawing than a hollow outline.
+  const envelopePath = [...railA, ...[...railB].reverse()]
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(' ');
   const ribsPath = ribs.map(([a, b]) => `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} L ${b.x.toFixed(1)} ${b.y.toFixed(1)}`).join(' ');
-  const d = `${railPath(railA)} ${railPath(railB)} ${ribsPath}`;
+  const d = `${envelopePath} Z ${ribsPath}`;
 
   const path = new Path(d, {
-    fill: 'transparent',
+    fill: strokeColor + '33', // translucent fill of the same color for a solid-pipe look
     stroke: strokeColor,
-    strokeWidth: 1.5,
+    strokeWidth: 1.25,
     originX: 'center',
     originY: 'center',
   });
