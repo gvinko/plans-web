@@ -13,8 +13,8 @@ export interface WallEdgeSelection {
   p2: Vec2;
 }
 
-/** Finds the nearest edge of `vertices` (a closed loop) to `point`. */
-function nearestEdgeIndex(point: Vec2, vertices: Vec2[]): number {
+/** Finds the nearest edge of `vertices` (a closed loop) to `point`, and how far away it is. */
+function nearestEdge(point: Vec2, vertices: Vec2[]): { index: number; distance: number } {
   let bestIndex = 0;
   let bestDist = Infinity;
   for (let i = 0; i < vertices.length; i++) {
@@ -26,7 +26,7 @@ function nearestEdgeIndex(point: Vec2, vertices: Vec2[]): number {
       bestIndex = i;
     }
   }
-  return bestIndex;
+  return { index: bestIndex, distance: bestDist };
 }
 
 /** Moves the far endpoint of the selected wall to hit newLengthPx (keeping its near endpoint and
@@ -57,6 +57,8 @@ export function applyWallLength(vertices: Vec2[], edgeIndex: number, newLengthPx
   return result;
 }
 
+const EDGE_CLICK_THRESHOLD_SCREEN_PX = 20;
+
 export function attachWallDimensionEdit(engine: CanvasEngine, onEdgeSelected: (sel: WallEdgeSelection) => void): () => void {
   const canvas = engine.canvas;
   function onMouseDown(opt: TPointerEventInfo<TPointerEvent>) {
@@ -68,7 +70,12 @@ export function attachWallDimensionEdit(engine: CanvasEngine, onEdgeSelected: (s
     if (!vertices || vertices.length < 2) return;
 
     const pointer = canvas.getPointer(opt.e);
-    const edgeIndex = nearestEdgeIndex(pointer, vertices);
+    const { index: edgeIndex, distance: edgeDistance } = nearestEdge(pointer, vertices);
+    // Only treat this as "editing a wall's dimension" if the click actually landed near an edge line —
+    // otherwise a plain click deep inside the room (i.e. a normal select-to-assign-zone click) would
+    // incorrectly also pop up the dimension editor. See zoneSelection.ts for the other popover.
+    if (edgeDistance > EDGE_CLICK_THRESHOLD_SCREEN_PX / canvas.getZoom()) return;
+
     const a = vertices[edgeIndex];
     const b = vertices[(edgeIndex + 1) % vertices.length];
 
@@ -91,12 +98,27 @@ export function getTraceVertices(canvas: Canvas, objId: string): Vec2[] | null {
   return (obj as unknown as { plandroidTraceVerticesPx?: Vec2[] } | undefined)?.plandroidTraceVerticesPx ?? null;
 }
 
-/** Rebuilds the room object in place (Fabric can't cheaply resize an existing Polygon's points array). */
+/** Rebuilds the room object in place (Fabric can't cheaply resize an existing Polygon's points array).
+ * Carries over whatever zone the room was already assigned, if any, so a dimension edit never resets its color. */
 export function rebuildTracedRoom(canvas: Canvas, objId: string, newVertices: Vec2[]): void {
   const old = canvas.getObjects().find((o) => getPlandroidId(o) === objId);
+  const zoneId = old ? getPlandroidData(old)?.plandroidZoneId : undefined;
+  const color = old && typeof old.stroke === 'string' ? old.stroke : undefined;
   if (old) canvas.remove(old);
-  const rebuilt = buildTracedRoomObject(newVertices);
+  const rebuilt = buildTracedRoomObject(newVertices, zoneId && color ? { id: zoneId, color } : null);
   setPlandroidId(rebuilt, objId); // keep the same identity — CostItem/BOM refs, if any, stay stable
+  canvas.add(rebuilt);
+  canvas.requestRenderAll();
+}
+
+/** Applies (or clears, if zone is null) a zone's color to an existing traced room without touching its geometry. */
+export function applyZoneToRoom(canvas: Canvas, objId: string, zone: { id: string; color: string } | null): void {
+  const vertices = getTraceVertices(canvas, objId);
+  if (!vertices) return;
+  const old = canvas.getObjects().find((o) => getPlandroidId(o) === objId);
+  if (old) canvas.remove(old);
+  const rebuilt = buildTracedRoomObject(vertices, zone);
+  setPlandroidId(rebuilt, objId);
   canvas.add(rebuilt);
   canvas.requestRenderAll();
 }

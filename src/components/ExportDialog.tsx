@@ -4,6 +4,8 @@ import { exportDrawingToPdf } from '../lib/pdf/exportDrawing';
 import { STANDARD_SCALES, type PaperSize } from '../lib/pdf/pageLayout';
 import { collectProjectRecords } from '../lib/takeoff/collectRecords';
 import { computeTakeoff } from '../lib/takeoff/takeoff';
+import { getAppSettings } from '../db/appSettingsRepository';
+import { loadImageFromBlob } from '../lib/pdf/loadImage';
 import type { UnitSystem } from '../lib/units';
 
 interface ExportDialogProps {
@@ -53,6 +55,8 @@ export default function ExportDialog({
       const canvasJson = canvas.toObject(['plandroid', 'plandroidId']);
       const records = await collectProjectRecords(projectId, activePlanPageId, canvasJson);
       const takeoffLines = computeTakeoff(records);
+      const appSettings = await getAppSettings();
+      const logoImage = appSettings.logoImage ? await loadImageFromBlob(appSettings.logoImage).catch(() => null) : null;
 
       const doc = exportDrawingToPdf({
         canvas,
@@ -70,6 +74,11 @@ export default function ExportDialog({
           date: new Date().toLocaleDateString(),
           revision,
           notes,
+          companyName: appSettings.companyName,
+          contactName: appSettings.contactName,
+          contactPhone: appSettings.contactPhone,
+          contactEmail: appSettings.contactEmail,
+          logoImage,
         },
       });
 

@@ -19,6 +19,7 @@ export type FittingType =
   | 'damper';
 export type TerminalType = 'diffuser_multi' | 'grille_linear' | 'grille_eggcrate';
 export type UnitSystem = 'metric' | 'imperial';
+export type IconStyle = 'simple' | 'professional';
 
 export interface Project {
   id: string; // nanoid
@@ -26,6 +27,10 @@ export interface Project {
   designer: string;
   client: string;
   unitSystem: UnitSystem;
+  iconStyle: IconStyle;
+  /** Keyed by a size string — "round:200" (mm diameter) or "rect:400x250" — overriding the default
+   * palette in lib/canvas/ductColors.ts. Only sizes the user has explicitly recolored appear here. */
+  ductColorOverrides: Record<string, string>;
   createdAt: number;
   updatedAt: number;
   revision: string; // e.g. "A", "B", "1.2"
@@ -124,7 +129,7 @@ export interface CostItem {
   isManualOverride: boolean;
 }
 
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 /**
  * Phase 5, Feature 1 — rows imported from a user-supplied Excel/CSV price book.
@@ -141,4 +146,28 @@ export interface ImportedCatalogItem {
   baseCost: number;
   sellPrice: number;
   importedAt: number;
+}
+
+/** A named, colored group a traced room (or a piece of equipment) can belong to — e.g. "Living Zone", "Bed 1-3 Zone". */
+export interface Zone {
+  id: string;
+  projectId: string;
+  name: string;
+  color: string; // hex
+  createdAt: number;
+}
+
+/**
+ * Global (singleton, id always 'default') company branding used on every PDF export title block —
+ * set once, applies to every project. Not per-project since it's the same business every time.
+ */
+export interface AppSettings {
+  id: 'default';
+  companyName: string;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  logoImage: Blob | null;
+  logoWidthPx: number;
+  logoHeightPx: number;
 }

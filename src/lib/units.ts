@@ -14,6 +14,10 @@ export function lsToCfm(ls: number): number {
   return ls * 2.11888;
 }
 
+export function cfmToLs(cfm: number): number {
+  return cfm / 2.11888;
+}
+
 export function msToFpm(ms: number): number {
   return ms * 196.85;
 }

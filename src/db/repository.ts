@@ -10,6 +10,8 @@ export async function createProject(name: string, designer = ''): Promise<Projec
     designer,
     client: '',
     unitSystem: 'metric',
+    iconStyle: 'simple',
+    ductColorOverrides: {},
     createdAt: now,
     updatedAt: now,
     revision: 'A',
@@ -64,6 +66,19 @@ export async function setPageScale(
 
 export async function setUnitSystem(projectId: string, unitSystem: Project['unitSystem']): Promise<void> {
   await db.projects.update(projectId, { unitSystem });
+}
+
+export async function setIconStyle(projectId: string, iconStyle: Project['iconStyle']): Promise<void> {
+  await db.projects.update(projectId, { iconStyle });
+}
+
+export async function setDuctColorOverride(projectId: string, sizeKey: string, colorHex: string | null): Promise<void> {
+  const project = await db.projects.get(projectId);
+  if (!project) return;
+  const overrides = { ...project.ductColorOverrides };
+  if (colorHex) overrides[sizeKey] = colorHex;
+  else delete overrides[sizeKey];
+  await db.projects.update(projectId, { ductColorOverrides: overrides });
 }
 
 export async function setBackgroundImage(

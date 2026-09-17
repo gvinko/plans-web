@@ -14,12 +14,18 @@ export interface PlandroidData {
   plandroidSnappedTo?: { objId: string; portId: string };
   /** Denormalized from an imported catalog row at placement time, so the takeoff engine
    * can label/price this item without an async DB lookup while walking canvas objects. */
-  plandroidImportedMeta?: { itemName: string; category: string; unitCost: number };
+  plandroidImportedMeta?: { itemName: string; category: string; unitCost: number; airflowValue?: number | null; airflowUnit?: 'L/s' | 'CFM' | null };
   /** World-space (canvas-coordinate) vertices of a traced room outline, closed loop implied (last connects to first).
    * Kept in world space rather than object-local because dimension edits rebuild the polygon from scratch —
    * see wallDimensionEdit.ts. This means dragging/rotating the whole room after tracing will desync this array
    * from the object's actual transform; the dimension tool assumes you dimension right after tracing. */
   plandroidTraceVerticesPx?: { x: number; y: number }[];
+  /** Zone this room or piece of equipment belongs to — drives the color it's drawn with (rooms) or a schedule grouping (equipment). */
+  plandroidZoneId?: string;
+  /** Equipment/terminal schedule fields (Feature: System Schedule) — scoped to the currently open page, see SystemSchedulePanel. */
+  plandroidScheduleTag?: string;
+  plandroidAirflowLs?: number;
+  plandroidScheduleNotes?: string;
 }
 
 /** Fabric objects carry arbitrary extra props fine at runtime; this just gives us a typed view. */

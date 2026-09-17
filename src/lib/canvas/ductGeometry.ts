@@ -8,7 +8,14 @@ export interface RigidDuctResult {
   label: FabricText;
 }
 
-export function buildRigidDuctObject(p1: Vec2, p2: Vec2, widthMm: number, depthMm: number, pxPerMm: number): RigidDuctResult {
+export function buildRigidDuctObject(
+  p1: Vec2,
+  p2: Vec2,
+  widthMm: number,
+  depthMm: number,
+  pxPerMm: number,
+  strokeColor = '#94a3b8',
+): RigidDuctResult {
   const lengthPx = distance(p1, p2);
   const lengthMm = lengthPx / pxPerMm;
   const thicknessPx = Math.max(widthMm * pxPerMm, 2);
@@ -25,7 +32,7 @@ export function buildRigidDuctObject(p1: Vec2, p2: Vec2, widthMm: number, depthM
     originY: 'center',
     angle: ang,
     fill: 'transparent',
-    stroke: '#94a3b8',
+    stroke: strokeColor,
     strokeWidth: 1.5,
   });
 
@@ -60,7 +67,13 @@ export function buildRigidDuctObject(p1: Vec2, p2: Vec2, widthMm: number, depthM
 const FLEX_CURVE_BULGE = 0.15;
 const FLEX_RIB_INTERVAL = 3; // every Nth sample gets a connecting "accordion fold" line
 
-export function buildFlexDuctObject(p1: Vec2, p2: Vec2, diameterMm: number, pxPerMm: number): Path {
+export function buildFlexDuctObject(
+  p1: Vec2,
+  p2: Vec2,
+  diameterMm: number,
+  pxPerMm: number,
+  strokeColor = '#38bdf8',
+): Path {
   const lengthPx = distance(p1, p2);
   const lengthMm = lengthPx / pxPerMm;
   const diameterPx = Math.min(Math.max(diameterMm * pxPerMm, 6), 40);
@@ -101,7 +114,7 @@ export function buildFlexDuctObject(p1: Vec2, p2: Vec2, diameterMm: number, pxPe
 
   const path = new Path(d, {
     fill: 'transparent',
-    stroke: '#38bdf8',
+    stroke: strokeColor,
     strokeWidth: 1.5,
     originX: 'center',
     originY: 'center',

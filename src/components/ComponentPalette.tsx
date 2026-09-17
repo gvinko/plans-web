@@ -21,7 +21,7 @@ export default function ComponentPalette({ pendingComponentId, onSelect, onCance
   const importedFittings = useLiveQuery(() => db.fittingsCatalog.toArray(), []);
 
   return (
-    <aside className="w-56 border-l border-slate-700 bg-slate-900 flex flex-col overflow-y-auto">
+    <aside className="w-56 shrink-0 border-l border-slate-700 bg-slate-900 flex flex-col overflow-y-auto">
       <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
         <span className="text-xs font-mono text-slate-400">CATALOG</span>
         {pendingComponentId && (

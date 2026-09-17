@@ -7,14 +7,24 @@ import {
   setBackgroundImage,
   setSketchOverlay,
   setSketchOpacity,
+  setIconStyle,
 } from '../db/repository';
 import { CanvasEngine, type CalibrationPoint, type ToolMode } from '../lib/canvas/CanvasEngine';
+import type { IconStyle } from '../lib/catalog/types';
 import { loadFloorPlanFile, isSupportedFloorPlanFile } from '../lib/floorplan/loadFloorPlanFile';
 import { attachSnapEngine } from '../lib/canvas/snapping';
 import { attachComponentPlacement } from '../lib/canvas/componentPlacement';
 import { attachDuctDrawing, type DuctToolParams } from '../lib/canvas/ductDrawing';
 import { attachWallTracing } from '../lib/canvas/wallTracing';
-import { attachWallDimensionEdit, applyWallLength, getTraceVertices, rebuildTracedRoom, type WallEdgeSelection } from '../lib/canvas/wallDimensionEdit';
+import {
+  attachWallDimensionEdit,
+  applyWallLength,
+  applyZoneToRoom,
+  getTraceVertices,
+  rebuildTracedRoom,
+  type WallEdgeSelection,
+} from '../lib/canvas/wallDimensionEdit';
+import { attachZoneSelection, type RoomSelection } from '../lib/canvas/zoneSelection';
 import { debounce } from '../lib/debounce';
 import { useAppStore } from '../store/appStore';
 import CalibrationModal from './CalibrationModal';
@@ -23,6 +33,11 @@ import DuctToolOptions from './DuctToolOptions';
 import BomPanel from './BomPanel';
 import SketchOverlayControls from './SketchOverlayControls';
 import WallDimensionPopover from './WallDimensionPopover';
+import ZoneAssignPopover from './ZoneAssignPopover';
+import ZonesManagerDialog from './ZonesManagerDialog';
+import DuctColorsDialog from './DuctColorsDialog';
+import SystemSchedulePanel from './SystemSchedulePanel';
+import CompanySettingsDialog from './CompanySettingsDialog';
 import ExcelImporterDialog from './ExcelImporterDialog';
 import ExportDialog from './ExportDialog';
 
@@ -52,14 +67,21 @@ export default function CanvasWorkspace() {
   const [showBom, setShowBom] = useState(false);
   const [showImporter, setShowImporter] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showDuctColors, setShowDuctColors] = useState(false);
+  const [showZonesManager, setShowZonesManager] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [showCompanySettings, setShowCompanySettings] = useState(false);
   const [ductParams, setDuctParams] = useState<DuctToolParams>(DEFAULT_DUCT_PARAMS);
   const [wallEdgeSelection, setWallEdgeSelection] = useState<WallEdgeSelection | null>(null);
   const [wallPopoverScreen, setWallPopoverScreen] = useState<{ x: number; y: number } | null>(null);
+  const [roomSelection, setRoomSelection] = useState<RoomSelection | null>(null);
 
   // Controllers read these via ref so they always see the latest value without re-attaching listeners.
   const pendingComponentIdRef = useRef<string | null>(null);
   const ductParamsRef = useRef<DuctToolParams>(DEFAULT_DUCT_PARAMS);
   const pxPerMmRef = useRef<number | null>(null);
+  const iconStyleRef = useRef<IconStyle>('simple');
+  const ductColorOverridesRef = useRef<Record<string, string>>({});
 
   const planPage = useLiveQuery(
     () => (activePlanPageId ? db.planPages.get(activePlanPageId) : undefined),
@@ -79,6 +101,14 @@ export default function CanvasWorkspace() {
     pxPerMmRef.current = planPage?.scale.pxPerMm ?? null;
   }, [planPage?.scale.pxPerMm]);
 
+  useEffect(() => {
+    iconStyleRef.current = project?.iconStyle ?? 'simple';
+  }, [project?.iconStyle]);
+
+  useEffect(() => {
+    ductColorOverridesRef.current = project?.ductColorOverrides ?? {};
+  }, [project?.ductColorOverrides]);
+
   // --- engine + controllers: created once, disposed on unmount ---
   useEffect(() => {
     if (!canvasElRef.current) return;
@@ -92,6 +122,7 @@ export default function CanvasWorkspace() {
     const detachPlacement = attachComponentPlacement(
       engine,
       () => pendingComponentIdRef.current,
+      () => iconStyleRef.current,
       () => {
         setPendingComponentId(null);
         setActiveTool('select');
@@ -102,6 +133,7 @@ export default function CanvasWorkspace() {
       engine,
       () => pxPerMmRef.current,
       () => ductParamsRef.current,
+      () => ductColorOverridesRef.current,
       () => {},
     );
     const detachWallTracing = attachWallTracing(engine, () => {});
@@ -113,6 +145,7 @@ export default function CanvasWorkspace() {
         y: sel.midpointCanvas.y * vpt[3] + vpt[5],
       });
     });
+    const detachZoneSelection = attachZoneSelection(engine.canvas, setRoomSelection);
 
     return () => {
       detachSnap();
@@ -120,6 +153,7 @@ export default function CanvasWorkspace() {
       detachDuctDrawing();
       detachWallTracing();
       detachWallDimensionEdit();
+      detachZoneSelection();
       engine.dispose();
       engineRef.current = null;
     };
@@ -253,6 +287,11 @@ export default function CanvasWorkspace() {
     handleToolChange('place-component');
   }
 
+  async function handleToggleIconStyle() {
+    if (!activeProjectId || !project) return;
+    await setIconStyle(activeProjectId, project.iconStyle === 'professional' ? 'simple' : 'professional');
+  }
+
   async function handleCalibrationConfirm(mm: number) {
     if (!pendingCalibration || !activePlanPageId || !engineRef.current) return;
     await setPageScale(activePlanPageId, [pendingCalibration.p1, pendingCalibration.p2], mm);
@@ -283,6 +322,12 @@ export default function CanvasWorkspace() {
     }
     setWallEdgeSelection(null);
     setWallPopoverScreen(null);
+  }
+
+  function handleAssignZone(zoneId: string | null, color: string | null) {
+    if (!roomSelection || !engineRef.current) return;
+    applyZoneToRoom(engineRef.current.canvas, roomSelection.objId, zoneId && color ? { id: zoneId, color } : null);
+    setRoomSelection(null);
   }
 
   const scalePxPerMm = planPage?.scale.pxPerMm ?? null;
@@ -316,8 +361,27 @@ export default function CanvasWorkspace() {
         <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowBom(true)}>
           BOM &amp; Costing
         </button>
+        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowSchedule(true)}>
+          Schedule
+        </button>
+        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowDuctColors(true)}>
+          Duct Colours
+        </button>
+        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowZonesManager(true)}>
+          Zones
+        </button>
         <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowImporter(true)}>
           Import Catalog
+        </button>
+        <button
+          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
+          onClick={handleToggleIconStyle}
+          title="Switch between simple schematic icons and closer-to-standard MEP drafting symbols"
+        >
+          Icons: {project?.iconStyle === 'professional' ? 'Professional' : 'Simple'}
+        </button>
+        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowCompanySettings(true)}>
+          Company Info
         </button>
         <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowExport(true)}>
           Export PDF
@@ -352,7 +416,7 @@ export default function CanvasWorkspace() {
       <div className="flex flex-1 min-h-0">
         <div
           ref={containerRef}
-          className="relative flex-1"
+          className="relative flex-1 min-w-0"
           onDragOver={(e) => {
             e.preventDefault();
             setIsDragOver(true);
@@ -390,6 +454,16 @@ export default function CanvasWorkspace() {
                 setWallEdgeSelection(null);
                 setWallPopoverScreen(null);
               }}
+            />
+          )}
+
+          {roomSelection && activeProjectId && (
+            <ZoneAssignPopover
+              projectId={activeProjectId}
+              screenX={roomSelection.screenX}
+              screenY={roomSelection.screenY}
+              currentZoneId={roomSelection.currentZoneId}
+              onAssign={handleAssignZone}
             />
           )}
 
@@ -439,6 +513,29 @@ export default function CanvasWorkspace() {
           onClose={() => setShowBom(false)}
         />
       )}
+
+      {showSchedule && activeProjectId && (
+        <SystemSchedulePanel
+          projectId={activeProjectId}
+          getCanvas={() => engineRef.current?.canvas ?? null}
+          onClose={() => setShowSchedule(false)}
+        />
+      )}
+
+      {showDuctColors && activeProjectId && (
+        <DuctColorsDialog
+          projectId={activeProjectId}
+          activePlanPageId={activePlanPageId}
+          getLiveCanvasJson={() => engineRef.current?.canvas.toObject(['plandroid', 'plandroidId']) ?? null}
+          onClose={() => setShowDuctColors(false)}
+        />
+      )}
+
+      {showZonesManager && activeProjectId && (
+        <ZonesManagerDialog projectId={activeProjectId} onClose={() => setShowZonesManager(false)} />
+      )}
+
+      {showCompanySettings && <CompanySettingsDialog onClose={() => setShowCompanySettings(false)} />}
 
       {showImporter && <ExcelImporterDialog onClose={() => setShowImporter(false)} />}
 

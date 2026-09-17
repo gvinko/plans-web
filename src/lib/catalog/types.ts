@@ -31,10 +31,13 @@ export function portsCompatible(a: PortKind, b: PortKind): boolean {
 
 export type ComponentCategory = 'equipment' | 'fitting' | 'terminal';
 
+/** 'simple' = current schematic blocks; 'professional' = closer-to-standard MEP drafting symbols. Ports/sizes are identical either way — this only changes the drawn appearance. */
+export type IconStyle = 'simple' | 'professional';
+
 export interface ComponentDef {
   id: string;
   category: ComponentCategory;
   label: string;
   /** Returns a fresh Fabric Group with `ports` (PortDef[]) attached as custom data. Called once per placement. */
-  build: () => import('fabric').Group;
+  build: (style: IconStyle) => import('fabric').Group;
 }

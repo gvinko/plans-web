@@ -6,6 +6,7 @@ import { buildRigidDuctObject, buildFlexDuctObject } from './ductGeometry';
 import { setPlandroidId } from './plandroidData';
 import { findNearestPortToPoint } from './ports';
 import type { PortKind } from '../catalog/types';
+import { resolveRoundDuctColor, resolveRectDuctColor } from './ductColors';
 
 export interface DuctToolParams {
   widthMm: number;
@@ -19,6 +20,7 @@ export function attachDuctDrawing(
   engine: CanvasEngine,
   getPxPerMm: () => number | null,
   getParams: () => DuctToolParams,
+  getDuctColorOverrides: () => Record<string, string>,
   onSegmentCommitted: () => void,
 ): () => void {
   const canvas = engine.canvas;
@@ -54,12 +56,15 @@ export function attachDuctDrawing(
     }
 
     const params = getParams();
+    const overrides = getDuctColorOverrides();
     if (mode === 'duct-rigid') {
-      const { rect, label } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm);
+      const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, '#94a3b8');
+      const { rect, label } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm, color);
       setPlandroidId(rect, nanoid());
       canvas.add(rect, label);
     } else {
-      const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm);
+      const color = resolveRoundDuctColor(params.diameterMm, overrides, '#38bdf8');
+      const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
       setPlandroidId(path, nanoid());
       canvas.add(path);
     }
@@ -77,14 +82,17 @@ export function attachDuctDrawing(
 
     const point = resolveClickPoint(canvas.getPointer(opt.e), mode);
     const params = getParams();
+    const overrides = getDuctColorOverrides();
 
     clearPreview();
     if (mode === 'duct-rigid') {
-      const { rect } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm);
+      const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, '#94a3b8');
+      const { rect } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm, color);
       rect.set({ opacity: 0.5, strokeDashArray: [4, 4], selectable: false, evented: false });
       previewObj = rect;
     } else {
-      const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm);
+      const color = resolveRoundDuctColor(params.diameterMm, overrides, '#38bdf8');
+      const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
       path.set({ opacity: 0.5, selectable: false, evented: false });
       previewObj = path;
     }

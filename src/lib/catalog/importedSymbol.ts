@@ -1,10 +1,10 @@
-import { Rect, FabricText, Group } from 'fabric';
-import type { PortDef } from './types';
+import { Rect, FabricText, Group, type FabricObject } from 'fabric';
+import type { PortDef, IconStyle } from './types';
 import { parseDimensionsToPortSize } from './parseDimensions';
 import { setPlandroidData } from '../canvas/plandroidData';
 import type { ImportedCatalogItem } from '../../db/schema';
 
-export function buildImportedCatalogSymbol(item: ImportedCatalogItem): Group {
+export function buildImportedCatalogSymbol(item: ImportedCatalogItem, style: IconStyle = 'simple'): Group {
   const w = 90;
   const h = 40;
   const size = parseDimensionsToPortSize(item.dimensions);
@@ -44,7 +44,25 @@ export function buildImportedCatalogSymbol(item: ImportedCatalogItem): Group {
     originY: 'center',
   });
 
-  const group = new Group([footprint, body, label], { originX: 'center', originY: 'center' });
+  const children: FabricObject[] = [footprint, body, label];
+  if (style === 'professional') {
+    children.push(
+      new Rect({
+        left: 0,
+        top: 0,
+        width: w - 18,
+        height: h - 18,
+        originX: 'center',
+        originY: 'center',
+        fill: 'transparent',
+        stroke: '#475569',
+        strokeWidth: 0.75,
+        strokeDashArray: [3, 2],
+      }),
+    );
+  }
+
+  const group = new Group(children, { originX: 'center', originY: 'center' });
 
   const ports: PortDef[] = [
     { id: 'in', x: -w / 2, y: 0, angleDeg: 180, kind, sizeMm: size },
@@ -59,6 +77,8 @@ export function buildImportedCatalogSymbol(item: ImportedCatalogItem): Group {
       itemName: item.itemName,
       category: item.category,
       unitCost: item.sellPrice || item.baseCost || 0,
+      airflowValue: item.airflowValue,
+      airflowUnit: item.airflowUnit,
     },
   });
 

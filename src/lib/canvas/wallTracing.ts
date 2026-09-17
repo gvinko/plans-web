@@ -6,23 +6,35 @@ import { snapToOrtho } from './orthoSnap';
 import { setPlandroidData, setPlandroidId } from './plandroidData';
 
 const CLOSE_LOOP_RADIUS_SCREEN_PX = 20;
+const NEUTRAL_FILL = 'rgba(56, 189, 248, 0.08)';
+const NEUTRAL_STROKE = '#38bdf8';
 
-export function buildTracedRoomObject(vertices: Vec2[]): Polygon {
+export function buildTracedRoomObject(vertices: Vec2[], zone?: { id: string; color: string } | null): Polygon {
+  const stroke = zone ? zone.color : NEUTRAL_STROKE;
+  const fill = zone ? hexToRgba(zone.color, 0.12) : NEUTRAL_FILL;
   const poly = new Polygon(
     vertices.map((v) => ({ x: v.x, y: v.y })),
     {
-      fill: 'rgba(56, 189, 248, 0.08)',
-      stroke: '#38bdf8',
+      fill,
+      stroke,
       strokeWidth: 2,
       originX: 'center',
       originY: 'center',
       objectCaching: false,
     },
   );
-  setPlandroidData(poly, { plandroidKind: 'traced_room', plandroidPorts: [] });
+  setPlandroidData(poly, { plandroidKind: 'traced_room', plandroidPorts: [], plandroidZoneId: zone?.id });
   (poly as unknown as { plandroidTraceVerticesPx: Vec2[] }).plandroidTraceVerticesPx = vertices;
   setPlandroidId(poly, nanoid());
   return poly;
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const m = hex.replace('#', '');
+  const r = parseInt(m.slice(0, 2), 16);
+  const g = parseInt(m.slice(2, 4), 16);
+  const b = parseInt(m.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export function attachWallTracing(engine: CanvasEngine, onRoomTraced: () => void): () => void {
