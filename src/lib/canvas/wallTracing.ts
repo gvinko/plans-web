@@ -96,7 +96,8 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
       const room = buildTracedRoomObject(finalVertices);
       canvas.add(room);
       const roomId = getPlandroidId(room);
-      if (roomId) refreshAreaLabel(canvas, roomId, finalVertices, getPxPerMm());
+      const label = roomId ? refreshAreaLabel(canvas, roomId, finalVertices, getPxPerMm()) : null;
+      engine.recordUndoGroup(label ? [room, label] : [room]);
       canvas.requestRenderAll();
       onRoomTraced();
       return;

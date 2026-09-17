@@ -52,6 +52,20 @@ export function attachDuctDrawing(
     }
   }
 
+  /** Called whenever we observe the tool mode isn't ours anymore — clears any in-progress draft so
+   * switching away mid-draw (e.g. clicking "Select" in the toolbar after only one click) can never
+   * leave a stale start point that gets reused if the user re-enters a duct tool later. This is the
+   * duct-drawing equivalent of the trace-wall "stuck" bug — state surviving an external mode switch. */
+  function resetIfToolChanged() {
+    const mode = engine.getToolMode();
+    if (mode !== 'duct-rigid' && mode !== 'duct-flex' && (startPoint || previewObj)) {
+      startPoint = null;
+      clearPreview();
+      canvas.requestRenderAll();
+    }
+    return mode;
+  }
+
   function resolveClickPoint(rawPointer: Vec2, mode: 'duct-rigid' | 'duct-flex'): Vec2 {
     const kind: PortKind = mode === 'duct-rigid' ? 'duct_rect' : 'duct_flex';
     const radius = CLICK_SNAP_RADIUS_SCREEN_PX / canvas.getZoom();
@@ -60,7 +74,7 @@ export function attachDuctDrawing(
   }
 
   function onMouseDown(opt: TPointerEventInfo<TPointerEvent>) {
-    const mode = engine.getToolMode();
+    const mode = resetIfToolChanged();
     if (mode !== 'duct-rigid' && mode !== 'duct-flex') return;
 
     const pxPerMm = getPxPerMm();
@@ -80,12 +94,16 @@ export function attachDuctDrawing(
       const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, functionFallback);
       const { rect, label } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm, color);
       setPlandroidId(rect, nanoid());
-      canvas.add(rect, label, buildJointMarker(startPoint, color), buildJointMarker(point, color));
+      const jointA = buildJointMarker(startPoint, color);
+      const jointB = buildJointMarker(point, color);
+      canvas.add(rect, label, jointA, jointB);
+      engine.recordUndoGroup([rect, label, jointA, jointB]);
     } else {
       const color = resolveRoundDuctColor(params.diameterMm, overrides, DEFAULT_FLEX_COLOR);
       const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
       setPlandroidId(path, nanoid());
       canvas.add(path);
+      engine.recordUndoGroup([path]);
     }
     clearPreview();
     startPoint = null;
@@ -94,7 +112,7 @@ export function attachDuctDrawing(
   }
 
   function onMouseMove(opt: TPointerEventInfo<TPointerEvent>) {
-    const mode = engine.getToolMode();
+    const mode = resetIfToolChanged();
     if ((mode !== 'duct-rigid' && mode !== 'duct-flex') || !startPoint) return;
     const pxPerMm = getPxPerMm();
     if (!pxPerMm) return;

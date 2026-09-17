@@ -51,6 +51,7 @@ export function attachComponentPlacement(
 
     canvas.add(obj);
     canvas.setActiveObject(obj);
+    engine.recordUndoGroup([obj]);
     canvas.requestRenderAll();
     onPlaced();
   }

@@ -3,16 +3,22 @@ import { getPlandroidData } from './plandroidData';
 
 const PREFIX_BY_COMPONENT_ID: Record<string, string> = {
   'fan-coil-unit': 'FCU',
+  condenser: 'COND',
   'plenum-supply-2way': 'PLN-S',
   'plenum-supply-3way': 'PLN-S',
   'plenum-return': 'PLN-R',
   'diffuser-supply4way': 'DIFF',
   'diffuser-swirl': 'DIFF',
   'diffuser-linear-slot': 'GRL',
+  'grille-wall': 'GRL',
+  'grille-linear-bar': 'GRL',
+  'grille-return-air': 'RAG',
   'fitting-straight': 'CPL',
   'fitting-reducer': 'RED',
   'fitting-elbow-90': 'ELB',
   'fitting-elbow-45': 'ELB',
+  'fitting-wye': 'WYE',
+  'fitting-damper': 'DMP',
 };
 
 function prefixFor(componentId: string, label: string): string {

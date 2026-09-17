@@ -137,7 +137,7 @@ export default function CanvasWorkspace() {
       () => ductColorOverridesRef.current,
       () => {},
     );
-    const detachWallTracing = attachWallTracing(engine, () => pxPerMmRef.current, () => {});
+    const detachWallTracing = attachWallTracing(engine, () => pxPerMmRef.current, () => handleToolChange('select'));
     const detachWallDimensionEdit = attachWallDimensionEdit(engine, (sel) => {
       const vpt = engine.canvas.viewportTransform;
       setWallEdgeSelection(sel);
@@ -353,6 +353,20 @@ export default function CanvasWorkspace() {
             </button>
           ))}
         </div>
+        <button
+          onClick={() => engineRef.current?.undo()}
+          title="Undo last add (Ctrl+Z)"
+          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
+        >
+          Undo
+        </button>
+        <button
+          onClick={() => engineRef.current?.duplicateSelection()}
+          title="Duplicate selection (Ctrl+C then Ctrl+V also works)"
+          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
+        >
+          Copy
+        </button>
         <button
           className={`text-xs px-2.5 py-1 rounded ${showPalette ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'}`}
           onClick={() => setShowPalette((v) => !v)}

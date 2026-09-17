@@ -353,6 +353,105 @@ export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE):
   return group;
 }
 
+export function buildCondenser(style: IconStyle = DEFAULT_STYLE): Group {
+  const w = 70;
+  const h = 60;
+  const body = new Rect({
+    left: 0,
+    top: 0,
+    width: w,
+    height: h,
+    originX: 'center',
+    originY: 'center',
+    fill: '#374151',
+    stroke: '#94a3b8',
+    strokeWidth: 1.5,
+    rx: 3,
+    ry: 3,
+  });
+  const fanRing = new Circle({ left: 0, top: 5, radius: 18, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1.5 });
+  const blades: FabricObject[] =
+    style === 'professional'
+      ? [0, 120, 240].map((deg) => {
+          const rad = (deg * Math.PI) / 180;
+          return new Line([0, 5, Math.cos(rad) * 15, 5 + Math.sin(rad) * 15], { stroke: '#94a3b8', strokeWidth: 1.2, originX: 'center', originY: 'center' });
+        })
+      : [
+          new Line([-15, 5, 15, 5], { stroke: '#94a3b8', strokeWidth: 1.2, originX: 'center', originY: 'center' }),
+          new Line([0, -10, 0, 20], { stroke: '#94a3b8', strokeWidth: 1.2, originX: 'center', originY: 'center' }),
+        ];
+  const label = new FabricText('COND', { left: 0, top: -20, fontSize: 8, fill: '#e2e8f0', originX: 'center', originY: 'center' });
+
+  const group = new Group([footprint(w + 10, h + 10), body, fanRing, ...blades, label], { originX: 'center', originY: 'center' });
+
+  const ports: PortDef[] = [{ id: 'pipe', x: w / 2, y: 0, angleDeg: 0, kind: 'duct_round', sizeMm: { diameter: 20 } }];
+  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: 'condenser', plandroidPorts: ports });
+  return group;
+}
+
+/** Y-piece / wye branch fitting — three duct legs from a single junction: in, straight-through, and an angled branch. */
+export function buildWye(style: IconStyle = DEFAULT_STYLE): Group {
+  const legLen = 36;
+  const branchRad = (35 * Math.PI) / 180;
+  const branchX = Math.cos(branchRad) * legLen;
+  const branchY = Math.sin(branchRad) * legLen;
+
+  const span = legLen * 2 + 20;
+  const children: FabricObject[] = [footprint(span, span)];
+
+  if (style === 'professional') {
+    children.push(ductLeg(-legLen, 0, 0, 0, 9), ductLeg(0, 0, legLen, 0, 9), ductLeg(0, 0, branchX, branchY, 7));
+  } else {
+    const opts = { stroke: '#94a3b8', originX: 'center' as const, originY: 'center' as const };
+    children.push(
+      new Line([-legLen, 0, 0, 0], { ...opts, strokeWidth: 8 }),
+      new Line([0, 0, legLen, 0], { ...opts, strokeWidth: 8 }),
+      new Line([0, 0, branchX, branchY], { ...opts, strokeWidth: 6 }),
+    );
+  }
+
+  const group = new Group(children, { originX: 'center', originY: 'center' });
+  const ports: PortDef[] = [
+    { id: 'in', x: -legLen, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: 300, depth: 200 } },
+    { id: 'through', x: legLen, y: 0, angleDeg: 0, kind: 'duct_rect', sizeMm: { width: 250, depth: 200 } },
+    { id: 'branch', x: branchX, y: branchY, angleDeg: 35, kind: 'duct_rect', sizeMm: { width: 200, depth: 150 } },
+  ];
+  setPlandroidData(group, { plandroidKind: 'fitting', plandroidComponentId: 'fitting-wye', plandroidPorts: ports });
+  return group;
+}
+
+/** Branch damper — a straight duct coupling with a diagonal blade line and control-knob dot, the standard schematic marker for a manual/motorised damper. */
+export function buildBranchDamper(style: IconStyle = DEFAULT_STYLE): Group {
+  const w = 60;
+  const h = 30;
+  const body = new Rect({
+    left: 0,
+    top: 0,
+    width: w,
+    height: h * 0.6,
+    originX: 'center',
+    originY: 'center',
+    fill: 'transparent',
+    stroke: '#94a3b8',
+    strokeWidth: 1.5,
+  });
+  const blade = new Line([-2, -h * 0.32, 2, h * 0.32], {
+    stroke: style === 'professional' ? '#f59e0b' : '#e2e8f0',
+    strokeWidth: 2,
+    originX: 'center',
+    originY: 'center',
+  });
+  const knob = new Circle({ left: 0, top: -h * 0.32 - 4, radius: 2, originX: 'center', originY: 'center', fill: style === 'professional' ? '#f59e0b' : '#e2e8f0', stroke: 'transparent' });
+
+  const group = new Group([footprint(w, h), body, blade, knob], { originX: 'center', originY: 'center' });
+  const ports: PortDef[] = [
+    { id: 'a', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: 300, depth: 200 } },
+    { id: 'b', x: w / 2, y: 0, angleDeg: 0, kind: 'duct_rect', sizeMm: { width: 300, depth: 200 } },
+  ];
+  setPlandroidData(group, { plandroidKind: 'fitting', plandroidComponentId: 'fitting-damper', plandroidPorts: ports });
+  return group;
+}
+
 export function buildFittingStraight(style: IconStyle = DEFAULT_STYLE): Group {
   const w = 60;
   const h = 30;

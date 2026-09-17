@@ -1,16 +1,20 @@
 import {
   buildFanCoilUnit,
+  buildCondenser,
   buildPlenum,
   buildDiffuser,
   buildGrille,
   buildFittingStraight,
   buildFittingReducer,
   buildElbow,
+  buildWye,
+  buildBranchDamper,
 } from './symbols';
 import type { ComponentDef } from './types';
 
 export const CATALOG: ComponentDef[] = [
   { id: 'fan-coil-unit', category: 'equipment', label: 'Fan Coil Unit', build: (style) => buildFanCoilUnit(style) },
+  { id: 'condenser', category: 'equipment', label: 'Condenser (Outdoor Unit)', build: (style) => buildCondenser(style) },
   { id: 'plenum-supply-2way', category: 'fitting', label: 'Supply Plenum — 2-Way', build: (style) => buildPlenum('supply', 2, style) },
   { id: 'plenum-supply-3way', category: 'fitting', label: 'Supply Plenum — 3-Way', build: (style) => buildPlenum('supply', 3, style) },
   { id: 'plenum-return', category: 'fitting', label: 'Return Plenum', build: (style) => buildPlenum('return', 3, style) },
@@ -25,4 +29,6 @@ export const CATALOG: ComponentDef[] = [
   { id: 'fitting-reducer', category: 'fitting', label: 'Reducer / Transition', build: (style) => buildFittingReducer(style) },
   { id: 'fitting-elbow-90', category: 'fitting', label: '90° Elbow', build: (style) => buildElbow(90, style) },
   { id: 'fitting-elbow-45', category: 'fitting', label: '45° Elbow', build: (style) => buildElbow(45, style) },
+  { id: 'fitting-wye', category: 'fitting', label: 'Y-Piece (Wye)', build: (style) => buildWye(style) },
+  { id: 'fitting-damper', category: 'fitting', label: 'Branch Damper', build: (style) => buildBranchDamper(style) },
 ];

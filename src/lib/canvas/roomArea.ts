@@ -31,7 +31,7 @@ export function removeAreaLabel(canvas: Canvas, roomId: string): void {
 
 /** Removes any existing area label for this room and draws a fresh one at the current centroid —
  * called after tracing completes and after any dimension/zone edit that might move the room. */
-export function refreshAreaLabel(canvas: Canvas, roomId: string, vertices: Vec2[], pxPerMm: number | null): void {
+export function refreshAreaLabel(canvas: Canvas, roomId: string, vertices: Vec2[], pxPerMm: number | null): FabricText {
   removeAreaLabel(canvas, roomId);
   const areaM2 = computeAreaM2(vertices, pxPerMm);
   const c = centroid(vertices);
@@ -47,4 +47,5 @@ export function refreshAreaLabel(canvas: Canvas, roomId: string, vertices: Vec2[
   });
   (label as unknown as { plandroidAreaLabelFor: string }).plandroidAreaLabelFor = roomId;
   canvas.add(label);
+  return label;
 }

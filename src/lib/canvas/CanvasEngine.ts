@@ -42,8 +42,8 @@ export class CanvasEngine {
   private calibrationDraftObjects: (Circle | Line | FabricText)[] = [];
   private pendingCalibrationLabel: FabricText | null = null;
   private sketchImageObj: FabricImage | null = null;
-  private undoStack: FabricObject[] = [];
-  private isLoadingFromJSON = false;
+  private undoStack: FabricObject[][] = [];
+  private clipboardObject: FabricObject | null = null;
 
   constructor(el: HTMLCanvasElement, opts: CanvasEngineOptions) {
     this.opts = opts;
@@ -55,7 +55,6 @@ export class CanvasEngine {
     });
     this.bindPanZoom();
     this.bindKeyboard();
-    this.bindUndoTracking();
   }
 
   setToolMode(mode: ToolMode): void {
@@ -138,15 +137,70 @@ export class CanvasEngine {
   }
 
   loadFromJSON(json: string): Promise<void> {
-    this.isLoadingFromJSON = true;
     return this.canvas.loadFromJSON(JSON.parse(json)).then(() => {
       this.canvas.requestRenderAll();
-      // Loading a saved page fires object:added for every restored object — don't let those
-      // count as "undoable" actions, or the first Ctrl+Z after opening a project would delete
-      // something that was already there.
       this.undoStack = [];
-      this.isLoadingFromJSON = false;
     });
+  }
+
+  /** Registers a set of objects as one undoable action — call this at the moment something is
+   * actually committed (a duct segment, a placed component, a completed room trace), never for
+   * transient preview/draft objects. One Undo removes the whole group, since a single user action
+   * (e.g. a duct segment) is usually more than one Fabric object (the shape + its label + joint dots). */
+  recordUndoGroup(objects: FabricObject[]): void {
+    const real = objects.filter(Boolean);
+    if (real.length === 0) return;
+    this.undoStack.push(real);
+    if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
+  }
+
+  /** Removes the most recently recorded undo group — shared by the Ctrl+Z handler and the toolbar Undo button. */
+  undo(): void {
+    const group = this.undoStack.pop();
+    if (group) {
+      group.forEach((o) => this.canvas.remove(o));
+      this.canvas.requestRenderAll();
+    }
+  }
+
+  canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+
+  /** Copies the current selection into an in-memory clipboard (Ctrl+C, or call directly). */
+  copySelection(): void {
+    const active = this.canvas.getActiveObject();
+    if (active) this.clipboardObject = active;
+  }
+
+  /** Pastes whatever's in the clipboard at a small offset (Ctrl+V, or call directly). */
+  async pasteClipboard(): Promise<void> {
+    if (!this.clipboardObject) return;
+    await this.cloneAndAdd(this.clipboardObject);
+  }
+
+  /** Copy + paste in one step — used by the toolbar "Duplicate" button. */
+  async duplicateSelection(): Promise<void> {
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+    await this.cloneAndAdd(active);
+  }
+
+  private async cloneAndAdd(source: FabricObject): Promise<void> {
+    // clone() only carries standard Fabric properties unless told otherwise — 'plandroid' holds all
+    // our port/kind/schedule data, so it must be explicitly requested (same gotcha as toObject/toJSON).
+    const clone = await source.clone(['plandroid']);
+    clone.set({ left: (source.left ?? 0) + 24, top: (source.top ?? 0) + 24 });
+    const data = (clone as unknown as { plandroid?: unknown }).plandroid;
+    if (data) {
+      // A duplicate is a distinct object — give it a fresh id so BOM/schedule/snap lookups
+      // don't collide with the original it was copied from.
+      (clone as unknown as { plandroidId: string }).plandroidId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+    this.canvas.add(clone);
+    this.canvas.setActiveObject(clone);
+    this.recordUndoGroup([clone]);
+    this.canvas.requestRenderAll();
   }
 
   dispose(): void {
@@ -211,14 +265,6 @@ export class CanvasEngine {
     window.addEventListener('keyup', this.handleKeyUp);
   }
 
-  private bindUndoTracking(): void {
-    this.canvas.on('object:added', (opt: { target: FabricObject }) => {
-      if (this.isLoadingFromJSON) return;
-      this.undoStack.push(opt.target);
-      if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
-    });
-  }
-
   private handleKeyDown = (e: KeyboardEvent): void => {
     if (this.isTypingTarget(e.target)) return;
 
@@ -240,11 +286,19 @@ export class CanvasEngine {
     }
 
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-      const last = this.undoStack.pop();
-      if (last) {
-        this.canvas.remove(last);
-        this.canvas.requestRenderAll();
-      }
+      this.undo();
+      e.preventDefault();
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      this.copySelection();
+      e.preventDefault();
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+      this.pasteClipboard();
       e.preventDefault();
       return;
     }
