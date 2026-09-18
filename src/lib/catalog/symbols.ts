@@ -49,6 +49,13 @@ function dashedCenterline(x1: number, y1: number, x2: number, y2: number): Line 
   });
 }
 
+function airflowArrow(x: number, y: number, angle: number, color: string, scale = 1): Polygon {
+  return new Polygon(
+    [{ x: -6 * scale, y: -4 * scale }, { x: 6 * scale, y: 0 }, { x: -6 * scale, y: 4 * scale }],
+    { left: x, top: y, angle, originX: 'center', originY: 'center', fill: color, stroke: 'transparent' },
+  );
+}
+
 export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
   const w = 110;
   const h = 70;
@@ -130,18 +137,22 @@ export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
 
 export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: IconStyle = DEFAULT_STYLE): Group {
   const w = 140;
-  const h = 50;
-  const body = new Rect({
-    left: 0,
-    top: 0,
-    width: w,
-    height: h,
-    originX: 'center',
-    originY: 'center',
-    fill: kind === 'supply' ? '#0c4a6e' : '#7c2d12',
-    stroke: '#94a3b8',
-    strokeWidth: 1.5,
-  });
+  const h = 56;
+  const inletLength = 22;
+  const branchLength = 14;
+  const color = kind === 'supply' ? '#0ea5e9' : '#ef4444';
+  const darkFill = kind === 'supply' ? '#082f49' : '#450a0a';
+  const body = new Polygon(
+    [
+      { x: -w / 2, y: -h * 0.32 },
+      { x: -w / 2, y: h * 0.32 },
+      { x: -w / 2 + 22, y: h / 2 },
+      { x: w / 2, y: h / 2 },
+      { x: w / 2, y: -h / 2 },
+      { x: -w / 2 + 22, y: -h / 2 },
+    ],
+    { left: 0, top: 0, originX: 'center', originY: 'center', fill: darkFill, stroke: color, strokeWidth: 1.5 },
+  );
   const label = new FabricText(kind === 'supply' ? 'SUPPLY PLENUM' : 'RETURN PLENUM', {
     left: 0,
     top: 0,
@@ -151,22 +162,36 @@ export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: I
     originY: 'center',
   });
 
-  const children: FabricObject[] = [footprint(w + 20, h + 20), body, label];
+  const children: FabricObject[] = [footprint(w + inletLength * 2 + 12, h + branchLength * 2 + 12), body, label];
 
   const ports: PortDef[] = [
-    { id: 'inlet', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: 400, depth: 250 } },
+    { id: 'inlet', x: -w / 2 - inletLength, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: 400, depth: 250 } },
   ];
   const spacing = w / (branchCount + 1);
   for (let i = 0; i < branchCount; i++) {
     ports.push({
       id: `branch-${i}`,
       x: -w / 2 + spacing * (i + 1),
-      y: h / 2,
+      y: h / 2 + branchLength,
       angleDeg: 90,
       kind: 'duct_rect',
       sizeMm: { width: 200, depth: 150 },
     });
   }
+
+  const inletStub = new Rect({
+    left: -w / 2 - inletLength / 2, top: 0, width: inletLength, height: 22,
+    originX: 'center', originY: 'center', fill: darkFill, stroke: color, strokeWidth: 1.5,
+  });
+  const spigots = ports.slice(1).map((p) => new Rect({
+    left: p.x, top: h / 2 + branchLength / 2, width: 18, height: branchLength,
+    originX: 'center', originY: 'center', fill: darkFill, stroke: color, strokeWidth: 1.25,
+  }));
+  children.push(inletStub, ...spigots);
+
+  const flowAngle = kind === 'supply' ? 90 : -90;
+  children.push(...ports.slice(1).map((p) => airflowArrow(p.x, h / 2 - 10, flowAngle, color, 0.7)));
+  children.push(airflowArrow(-w / 2 + 13, 0, kind === 'supply' ? 0 : 180, color, 0.8));
 
   if (style === 'professional') {
     const liner = new Rect({
@@ -181,21 +206,7 @@ export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: I
       strokeWidth: 0.75,
       strokeDashArray: [3, 2],
     });
-    // Spigot stubs at each branch — small trapezoids reading as real sheet-metal takeoffs.
-    const spigots = ports.slice(1).map(
-      (p) =>
-        new Polygon(
-          [
-            { x: p.x - 10, y: h / 2 },
-            { x: p.x + 10, y: h / 2 },
-            { x: p.x + 6, y: h / 2 + 12 },
-            { x: p.x - 6, y: h / 2 + 12 },
-          ],
-          { fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, originX: 'center', originY: 'center' },
-        ),
-    );
-    const inletStub = ductLeg(-w / 2 - 14, 0, -w / 2, 0, 14);
-    children.push(liner, inletStub, ...spigots);
+    children.push(liner);
   }
 
   const group = new Group(children, { originX: 'center', originY: 'center' });
@@ -297,8 +308,9 @@ export type GrilleType = 'wall' | 'linearBar' | 'returnAirEggcrate';
 export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE): Group {
   const isBar = type === 'linearBar';
   const isEggcrate = type === 'returnAirEggcrate';
-  const w = isBar ? 100 : isEggcrate ? 55 : 50;
-  const h = isBar ? 14 : isEggcrate ? 45 : 35;
+  const isWall = type === 'wall';
+  const w = isBar ? 100 : isEggcrate ? 55 : isWall ? 68 : 50;
+  const h = isBar ? 14 : isEggcrate ? 45 : isWall ? 10 : 35;
 
   const body = new Rect({
     left: 0,
@@ -312,7 +324,7 @@ export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE):
     strokeWidth: 1.5,
   });
 
-  const children: FabricObject[] = [footprint(w + 10, h + 10), body];
+  const children: FabricObject[] = [footprint(w + 10, isWall ? 42 : h + 10), body];
   const barColor = style === 'professional' ? '#f59e0b' : '#94a3b8';
 
   if (isEggcrate) {
@@ -329,6 +341,21 @@ export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE):
       const yOffset = -h / 2 + insetY + ((h - insetY * 2) / rows) * i;
       children.push(new Line([-w / 2 + insetX, yOffset, w / 2 - insetX, yOffset], { stroke: barColor, strokeWidth: 0.6, originX: 'center', originY: 'center' }));
     }
+  } else if (isWall) {
+    // The narrow bar lies directly over the wall line. Louvres and blue throw arrows
+    // extend into the room side, making orientation obvious on a customer plan.
+    for (let i = -2; i <= 2; i++) {
+      const x = i * 11;
+      children.push(new Line([x - 3, -3, x + 3, 3], { stroke: barColor, strokeWidth: 0.9, originX: 'center', originY: 'center' }));
+    }
+    children.push(
+      new Line([-22, 7, -22, 16], { stroke: '#38bdf8', strokeWidth: 1.5, originX: 'center', originY: 'center' }),
+      airflowArrow(-22, 19, 90, '#38bdf8', 0.65),
+      new Line([0, 7, 0, 16], { stroke: '#38bdf8', strokeWidth: 1.5, originX: 'center', originY: 'center' }),
+      airflowArrow(0, 19, 90, '#38bdf8', 0.65),
+      new Line([22, 7, 22, 16], { stroke: '#38bdf8', strokeWidth: 1.5, originX: 'center', originY: 'center' }),
+      airflowArrow(22, 19, 90, '#38bdf8', 0.65),
+    );
   } else {
     // Louver bars — closely spaced for a linear bar grille, more open for a standard wall grille.
     const barCount = isBar ? 8 : 5;
@@ -342,8 +369,9 @@ export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE):
 
   const group = new Group(children, { originX: 'center', originY: 'center' });
 
-  const ports: PortDef[] = [
-    { id: 'neck', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: isBar ? 500 : 250, depth: 150 } },
+  const ports: PortDef[] = [isWall
+    ? { id: 'neck', x: 0, y: -h / 2, angleDeg: 270, kind: 'duct_rect', sizeMm: { width: 250, depth: 150 } }
+    : { id: 'neck', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: isBar ? 500 : 250, depth: 150 } },
   ];
   setPlandroidData(group, {
     plandroidKind: 'terminal',
