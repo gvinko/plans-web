@@ -1,6 +1,8 @@
 import {
   buildFanCoilUnit,
   buildCondenser,
+  buildWallSplitIndoor,
+  buildCeilingCassette,
   buildPlenum,
   buildDiffuser,
   buildGrille,
@@ -14,6 +16,8 @@ import type { ComponentDef } from './types';
 
 export const CATALOG: ComponentDef[] = [
   { id: 'fan-coil-unit', category: 'equipment', label: 'Fan Coil Unit', build: (style) => buildFanCoilUnit(style) },
+  { id: 'wall-split-indoor', category: 'equipment', label: 'Wall Split — Indoor', build: (style) => buildWallSplitIndoor(style) },
+  { id: 'ceiling-cassette', category: 'equipment', label: 'Ceiling Cassette', build: (style) => buildCeilingCassette(style) },
   { id: 'condenser', category: 'equipment', label: 'Condenser (Outdoor Unit)', build: (style) => buildCondenser(style) },
   { id: 'plenum-supply-2way', category: 'fitting', label: 'Supply Plenum — 2-Way', build: (style) => buildPlenum('supply', 2, style) },
   { id: 'plenum-supply-3way', category: 'fitting', label: 'Supply Plenum — 3-Way', build: (style) => buildPlenum('supply', 3, style) },
