@@ -3,6 +3,12 @@ import type { PortDef, IconStyle } from './types';
 import { setPlandroidData } from '../canvas/plandroidData';
 
 const DEFAULT_STYLE: IconStyle = 'simple';
+const ICON_BODY_FILL = '#e2e8f0';
+const ICON_INSET_FILL = '#cbd5e1';
+const ICON_OUTLINE = '#64748b';
+const ICON_DETAIL = '#475569';
+const SUPPLY_ACCENT = '#0284c7';
+const RETURN_ACCENT = '#dc2626';
 
 function footprint(w: number, h: number): Rect {
   return new Rect({
@@ -49,6 +55,13 @@ function dashedCenterline(x1: number, y1: number, x2: number, y2: number): Line 
   });
 }
 
+function airflowArrow(x: number, y: number, angle: number, color: string, scale = 1): Polygon {
+  return new Polygon(
+    [{ x: -6 * scale, y: -4 * scale }, { x: 6 * scale, y: 0 }, { x: -6 * scale, y: 4 * scale }],
+    { left: x, top: y, angle, originX: 'center', originY: 'center', fill: color, stroke: 'transparent' },
+  );
+}
+
 export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
   const w = 110;
   const h = 70;
@@ -59,8 +72,8 @@ export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
     height: 50,
     originX: 'center',
     originY: 'center',
-    fill: '#1e293b',
-    stroke: '#94a3b8',
+    fill: ICON_BODY_FILL,
+    stroke: ICON_OUTLINE,
     strokeWidth: 1.5,
     rx: 4,
     ry: 4,
@@ -75,7 +88,7 @@ export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
     stroke: '#38bdf8',
     strokeWidth: 1.5,
   });
-  const label = new FabricText('FCU', { left: 20, top: -5, fontSize: 11, fill: '#e2e8f0', originX: 'center', originY: 'center' });
+  const label = new FabricText('FCU', { left: 20, top: -5, fontSize: 11, fill: ICON_DETAIL, originX: 'center', originY: 'center' });
 
   const children: FabricObject[] = [footprint(w, h), body, fanRing, label];
 
@@ -129,44 +142,65 @@ export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
 }
 
 export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: IconStyle = DEFAULT_STYLE): Group {
+  const isReturn = kind === 'return';
+  const count = isReturn ? 2 : branchCount;
   const w = 140;
-  const h = 50;
-  const body = new Rect({
-    left: 0,
-    top: 0,
-    width: w,
-    height: h,
-    originX: 'center',
-    originY: 'center',
-    fill: kind === 'supply' ? '#0c4a6e' : '#7c2d12',
-    stroke: '#94a3b8',
-    strokeWidth: 1.5,
-  });
+  const h = isReturn ? 42 : 68;
+  const inletLength = 18;
+  const collarRadius = 10;
+  const color = kind === 'supply' ? SUPPLY_ACCENT : RETURN_ACCENT;
+  const bodyFill = ICON_BODY_FILL;
+  const body: FabricObject = isReturn
+    ? new Rect({ left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center', fill: bodyFill, stroke: ICON_OUTLINE, strokeWidth: 1.5 })
+    : new Polygon(
+        [
+          { x: -w / 2, y: -h / 2 },
+          { x: w / 2, y: -h / 2 },
+          { x: w / 2 - 18, y: h / 2 },
+          { x: -w / 2 + 18, y: h / 2 },
+        ],
+        { left: 0, top: 0, originX: 'center', originY: 'center', fill: bodyFill, stroke: ICON_OUTLINE, strokeWidth: 1.5 },
+      );
   const label = new FabricText(kind === 'supply' ? 'SUPPLY PLENUM' : 'RETURN PLENUM', {
     left: 0,
-    top: 0,
+    top: isReturn ? 7 : 11,
     fontSize: 8,
-    fill: '#e2e8f0',
+    fill: ICON_DETAIL,
     originX: 'center',
     originY: 'center',
   });
 
-  const children: FabricObject[] = [footprint(w + 20, h + 20), body, label];
+  const children: FabricObject[] = [footprint(w + 20, h + inletLength + collarRadius * 3), body, label];
 
   const ports: PortDef[] = [
-    { id: 'inlet', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: 400, depth: 250 } },
+    { id: 'inlet', x: 0, y: h / 2 + inletLength, angleDeg: 90, kind: 'duct_rect', sizeMm: { width: 1100, depth: 340 } },
   ];
-  const spacing = w / (branchCount + 1);
-  for (let i = 0; i < branchCount; i++) {
+  const spacing = w / (count + 1);
+  for (let i = 0; i < count; i++) {
+    const x = -w / 2 + spacing * (i + 1);
+    const spreadAngle = !isReturn && count > 1 ? (i / (count - 1) - 0.5) * 50 : 0;
     ports.push({
       id: `branch-${i}`,
-      x: -w / 2 + spacing * (i + 1),
-      y: h / 2,
-      angleDeg: 90,
-      kind: 'duct_rect',
-      sizeMm: { width: 200, depth: 150 },
+      x,
+      y: -h / 2 - collarRadius * 2,
+      angleDeg: 270 + spreadAngle,
+      kind: 'duct_round',
+      sizeMm: { diameter: 450 },
     });
   }
+
+  const inletStub = new Rect({
+    left: 0, top: h / 2 + inletLength / 2, width: isReturn ? 100 : 108, height: inletLength,
+    originX: 'center', originY: 'center', fill: bodyFill, stroke: ICON_OUTLINE, strokeWidth: 1.5,
+  });
+  const collars = ports.slice(1).map((p) => new Circle({
+    left: p.x, top: -h / 2 - collarRadius, radius: collarRadius,
+    originX: 'center', originY: 'center', fill: ICON_INSET_FILL, stroke: color, strokeWidth: 2,
+  }));
+  children.push(inletStub, ...collars);
+
+  children.push(...ports.slice(1).map((p) => airflowArrow(p.x, -h / 2 + 8, kind === 'supply' ? p.angleDeg : p.angleDeg + 180, color, 0.7)));
+  children.push(airflowArrow(0, h / 2 - 8, kind === 'supply' ? 270 : 90, color, 0.8));
 
   if (style === 'professional') {
     const liner = new Rect({
@@ -181,21 +215,10 @@ export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: I
       strokeWidth: 0.75,
       strokeDashArray: [3, 2],
     });
-    // Spigot stubs at each branch — small trapezoids reading as real sheet-metal takeoffs.
-    const spigots = ports.slice(1).map(
-      (p) =>
-        new Polygon(
-          [
-            { x: p.x - 10, y: h / 2 },
-            { x: p.x + 10, y: h / 2 },
-            { x: p.x + 6, y: h / 2 + 12 },
-            { x: p.x - 6, y: h / 2 + 12 },
-          ],
-          { fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, originX: 'center', originY: 'center' },
-        ),
-    );
-    const inletStub = ductLeg(-w / 2 - 14, 0, -w / 2, 0, 14);
-    children.push(liner, inletStub, ...spigots);
+    const seamLines = ports.slice(1).map((p) => new Line([p.x - 7, -h / 2 - collarRadius, p.x + 7, -h / 2 - collarRadius], {
+      stroke: '#94a3b8', strokeWidth: 0.7, originX: 'center', originY: 'center',
+    }));
+    children.push(liner, ...seamLines);
   }
 
   const group = new Group(children, { originX: 'center', originY: 'center' });
@@ -215,25 +238,25 @@ export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STY
   const h = isSlot ? 18 : 50;
 
   const body: FabricObject = isSlot
-    ? new Rect({ left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center', fill: '#1e293b', stroke: '#94a3b8', strokeWidth: 1.5 })
-    : new Circle({ left: 0, top: 0, radius: w / 2, originX: 'center', originY: 'center', fill: '#1e293b', stroke: '#94a3b8', strokeWidth: 1.5 });
+    ? new Rect({ left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center', fill: ICON_BODY_FILL, stroke: ICON_OUTLINE, strokeWidth: 1.5 })
+    : new Circle({ left: 0, top: 0, radius: w / 2, originX: 'center', originY: 'center', fill: ICON_BODY_FILL, stroke: ICON_OUTLINE, strokeWidth: 1.5 });
 
   const decorations: FabricObject[] = [];
 
   if (style === 'professional') {
     if (type === 'supply4way') {
       // Standard 4-way throw symbol: square with corner-to-corner diagonals inside the round neck.
-      const square = new Rect({ left: 0, top: 0, width: 30, height: 30, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#f59e0b', strokeWidth: 1.2 });
-      const diag1 = new Line([-15, -15, 15, 15], { stroke: '#f59e0b', strokeWidth: 1, originX: 'center', originY: 'center' });
-      const diag2 = new Line([-15, 15, 15, -15], { stroke: '#f59e0b', strokeWidth: 1, originX: 'center', originY: 'center' });
+      const square = new Rect({ left: 0, top: 0, width: 30, height: 30, originX: 'center', originY: 'center', fill: 'transparent', stroke: SUPPLY_ACCENT, strokeWidth: 1.2 });
+      const diag1 = new Line([-15, -15, 15, 15], { stroke: SUPPLY_ACCENT, strokeWidth: 1, originX: 'center', originY: 'center' });
+      const diag2 = new Line([-15, 15, 15, -15], { stroke: SUPPLY_ACCENT, strokeWidth: 1, originX: 'center', originY: 'center' });
       decorations.push(square, diag1, diag2);
     } else if (type === 'swirl') {
       // Four rotated blade strokes suggesting a swirl pattern, plus a small hub circle.
-      const hub = new Circle({ left: 0, top: 0, radius: 4, originX: 'center', originY: 'center', fill: '#f59e0b', stroke: 'transparent' });
+      const hub = new Circle({ left: 0, top: 0, radius: 4, originX: 'center', originY: 'center', fill: SUPPLY_ACCENT, stroke: 'transparent' });
       const blades: Line[] = [45, 135, 225, 315].map((deg) => {
         const rad = (deg * Math.PI) / 180;
         return new Line([0, 0, Math.cos(rad) * 16, Math.sin(rad) * 16], {
-          stroke: '#f59e0b',
+          stroke: SUPPLY_ACCENT,
           strokeWidth: 1.5,
           originX: 'center',
           originY: 'center',
@@ -243,14 +266,14 @@ export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STY
     } else if (type === 'round') {
       // Plain round ceiling diffuser: concentric rings, no throw/swirl decoration — the common "basic" supply symbol.
       decorations.push(
-        new Circle({ left: 0, top: 0, radius: 16, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#f59e0b', strokeWidth: 1 }),
-        new Circle({ left: 0, top: 0, radius: 9, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#f59e0b', strokeWidth: 1 }),
+        new Circle({ left: 0, top: 0, radius: 16, originX: 'center', originY: 'center', fill: 'transparent', stroke: SUPPLY_ACCENT, strokeWidth: 1 }),
+        new Circle({ left: 0, top: 0, radius: 9, originX: 'center', originY: 'center', fill: 'transparent', stroke: SUPPLY_ACCENT, strokeWidth: 1 }),
       );
     } else {
       const slots = [-4, 0, 4].map(
         (yOffset) =>
           new Line([-w / 2 + 8, yOffset, w / 2 - 8, yOffset], {
-            stroke: '#f59e0b',
+            stroke: SUPPLY_ACCENT,
             strokeWidth: 0.9,
             originX: 'center',
             originY: 'center',
@@ -260,20 +283,20 @@ export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STY
     }
   } else if (type === 'supply4way') {
     decorations.push(
-      new Line([-18, 0, 18, 0], { stroke: '#f59e0b', strokeWidth: 1.2, originX: 'center', originY: 'center' }),
-      new Line([0, -18, 0, 18], { stroke: '#f59e0b', strokeWidth: 1.2, originX: 'center', originY: 'center' }),
+      new Line([-18, 0, 18, 0], { stroke: SUPPLY_ACCENT, strokeWidth: 1.2, originX: 'center', originY: 'center' }),
+      new Line([0, -18, 0, 18], { stroke: SUPPLY_ACCENT, strokeWidth: 1.2, originX: 'center', originY: 'center' }),
     );
   } else if (type === 'swirl') {
     decorations.push(
-      new Circle({ left: 0, top: 0, radius: 10, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#f59e0b', strokeWidth: 1.2 }),
+      new Circle({ left: 0, top: 0, radius: 10, originX: 'center', originY: 'center', fill: 'transparent', stroke: SUPPLY_ACCENT, strokeWidth: 1.2 }),
     );
   } else if (type === 'round') {
     decorations.push(
-      new Circle({ left: 0, top: 0, radius: 12, originX: 'center', originY: 'center', fill: 'transparent', stroke: '#f59e0b', strokeWidth: 1.2 }),
+      new Circle({ left: 0, top: 0, radius: 12, originX: 'center', originY: 'center', fill: 'transparent', stroke: SUPPLY_ACCENT, strokeWidth: 1.2 }),
     );
   } else {
     decorations.push(
-      new Line([-w / 2 + 8, 0, w / 2 - 8, 0], { stroke: '#f59e0b', strokeWidth: 1.2, originX: 'center', originY: 'center' }),
+      new Line([-w / 2 + 8, 0, w / 2 - 8, 0], { stroke: SUPPLY_ACCENT, strokeWidth: 1.2, originX: 'center', originY: 'center' }),
     );
   }
 
@@ -297,8 +320,9 @@ export type GrilleType = 'wall' | 'linearBar' | 'returnAirEggcrate';
 export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE): Group {
   const isBar = type === 'linearBar';
   const isEggcrate = type === 'returnAirEggcrate';
-  const w = isBar ? 100 : isEggcrate ? 55 : 50;
-  const h = isBar ? 14 : isEggcrate ? 45 : 35;
+  const isWall = type === 'wall';
+  const w = isBar ? 100 : isEggcrate ? 55 : isWall ? 68 : 50;
+  const h = isBar ? 14 : isEggcrate ? 45 : isWall ? 10 : 35;
 
   const body = new Rect({
     left: 0,
@@ -307,13 +331,13 @@ export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE):
     height: h,
     originX: 'center',
     originY: 'center',
-    fill: '#1e293b',
-    stroke: '#94a3b8',
+    fill: ICON_BODY_FILL,
+    stroke: ICON_OUTLINE,
     strokeWidth: 1.5,
   });
 
-  const children: FabricObject[] = [footprint(w + 10, h + 10), body];
-  const barColor = style === 'professional' ? '#f59e0b' : '#94a3b8';
+  const children: FabricObject[] = [footprint(w + 10, isWall ? 42 : h + 10), body];
+  const barColor = type === 'returnAirEggcrate' ? RETURN_ACCENT : style === 'professional' ? SUPPLY_ACCENT : ICON_OUTLINE;
 
   if (isEggcrate) {
     // Eggcrate core: a crosshatch grid, not parallel bars — the visual giveaway for a return air grille.
@@ -329,6 +353,21 @@ export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE):
       const yOffset = -h / 2 + insetY + ((h - insetY * 2) / rows) * i;
       children.push(new Line([-w / 2 + insetX, yOffset, w / 2 - insetX, yOffset], { stroke: barColor, strokeWidth: 0.6, originX: 'center', originY: 'center' }));
     }
+  } else if (isWall) {
+    // The narrow bar lies directly over the wall line. Louvres and blue throw arrows
+    // extend into the room side, making orientation obvious on a customer plan.
+    for (let i = -2; i <= 2; i++) {
+      const x = i * 11;
+      children.push(new Line([x - 3, -3, x + 3, 3], { stroke: barColor, strokeWidth: 0.9, originX: 'center', originY: 'center' }));
+    }
+    children.push(
+      new Line([-22, 7, -22, 16], { stroke: '#38bdf8', strokeWidth: 1.5, originX: 'center', originY: 'center' }),
+      airflowArrow(-22, 19, 90, '#38bdf8', 0.65),
+      new Line([0, 7, 0, 16], { stroke: '#38bdf8', strokeWidth: 1.5, originX: 'center', originY: 'center' }),
+      airflowArrow(0, 19, 90, '#38bdf8', 0.65),
+      new Line([22, 7, 22, 16], { stroke: '#38bdf8', strokeWidth: 1.5, originX: 'center', originY: 'center' }),
+      airflowArrow(22, 19, 90, '#38bdf8', 0.65),
+    );
   } else {
     // Louver bars — closely spaced for a linear bar grille, more open for a standard wall grille.
     const barCount = isBar ? 8 : 5;
@@ -342,8 +381,9 @@ export function buildGrille(type: GrilleType, style: IconStyle = DEFAULT_STYLE):
 
   const group = new Group(children, { originX: 'center', originY: 'center' });
 
-  const ports: PortDef[] = [
-    { id: 'neck', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: isBar ? 500 : 250, depth: 150 } },
+  const ports: PortDef[] = [isWall
+    ? { id: 'neck', x: 0, y: -h / 2, angleDeg: 270, kind: 'duct_rect', sizeMm: { width: 250, depth: 150 } }
+    : { id: 'neck', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: isBar ? 500 : 250, depth: 150 } },
   ];
   setPlandroidData(group, {
     plandroidKind: 'terminal',
@@ -363,8 +403,8 @@ export function buildCondenser(style: IconStyle = DEFAULT_STYLE): Group {
     height: h,
     originX: 'center',
     originY: 'center',
-    fill: '#374151',
-    stroke: '#94a3b8',
+    fill: ICON_BODY_FILL,
+    stroke: ICON_OUTLINE,
     strokeWidth: 1.5,
     rx: 3,
     ry: 3,
@@ -380,12 +420,70 @@ export function buildCondenser(style: IconStyle = DEFAULT_STYLE): Group {
           new Line([-15, 5, 15, 5], { stroke: '#94a3b8', strokeWidth: 1.2, originX: 'center', originY: 'center' }),
           new Line([0, -10, 0, 20], { stroke: '#94a3b8', strokeWidth: 1.2, originX: 'center', originY: 'center' }),
         ];
-  const label = new FabricText('COND', { left: 0, top: -20, fontSize: 8, fill: '#e2e8f0', originX: 'center', originY: 'center' });
+  const label = new FabricText('COND', { left: 0, top: -20, fontSize: 8, fill: ICON_DETAIL, originX: 'center', originY: 'center' });
 
   const group = new Group([footprint(w + 10, h + 10), body, fanRing, ...blades, label], { originX: 'center', originY: 'center' });
 
   const ports: PortDef[] = [{ id: 'pipe', x: w / 2, y: 0, angleDeg: 0, kind: 'duct_round', sizeMm: { diameter: 20 } }];
   setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: 'condenser', plandroidPorts: ports });
+  return group;
+}
+
+/** Wall-mounted split indoor unit. Service-pipe connectors are intentionally deferred until
+ * refrigerant/electrical line types exist, so this cannot incorrectly accept an air duct. */
+export function buildWallSplitIndoor(style: IconStyle = DEFAULT_STYLE): Group {
+  const w = 100;
+  const h = 32;
+  const body = new Rect({
+    left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center',
+    fill: '#e2e8f0', stroke: '#64748b', strokeWidth: 1.5, rx: 7, ry: 7,
+  });
+  const outlet = new Line([-w / 2 + 10, h / 2 - 7, w / 2 - 10, h / 2 - 7], {
+    stroke: '#0284c7', strokeWidth: 2, originX: 'center', originY: 'center',
+  });
+  const indicator = new Circle({
+    left: w / 2 - 13, top: -h / 2 + 8, radius: 2, originX: 'center', originY: 'center',
+    fill: '#22c55e', stroke: 'transparent',
+  });
+  const children: FabricObject[] = [footprint(w + 10, h + 10), body, outlet, indicator];
+  if (style === 'professional') {
+    children.push(
+      new Line([-w / 2 + 14, 2, w / 2 - 14, 2], { stroke: '#94a3b8', strokeWidth: 0.7, strokeDashArray: [4, 3], originX: 'center', originY: 'center' }),
+      new Polygon([{ x: -10, y: 10 }, { x: 0, y: 15 }, { x: 10, y: 10 }], { fill: '#38bdf8', stroke: 'transparent', originX: 'center', originY: 'center' }),
+    );
+  }
+  const group = new Group(children, { originX: 'center', originY: 'center' });
+  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: 'wall-split-indoor', plandroidPorts: [] });
+  return group;
+}
+
+/** Four-way ceiling cassette shown as a clean top-down reflected-ceiling symbol. */
+export function buildCeilingCassette(style: IconStyle = DEFAULT_STYLE): Group {
+  const size = 64;
+  const body = new Rect({
+    left: 0, top: 0, width: size, height: size, originX: 'center', originY: 'center',
+    fill: '#e2e8f0', stroke: '#64748b', strokeWidth: 1.5, rx: 3, ry: 3,
+  });
+  const centre = new Rect({
+    left: 0, top: 0, width: 28, height: 28, originX: 'center', originY: 'center',
+    fill: '#cbd5e1', stroke: '#64748b', strokeWidth: 1,
+  });
+  const children: FabricObject[] = [footprint(size + 8, size + 8), body, centre];
+  const arrowColor = style === 'professional' ? '#0284c7' : '#38bdf8';
+  children.push(
+    new Line([-24, 0, -15, 0], { stroke: arrowColor, strokeWidth: 2, originX: 'center', originY: 'center' }),
+    new Line([15, 0, 24, 0], { stroke: arrowColor, strokeWidth: 2, originX: 'center', originY: 'center' }),
+    new Line([0, -24, 0, -15], { stroke: arrowColor, strokeWidth: 2, originX: 'center', originY: 'center' }),
+    new Line([0, 15, 0, 24], { stroke: arrowColor, strokeWidth: 2, originX: 'center', originY: 'center' }),
+  );
+  if (style === 'professional') {
+    children.push(
+      new Line([-32, -32, 32, 32], { stroke: '#94a3b8', strokeWidth: 0.6, originX: 'center', originY: 'center' }),
+      new Line([-32, 32, 32, -32], { stroke: '#94a3b8', strokeWidth: 0.6, originX: 'center', originY: 'center' }),
+    );
+  }
+  const group = new Group(children, { originX: 'center', originY: 'center' });
+  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: 'ceiling-cassette', plandroidPorts: [] });
   return group;
 }
 
@@ -436,12 +534,12 @@ export function buildBranchDamper(style: IconStyle = DEFAULT_STYLE): Group {
     strokeWidth: 1.5,
   });
   const blade = new Line([-2, -h * 0.32, 2, h * 0.32], {
-    stroke: style === 'professional' ? '#f59e0b' : '#e2e8f0',
+    stroke: style === 'professional' ? SUPPLY_ACCENT : ICON_OUTLINE,
     strokeWidth: 2,
     originX: 'center',
     originY: 'center',
   });
-  const knob = new Circle({ left: 0, top: -h * 0.32 - 4, radius: 2, originX: 'center', originY: 'center', fill: style === 'professional' ? '#f59e0b' : '#e2e8f0', stroke: 'transparent' });
+  const knob = new Circle({ left: 0, top: -h * 0.32 - 4, radius: 2, originX: 'center', originY: 'center', fill: style === 'professional' ? SUPPLY_ACCENT : ICON_OUTLINE, stroke: 'transparent' });
 
   const group = new Group([footprint(w, h), body, blade, knob], { originX: 'center', originY: 'center' });
   const ports: PortDef[] = [

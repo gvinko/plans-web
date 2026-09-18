@@ -15,6 +15,7 @@ import { loadFloorPlanFile, isSupportedFloorPlanFile } from '../lib/floorplan/lo
 import { attachSnapEngine } from '../lib/canvas/snapping';
 import { attachComponentPlacement } from '../lib/canvas/componentPlacement';
 import { attachDuctDrawing, type DuctToolParams } from '../lib/canvas/ductDrawing';
+import { attachDuctConnectorEditing } from '../lib/canvas/ductConnectorEditing';
 import { attachWallTracing } from '../lib/canvas/wallTracing';
 import {
   attachWallDimensionEdit,
@@ -130,12 +131,18 @@ export default function CanvasWorkspace() {
         engine.setToolMode('select');
       },
     );
+    const detachDuctConnectorEditing = attachDuctConnectorEditing(engine.canvas, () => pxPerMmRef.current);
     const detachDuctDrawing = attachDuctDrawing(
       engine,
       () => pxPerMmRef.current,
       () => ductParamsRef.current,
       () => ductColorOverridesRef.current,
-      () => {},
+      () => {
+        // PlanDroid-style one-shot drawing: once a duct run is committed, return to Select.
+        // This prevents the next canvas click from immediately starting another duct run.
+        setActiveTool('select');
+        engine.setToolMode('select');
+      },
     );
     const detachWallTracing = attachWallTracing(engine, () => pxPerMmRef.current, () => handleToolChange('select'));
     const detachWallDimensionEdit = attachWallDimensionEdit(engine, (sel) => {
@@ -152,6 +159,7 @@ export default function CanvasWorkspace() {
       detachSnap();
       detachPlacement();
       detachDuctDrawing();
+      detachDuctConnectorEditing();
       detachWallTracing();
       detachWallDimensionEdit();
       detachZoneSelection();
@@ -503,7 +511,10 @@ export default function CanvasWorkspace() {
 
           {!planPage?.backgroundImage && !planPage?.sketchImage && !isLoadingFile && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <span className="text-sm text-slate-500">Drag &amp; drop a floor plan, or click "Upload Floor Plan"</span>
+              <div className="text-center max-w-sm px-6">
+                <p className="text-sm text-slate-400">No background plan — that's okay.</p>
+                <p className="text-xs text-slate-500 mt-1">Use Trace Wall to draw the house, start placing HVAC components on the blank canvas, or upload a plan at any time.</p>
+              </div>
             </div>
           )}
         </div>
@@ -511,6 +522,7 @@ export default function CanvasWorkspace() {
         {showPalette && (
           <ComponentPalette
             pendingComponentId={pendingComponentId}
+            iconStyle={project?.iconStyle ?? 'simple'}
             onSelect={handleSelectComponent}
             onCancel={() => handleToolChange('select')}
           />

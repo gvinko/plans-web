@@ -1,12 +1,15 @@
+import { useEffect, useRef } from 'react';
+import { StaticCanvas } from 'fabric';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { CATALOG } from '../lib/catalog/registry';
-import type { ComponentCategory } from '../lib/catalog/types';
+import type { ComponentCategory, ComponentDef, IconStyle } from '../lib/catalog/types';
 
 interface ComponentPaletteProps {
   pendingComponentId: string | null;
   onSelect: (componentId: string) => void;
   onCancel: () => void;
+  iconStyle: IconStyle;
 }
 
 const CATEGORY_LABELS: Record<ComponentCategory, string> = {
@@ -15,7 +18,29 @@ const CATEGORY_LABELS: Record<ComponentCategory, string> = {
   terminal: 'Terminals',
 };
 
-export default function ComponentPalette({ pendingComponentId, onSelect, onCancel }: ComponentPaletteProps) {
+function ComponentThumbnail({ component, style }: { component: ComponentDef; style: IconStyle }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const element = canvasRef.current;
+    if (!element) return;
+    const preview = new StaticCanvas(element, { width: 54, height: 44, backgroundColor: '#0f172a' });
+    const object = component.build(style);
+    object.set({ selectable: false, evented: false });
+    object.scaleToWidth(44);
+    if (object.getScaledHeight() > 34) object.scaleToHeight(34);
+    object.set({ left: 27, top: 22, originX: 'center', originY: 'center' });
+    preview.add(object);
+    preview.renderAll();
+    return () => {
+      void preview.dispose();
+    };
+  }, [component, style]);
+
+  return <canvas ref={canvasRef} className="w-[54px] h-11 rounded bg-slate-950 shrink-0" aria-hidden="true" />;
+}
+
+export default function ComponentPalette({ pendingComponentId, onSelect, onCancel, iconStyle }: ComponentPaletteProps) {
   const categories: ComponentCategory[] = ['equipment', 'fitting', 'terminal'];
   const importedEquipment = useLiveQuery(() => db.equipmentCatalog.toArray(), []);
   const importedFittings = useLiveQuery(() => db.fittingsCatalog.toArray(), []);
@@ -34,16 +59,18 @@ export default function ComponentPalette({ pendingComponentId, onSelect, onCance
       {categories.map((cat) => (
         <div key={cat} className="px-3 py-2">
           <h3 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">{CATEGORY_LABELS[cat]}</h3>
-          <div className="space-y-1">
+          <div className="grid grid-cols-2 gap-1.5">
             {CATALOG.filter((c) => c.category === cat).map((c) => (
               <button
                 key={c.id}
                 onClick={() => onSelect(c.id)}
-                className={`w-full text-left text-xs px-2 py-1.5 rounded ${
-                  pendingComponentId === c.id ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'
+                title={c.label}
+                className={`min-w-0 text-center text-[10px] leading-tight px-1 py-1.5 rounded border ${
+                  pendingComponentId === c.id ? 'bg-sky-700 border-sky-400' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'
                 }`}
               >
-                {c.label}
+                <ComponentThumbnail component={c} style={iconStyle} />
+                <span className="block mt-1 line-clamp-2 min-h-5">{c.label}</span>
               </button>
             ))}
           </div>

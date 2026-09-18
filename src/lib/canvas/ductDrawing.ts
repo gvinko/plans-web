@@ -3,7 +3,7 @@ import { Circle, type FabricObject, type TPointerEventInfo, type TPointerEvent }
 import type { CanvasEngine } from './CanvasEngine';
 import type { Vec2 } from './geometry';
 import { buildRigidDuctObject, buildFlexDuctObject } from './ductGeometry';
-import { setPlandroidId } from './plandroidData';
+import { getPlandroidId, getPlandroidData, setPlandroidData, setPlandroidId } from './plandroidData';
 import { findNearestPortToPoint } from './ports';
 import type { PortKind } from '../catalog/types';
 import { resolveRoundDuctColor, resolveRectDuctColor, DEFAULT_SUPPLY_COLOR, DEFAULT_RETURN_COLOR, DEFAULT_FLEX_COLOR } from './ductColors';
@@ -44,6 +44,7 @@ export function attachDuctDrawing(
   const canvas = engine.canvas;
   let startPoint: Vec2 | null = null;
   let previewObj: FabricObject | null = null;
+  let startBinding: { objId: string; portId: string } | undefined;
 
   function clearPreview() {
     if (previewObj) {
@@ -66,11 +67,14 @@ export function attachDuctDrawing(
     return mode;
   }
 
-  function resolveClickPoint(rawPointer: Vec2, mode: 'duct-rigid' | 'duct-flex'): Vec2 {
+  function resolveClick(rawPointer: Vec2, mode: 'duct-rigid' | 'duct-flex') {
     const kind: PortKind = mode === 'duct-rigid' ? 'duct_rect' : 'duct_flex';
     const radius = CLICK_SNAP_RADIUS_SCREEN_PX / canvas.getZoom();
     const match = findNearestPortToPoint(rawPointer, canvas.getObjects(), kind, radius);
-    return match ? { x: match.worldX, y: match.worldY } : rawPointer;
+    return {
+      point: match ? { x: match.worldX, y: match.worldY } : rawPointer,
+      binding: match && getPlandroidId(match.obj) ? { objId: getPlandroidId(match.obj)!, portId: match.port.id } : undefined,
+    };
   }
 
   function onMouseDown(opt: TPointerEventInfo<TPointerEvent>) {
@@ -80,10 +84,12 @@ export function attachDuctDrawing(
     const pxPerMm = getPxPerMm();
     if (!pxPerMm) return; // duct dimensions are only meaningful once the plan is calibrated
 
-    const point = resolveClickPoint(canvas.getPointer(opt.e), mode);
+    const resolved = resolveClick(canvas.getPointer(opt.e), mode);
+    const point = resolved.point;
 
     if (!startPoint) {
       startPoint = point;
+      startBinding = resolved.binding;
       return;
     }
 
@@ -94,6 +100,8 @@ export function attachDuctDrawing(
       const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, functionFallback);
       const { rect, label } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm, color);
       setPlandroidId(rect, nanoid());
+      const rigidData = getPlandroidData(rect);
+      if (rigidData?.plandroidConnector) setPlandroidData(rect, { ...rigidData, plandroidConnector: { ...rigidData.plandroidConnector, startBinding, endBinding: resolved.binding } });
       const jointA = buildJointMarker(startPoint, color);
       const jointB = buildJointMarker(point, color);
       canvas.add(rect, label, jointA, jointB);
@@ -102,11 +110,14 @@ export function attachDuctDrawing(
       const color = resolveRoundDuctColor(params.diameterMm, overrides, DEFAULT_FLEX_COLOR);
       const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
       setPlandroidId(path, nanoid());
+      const flexData = getPlandroidData(path);
+      if (flexData?.plandroidConnector) setPlandroidData(path, { ...flexData, plandroidConnector: { ...flexData.plandroidConnector, startBinding, endBinding: resolved.binding } });
       canvas.add(path);
       engine.recordUndoGroup([path]);
     }
     clearPreview();
     startPoint = null;
+    startBinding = undefined;
     canvas.requestRenderAll();
     onSegmentCommitted();
   }
@@ -117,7 +128,7 @@ export function attachDuctDrawing(
     const pxPerMm = getPxPerMm();
     if (!pxPerMm) return;
 
-    const point = resolveClickPoint(canvas.getPointer(opt.e), mode);
+    const point = resolveClick(canvas.getPointer(opt.e), mode).point;
     const params = getParams();
     const overrides = getDuctColorOverrides();
 
