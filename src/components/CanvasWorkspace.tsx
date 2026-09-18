@@ -522,6 +522,7 @@ export default function CanvasWorkspace() {
         {showPalette && (
           <ComponentPalette
             pendingComponentId={pendingComponentId}
+            iconStyle={project?.iconStyle ?? 'simple'}
             onSelect={handleSelectComponent}
             onCancel={() => handleToolChange('select')}
           />
