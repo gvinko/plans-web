@@ -12,6 +12,14 @@ export default function App() {
   const projects = useLiveQuery(() => db.projects.orderBy('updatedAt').reverse().toArray(), []);
   const { activeProjectId, activePlanPageId, setActiveProject, setActivePlanPage } = useAppStore();
 
+  async function startProject(mode: 'import' | 'draw' | 'blank') {
+    const label = mode === 'import' ? 'Imported Plan' : mode === 'draw' ? 'Site Draw' : 'HVAC Sketch';
+    const project = await createProject(`${label} ${(projects?.length ?? 0) + 1}`);
+    const page = await createPlanPage(project.id, 'Level 1');
+    setActiveProject(project.id);
+    setActivePlanPage(page.id);
+  }
+
   const pagesForActiveProject = useLiveQuery(
     () =>
       activeProjectId
@@ -49,12 +57,24 @@ export default function App() {
       </header>
 
       <main className="flex-1 p-4">
-        <button
-          className="bg-sky-600 hover:bg-sky-500 px-3 py-1.5 rounded text-sm"
-          onClick={() => createProject(`Untitled Project ${(projects?.length ?? 0) + 1}`)}
-        >
-          + New Project
-        </button>
+        <section className="max-w-3xl">
+          <h2 className="text-lg font-semibold">Start a job</h2>
+          <p className="text-sm text-slate-400 mt-1 mb-3">Plans are optional. Start with what you have and use the same HVAC components either way.</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <button className="text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-3" onClick={() => startProject('import')}>
+              <strong className="block text-sm">Import Plan</strong>
+              <span className="text-xs text-slate-400">PDF or image, then calibrate and overlay HVAC.</span>
+            </button>
+            <button className="text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-3" onClick={() => startProject('draw')}>
+              <strong className="block text-sm">Draw Floor Plan</strong>
+              <span className="text-xs text-slate-400">Measure and trace walls on site when no plan is supplied.</span>
+            </button>
+            <button className="text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-3" onClick={() => startProject('blank')}>
+              <strong className="block text-sm">Blank HVAC Sketch</strong>
+              <span className="text-xs text-slate-400">Place equipment, duct and outlets without drawing the house.</span>
+            </button>
+          </div>
+        </section>
 
         <ul className="mt-4 space-y-1">
           {projects?.map((p) => (
