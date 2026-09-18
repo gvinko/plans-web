@@ -1,8 +1,11 @@
 import { Circle, type Canvas, type FabricObject } from 'fabric';
-import { getPlandroidData, setPlandroidData } from './plandroidData';
+import { getPlandroidData, getPlandroidId, setPlandroidData } from './plandroidData';
+import { findNearestPortToPoint } from './ports';
+import type { PortKind } from '../catalog/types';
 import { buildRigidDuctObject, buildFlexDuctObject } from './ductGeometry';
 
 const HANDLE_RADIUS_SCREEN_PX = 7;
+const SNAP_RADIUS_SCREEN_PX = 18;
 
 /**
  * Makes placed ducts behave like connector lines: select a duct, then drag either endpoint.
@@ -56,10 +59,17 @@ export function attachDuctConnectorEditing(canvas: Canvas, getPxPerMm: () => num
     const connector = data?.plandroidConnector;
     if (!pxPerMm || !data || !connector) return;
 
+    const raw = { x: handle.left ?? 0, y: handle.top ?? 0 };
+    const kind: PortKind = data.plandroidKind === 'duct_flex' ? 'duct_flex' : 'duct_rect';
+    const match = findNearestPortToPoint(raw, canvas.getObjects().filter((o) => o !== activeDuct && !handles.includes(o as Circle)), kind, SNAP_RADIUS_SCREEN_PX / canvas.getZoom());
+    const point = match ? { x: match.worldX, y: match.worldY } : raw;
+    const targetId = match ? getPlandroidId(match.obj) : null;
+    const binding = match && targetId ? { objId: targetId, portId: match.port.id } : undefined;
+    handle.set({ left: point.x, top: point.y });
     const next = {
       ...connector,
-      [which]: { x: handle.left ?? 0, y: handle.top ?? 0 },
-      ...(which === 'start' ? { startBinding: undefined } : { endBinding: undefined }),
+      [which]: point,
+      ...(which === 'start' ? { startBinding: binding } : { endBinding: binding }),
     };
     const fill = typeof activeDuct.fill === 'string' ? activeDuct.fill : '#22c55e';
     const stroke = typeof activeDuct.stroke === 'string' ? activeDuct.stroke : '#9ca3af';
