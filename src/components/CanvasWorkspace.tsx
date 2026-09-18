@@ -15,6 +15,7 @@ import { loadFloorPlanFile, isSupportedFloorPlanFile } from '../lib/floorplan/lo
 import { attachSnapEngine } from '../lib/canvas/snapping';
 import { attachComponentPlacement } from '../lib/canvas/componentPlacement';
 import { attachDuctDrawing, type DuctToolParams } from '../lib/canvas/ductDrawing';
+import { attachDuctConnectorEditing } from '../lib/canvas/ductConnectorEditing';
 import { attachWallTracing } from '../lib/canvas/wallTracing';
 import {
   attachWallDimensionEdit,
@@ -130,6 +131,7 @@ export default function CanvasWorkspace() {
         engine.setToolMode('select');
       },
     );
+    const detachDuctConnectorEditing = attachDuctConnectorEditing(engine.canvas, () => pxPerMmRef.current);
     const detachDuctDrawing = attachDuctDrawing(
       engine,
       () => pxPerMmRef.current,
@@ -157,6 +159,7 @@ export default function CanvasWorkspace() {
       detachSnap();
       detachPlacement();
       detachDuctDrawing();
+      detachDuctConnectorEditing();
       detachWallTracing();
       detachWallDimensionEdit();
       detachZoneSelection();
