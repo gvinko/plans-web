@@ -508,7 +508,10 @@ export default function CanvasWorkspace() {
 
           {!planPage?.backgroundImage && !planPage?.sketchImage && !isLoadingFile && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <span className="text-sm text-slate-500">Drag &amp; drop a floor plan, or click "Upload Floor Plan"</span>
+              <div className="text-center max-w-sm px-6">
+                <p className="text-sm text-slate-400">No background plan — that's okay.</p>
+                <p className="text-xs text-slate-500 mt-1">Use Trace Wall to draw the house, start placing HVAC components on the blank canvas, or upload a plan at any time.</p>
+              </div>
             </div>
           )}
         </div>
