@@ -389,6 +389,64 @@ export function buildCondenser(style: IconStyle = DEFAULT_STYLE): Group {
   return group;
 }
 
+/** Wall-mounted split indoor unit. Service-pipe connectors are intentionally deferred until
+ * refrigerant/electrical line types exist, so this cannot incorrectly accept an air duct. */
+export function buildWallSplitIndoor(style: IconStyle = DEFAULT_STYLE): Group {
+  const w = 100;
+  const h = 32;
+  const body = new Rect({
+    left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center',
+    fill: '#e2e8f0', stroke: '#64748b', strokeWidth: 1.5, rx: 7, ry: 7,
+  });
+  const outlet = new Line([-w / 2 + 10, h / 2 - 7, w / 2 - 10, h / 2 - 7], {
+    stroke: '#0284c7', strokeWidth: 2, originX: 'center', originY: 'center',
+  });
+  const indicator = new Circle({
+    left: w / 2 - 13, top: -h / 2 + 8, radius: 2, originX: 'center', originY: 'center',
+    fill: '#22c55e', stroke: 'transparent',
+  });
+  const children: FabricObject[] = [footprint(w + 10, h + 10), body, outlet, indicator];
+  if (style === 'professional') {
+    children.push(
+      new Line([-w / 2 + 14, 2, w / 2 - 14, 2], { stroke: '#94a3b8', strokeWidth: 0.7, strokeDashArray: [4, 3], originX: 'center', originY: 'center' }),
+      new Polygon([{ x: -10, y: 10 }, { x: 0, y: 15 }, { x: 10, y: 10 }], { fill: '#38bdf8', stroke: 'transparent', originX: 'center', originY: 'center' }),
+    );
+  }
+  const group = new Group(children, { originX: 'center', originY: 'center' });
+  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: 'wall-split-indoor', plandroidPorts: [] });
+  return group;
+}
+
+/** Four-way ceiling cassette shown as a clean top-down reflected-ceiling symbol. */
+export function buildCeilingCassette(style: IconStyle = DEFAULT_STYLE): Group {
+  const size = 64;
+  const body = new Rect({
+    left: 0, top: 0, width: size, height: size, originX: 'center', originY: 'center',
+    fill: '#e2e8f0', stroke: '#64748b', strokeWidth: 1.5, rx: 3, ry: 3,
+  });
+  const centre = new Rect({
+    left: 0, top: 0, width: 28, height: 28, originX: 'center', originY: 'center',
+    fill: '#cbd5e1', stroke: '#64748b', strokeWidth: 1,
+  });
+  const children: FabricObject[] = [footprint(size + 8, size + 8), body, centre];
+  const arrowColor = style === 'professional' ? '#0284c7' : '#38bdf8';
+  children.push(
+    new Line([-24, 0, -15, 0], { stroke: arrowColor, strokeWidth: 2, originX: 'center', originY: 'center' }),
+    new Line([15, 0, 24, 0], { stroke: arrowColor, strokeWidth: 2, originX: 'center', originY: 'center' }),
+    new Line([0, -24, 0, -15], { stroke: arrowColor, strokeWidth: 2, originX: 'center', originY: 'center' }),
+    new Line([0, 15, 0, 24], { stroke: arrowColor, strokeWidth: 2, originX: 'center', originY: 'center' }),
+  );
+  if (style === 'professional') {
+    children.push(
+      new Line([-32, -32, 32, 32], { stroke: '#94a3b8', strokeWidth: 0.6, originX: 'center', originY: 'center' }),
+      new Line([-32, 32, 32, -32], { stroke: '#94a3b8', strokeWidth: 0.6, originX: 'center', originY: 'center' }),
+    );
+  }
+  const group = new Group(children, { originX: 'center', originY: 'center' });
+  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: 'ceiling-cassette', plandroidPorts: [] });
+  return group;
+}
+
 /** Y-piece / wye branch fitting — three duct legs from a single junction: in, straight-through, and an angled branch. */
 export function buildWye(style: IconStyle = DEFAULT_STYLE): Group {
   const legLen = 36;
