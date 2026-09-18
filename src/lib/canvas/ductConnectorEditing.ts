@@ -37,7 +37,9 @@ export function attachDuctConnectorEditing(canvas: Canvas, getPxPerMm: () => num
     });
     (h as unknown as { connectorHandle?: 'start' | 'end' }).connectorHandle = which;
     h.on('moving', () => updateFromHandle(h, which));
-    h.on('modified', () => canvas.fire('object:modified', { target: activeDuct ?? undefined }));
+    h.on('modified', () => {
+      if (activeDuct) canvas.fire('object:modified', { target: activeDuct });
+    });
     canvas.add(h);
     handles.push(h);
   }
@@ -148,10 +150,19 @@ export function attachDuctConnectorEditing(canvas: Canvas, getPxPerMm: () => num
     duct.setCoords();
   }
 
-  function onObjectMoving(opt: { target?: FabricObject }) {
+  function refreshTransformTarget(target: FabricObject) {
+    // ActiveSelection/Group transforms are reported for the container, while the
+    // connection is stored against the child component id. Walk those children so
+    // multi-select move/rotate/scale keeps every attached duct in sync too.
+    const children = (target as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.();
+    if (children?.length) children.forEach(refreshTransformTarget);
+    refreshBoundDucts(target);
+  }
+
+  function onObjectTransforming(opt: { target?: FabricObject }) {
     const target = opt.target;
     if (!target || handles.includes(target as Circle) || isDuct(target)) return;
-    refreshBoundDucts(target);
+    refreshTransformTarget(target);
   }
 
   function onCleared() {
@@ -166,14 +177,22 @@ export function attachDuctConnectorEditing(canvas: Canvas, getPxPerMm: () => num
   canvas.on('selection:created', onSelection);
   canvas.on('selection:updated', onSelection);
   canvas.on('selection:cleared', onCleared);
-  canvas.on('object:moving', onObjectMoving);
-  canvas.on('object:rotating', onObjectMoving);
+  canvas.on('object:moving', onObjectTransforming);
+  canvas.on('object:rotating', onObjectTransforming);
+  canvas.on('object:scaling', onObjectTransforming);
+  canvas.on('object:skewing', onObjectTransforming);
+  // The snap engine may make one final position/angle correction during the same
+  // interaction. It is registered first, so this listener sees the settled transform.
+  canvas.on('object:modified', onObjectTransforming);
   return () => {
     canvas.off('selection:created', onSelection);
     canvas.off('selection:updated', onSelection);
     canvas.off('selection:cleared', onCleared);
-    canvas.off('object:moving', onObjectMoving);
-    canvas.off('object:rotating', onObjectMoving);
+    canvas.off('object:moving', onObjectTransforming);
+    canvas.off('object:rotating', onObjectTransforming);
+    canvas.off('object:scaling', onObjectTransforming);
+    canvas.off('object:skewing', onObjectTransforming);
+    canvas.off('object:modified', onObjectTransforming);
     clearHandles();
   };
 }
