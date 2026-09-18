@@ -61,6 +61,7 @@ export function buildRigidDuctObject(
     plandroidWidthMm: widthMm,
     plandroidDepthMm: depthMm,
     plandroidLengthMm: lengthMm,
+    plandroidConnector: { start: { ...p1 }, end: { ...p2 } },
   });
 
   return { rect, label };
@@ -143,6 +144,7 @@ export function buildFlexDuctObject(
     plandroidPorts: ports,
     plandroidDiameterMm: diameterMm,
     plandroidLengthMm: lengthMm,
+    plandroidConnector: { start: { ...p1 }, end: { ...p2 } },
   });
 
   return path;
