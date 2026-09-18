@@ -1,6 +1,6 @@
 import { Circle, type Canvas, type FabricObject } from 'fabric';
 import { getPlandroidData, getPlandroidId, setPlandroidData } from './plandroidData';
-import { findNearestPortToPoint } from './ports';
+import { findNearestPortToPoint, getWorldPorts } from './ports';
 import type { PortKind } from '../catalog/types';
 import { buildRigidDuctObject, buildFlexDuctObject } from './ductGeometry';
 
@@ -93,15 +93,73 @@ export function attachDuctConnectorEditing(canvas: Canvas, getPxPerMm: () => num
     const obj = opt.selected?.[0];
     if (isDuct(obj)) showHandles(obj!); else clearHandles();
   }
+  function refreshBoundDucts(moved: FabricObject) {
+    const movedId = getPlandroidId(moved);
+    if (!movedId) return;
+    const worldPorts = getWorldPorts(moved);
+    for (const duct of canvas.getObjects()) {
+      if (!isDuct(duct) || duct === moved) continue;
+      const data = getPlandroidData(duct);
+      const connector = data?.plandroidConnector;
+      if (!data || !connector) continue;
+      let changed = false;
+      const next = { ...connector, start: { ...connector.start }, end: { ...connector.end } };
+      for (const which of ['start', 'end'] as const) {
+        const binding = which === 'start' ? connector.startBinding : connector.endBinding;
+        if (!binding || binding.objId !== movedId) continue;
+        const wp = worldPorts.find((port) => port.port.id === binding.portId);
+        if (!wp) continue;
+        next[which] = { x: wp.worldX, y: wp.worldY };
+        changed = true;
+      }
+      if (!changed) continue;
+      rebuildDuct(duct, data, next);
+      if (duct === activeDuct) {
+        handles[0]?.set({ left: next.start.x, top: next.start.y });
+        handles[1]?.set({ left: next.end.x, top: next.end.y });
+      }
+    }
+    canvas.requestRenderAll();
+  }
+
+  function rebuildDuct(duct: FabricObject, data: NonNullable<ReturnType<typeof getPlandroidData>>, next: NonNullable<NonNullable<ReturnType<typeof getPlandroidData>>['plandroidConnector']>) {
+    const pxPerMm = getPxPerMm();
+    if (!pxPerMm) return;
+    const fill = typeof duct.fill === 'string' ? duct.fill : '#22c55e';
+    const stroke = typeof duct.stroke === 'string' ? duct.stroke : '#9ca3af';
+    const rebuilt = data.plandroidKind === 'duct_rigid'
+      ? buildRigidDuctObject(next.start, next.end, data.plandroidWidthMm ?? 400, data.plandroidDepthMm ?? 250, pxPerMm, fill).rect
+      : buildFlexDuctObject(next.start, next.end, data.plandroidDiameterMm ?? 200, pxPerMm, stroke);
+    const rebuiltData = getPlandroidData(rebuilt);
+    duct.set({
+      left: rebuilt.left, top: rebuilt.top, width: rebuilt.width, height: rebuilt.height,
+      angle: rebuilt.angle, path: (rebuilt as unknown as { path?: unknown }).path,
+      fill: rebuilt.fill, stroke: rebuilt.stroke, strokeWidth: rebuilt.strokeWidth,
+      rx: (rebuilt as unknown as { rx?: number }).rx, ry: (rebuilt as unknown as { ry?: number }).ry,
+    } as never);
+    if (rebuiltData) setPlandroidData(duct, { ...data, ...rebuiltData, plandroidConnector: next });
+    duct.setCoords();
+  }
+
+  function onObjectMoving(opt: { target?: FabricObject }) {
+    const target = opt.target;
+    if (!target || handles.includes(target as Circle) || isDuct(target)) return;
+    refreshBoundDucts(target);
+  }
+
   function onCleared() { clearHandles(); }
 
   canvas.on('selection:created', onSelection);
   canvas.on('selection:updated', onSelection);
   canvas.on('selection:cleared', onCleared);
+  canvas.on('object:moving', onObjectMoving);
+  canvas.on('object:rotating', onObjectMoving);
   return () => {
     canvas.off('selection:created', onSelection);
     canvas.off('selection:updated', onSelection);
     canvas.off('selection:cleared', onCleared);
+    canvas.off('object:moving', onObjectMoving);
+    canvas.off('object:rotating', onObjectMoving);
     clearHandles();
   };
 }
