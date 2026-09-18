@@ -89,8 +89,15 @@ export function attachDuctConnectorEditing(canvas: Canvas, getPxPerMm: () => num
     canvas.requestRenderAll();
   }
 
+  function isConnectorHandle(obj: FabricObject | undefined | null) {
+    return Boolean(obj && (obj as unknown as { connectorHandle?: 'start' | 'end' }).connectorHandle);
+  }
+
   function onSelection(opt: { selected?: FabricObject[] }) {
     const obj = opt.selected?.[0];
+    // Clicking an endpoint handle changes Fabric's active selection to the handle.
+    // Keep the duct/handles alive while the user drags it instead of immediately removing it.
+    if (isConnectorHandle(obj)) return;
     if (isDuct(obj)) showHandles(obj!); else clearHandles();
   }
   function refreshBoundDucts(moved: FabricObject) {
@@ -147,7 +154,14 @@ export function attachDuctConnectorEditing(canvas: Canvas, getPxPerMm: () => num
     refreshBoundDucts(target);
   }
 
-  function onCleared() { clearHandles(); }
+  function onCleared() {
+    // Fabric may clear selection as an endpoint handle begins/ends a drag.
+    // Defer one tick and only remove handles if neither a duct nor a connector handle is active.
+    setTimeout(() => {
+      const selected = canvas.getActiveObject();
+      if (!isDuct(selected) && !isConnectorHandle(selected)) clearHandles();
+    }, 0);
+  }
 
   canvas.on('selection:created', onSelection);
   canvas.on('selection:updated', onSelection);
