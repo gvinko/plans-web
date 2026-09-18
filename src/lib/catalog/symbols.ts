@@ -136,62 +136,65 @@ export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
 }
 
 export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: IconStyle = DEFAULT_STYLE): Group {
+  const isReturn = kind === 'return';
+  const count = isReturn ? 2 : branchCount;
   const w = 140;
-  const h = 56;
-  const inletLength = 22;
-  const branchLength = 14;
+  const h = isReturn ? 42 : 68;
+  const inletLength = 18;
+  const collarRadius = 10;
   const color = kind === 'supply' ? '#0ea5e9' : '#ef4444';
   const darkFill = kind === 'supply' ? '#082f49' : '#450a0a';
-  const body = new Polygon(
-    [
-      { x: -w / 2, y: -h * 0.32 },
-      { x: -w / 2, y: h * 0.32 },
-      { x: -w / 2 + 22, y: h / 2 },
-      { x: w / 2, y: h / 2 },
-      { x: w / 2, y: -h / 2 },
-      { x: -w / 2 + 22, y: -h / 2 },
-    ],
-    { left: 0, top: 0, originX: 'center', originY: 'center', fill: darkFill, stroke: color, strokeWidth: 1.5 },
-  );
+  const body: FabricObject = isReturn
+    ? new Rect({ left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center', fill: darkFill, stroke: color, strokeWidth: 1.5 })
+    : new Polygon(
+        [
+          { x: -w / 2, y: -h / 2 },
+          { x: w / 2, y: -h / 2 },
+          { x: w / 2 - 18, y: h / 2 },
+          { x: -w / 2 + 18, y: h / 2 },
+        ],
+        { left: 0, top: 0, originX: 'center', originY: 'center', fill: darkFill, stroke: color, strokeWidth: 1.5 },
+      );
   const label = new FabricText(kind === 'supply' ? 'SUPPLY PLENUM' : 'RETURN PLENUM', {
     left: 0,
-    top: 0,
+    top: isReturn ? 7 : 11,
     fontSize: 8,
     fill: '#e2e8f0',
     originX: 'center',
     originY: 'center',
   });
 
-  const children: FabricObject[] = [footprint(w + inletLength * 2 + 12, h + branchLength * 2 + 12), body, label];
+  const children: FabricObject[] = [footprint(w + 20, h + inletLength + collarRadius * 3), body, label];
 
   const ports: PortDef[] = [
-    { id: 'inlet', x: -w / 2 - inletLength, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: 400, depth: 250 } },
+    { id: 'inlet', x: 0, y: h / 2 + inletLength, angleDeg: 90, kind: 'duct_rect', sizeMm: { width: 1100, depth: 340 } },
   ];
-  const spacing = w / (branchCount + 1);
-  for (let i = 0; i < branchCount; i++) {
+  const spacing = w / (count + 1);
+  for (let i = 0; i < count; i++) {
+    const x = -w / 2 + spacing * (i + 1);
+    const spreadAngle = !isReturn && count > 1 ? (i / (count - 1) - 0.5) * 50 : 0;
     ports.push({
       id: `branch-${i}`,
-      x: -w / 2 + spacing * (i + 1),
-      y: h / 2 + branchLength,
-      angleDeg: 90,
-      kind: 'duct_rect',
-      sizeMm: { width: 200, depth: 150 },
+      x,
+      y: -h / 2 - collarRadius * 2,
+      angleDeg: 270 + spreadAngle,
+      kind: 'duct_round',
+      sizeMm: { diameter: 450 },
     });
   }
 
   const inletStub = new Rect({
-    left: -w / 2 - inletLength / 2, top: 0, width: inletLength, height: 22,
+    left: 0, top: h / 2 + inletLength / 2, width: isReturn ? 100 : 108, height: inletLength,
     originX: 'center', originY: 'center', fill: darkFill, stroke: color, strokeWidth: 1.5,
   });
-  const spigots = ports.slice(1).map((p) => new Rect({
-    left: p.x, top: h / 2 + branchLength / 2, width: 18, height: branchLength,
-    originX: 'center', originY: 'center', fill: darkFill, stroke: color, strokeWidth: 1.25,
+  const collars = ports.slice(1).map((p) => new Circle({
+    left: p.x, top: -h / 2 - collarRadius, radius: collarRadius,
+    originX: 'center', originY: 'center', fill: darkFill, stroke: color, strokeWidth: 2,
   }));
-  children.push(inletStub, ...spigots);
+  children.push(inletStub, ...collars);
 
-  const flowAngle = kind === 'supply' ? 90 : -90;
-  children.push(...ports.slice(1).map((p) => airflowArrow(p.x, h / 2 - 10, flowAngle, color, 0.7)));
-  children.push(airflowArrow(-w / 2 + 13, 0, kind === 'supply' ? 0 : 180, color, 0.8));
+  children.push(...ports.slice(1).map((p) => airflowArrow(p.x, -h / 2 + 8, kind === 'supply' ? p.angleDeg : p.angleDeg + 180, color, 0.7)));
+  children.push(airflowArrow(0, h / 2 - 8, kind === 'supply' ? 270 : 90, color, 0.8));
 
   if (style === 'professional') {
     const liner = new Rect({
@@ -206,7 +209,10 @@ export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: I
       strokeWidth: 0.75,
       strokeDashArray: [3, 2],
     });
-    children.push(liner);
+    const seamLines = ports.slice(1).map((p) => new Line([p.x - 7, -h / 2 - collarRadius, p.x + 7, -h / 2 - collarRadius], {
+      stroke: '#94a3b8', strokeWidth: 0.7, originX: 'center', originY: 'center',
+    }));
+    children.push(liner, ...seamLines);
   }
 
   const group = new Group(children, { originX: 'center', originY: 'center' });
