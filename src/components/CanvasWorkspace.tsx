@@ -135,7 +135,12 @@ export default function CanvasWorkspace() {
       () => pxPerMmRef.current,
       () => ductParamsRef.current,
       () => ductColorOverridesRef.current,
-      () => {},
+      () => {
+        // PlanDroid-style one-shot drawing: once a duct run is committed, return to Select.
+        // This prevents the next canvas click from immediately starting another duct run.
+        setActiveTool('select');
+        engine.setToolMode('select');
+      },
     );
     const detachWallTracing = attachWallTracing(engine, () => pxPerMmRef.current, () => handleToolChange('select'));
     const detachWallDimensionEdit = attachWallDimensionEdit(engine, (sel) => {
