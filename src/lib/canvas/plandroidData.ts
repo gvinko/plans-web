@@ -12,6 +12,14 @@ export interface PlandroidData {
   plandroidDiameterMm?: number;
   plandroidLengthMm?: number;
   plandroidSnappedTo?: { objId: string; portId: string };
+  /** Connector geometry is stored in canvas/world coordinates so a duct can be rebuilt when
+   * either endpoint is dragged, Word/PowerPoint-connector style. */
+  plandroidConnector?: {
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    startBinding?: { objId: string; portId: string };
+    endBinding?: { objId: string; portId: string };
+  };
   /** Denormalized from an imported catalog row at placement time, so the takeoff engine
    * can label/price this item without an async DB lookup while walking canvas objects. */
   plandroidImportedMeta?: { itemName: string; category: string; unitCost: number; airflowValue?: number | null; airflowUnit?: 'L/s' | 'CFM' | null };
