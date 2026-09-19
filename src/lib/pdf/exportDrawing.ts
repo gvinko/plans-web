@@ -21,11 +21,13 @@ export interface ExportDrawingParams {
 export function exportDrawingToPdf(params: ExportDrawingParams): jsPDF {
   const { canvas, pxPerMm, paper, titleBlockInfo, takeoffLines, unitSystem, manualScaleDenominator } = params;
   const layout = computeLayout(paper);
+  if (!Number.isFinite(pxPerMm) || pxPerMm <= 0) throw new Error('The plan scale is invalid. Recalibrate the drawing, then export again.');
 
   const objects = canvas.getObjects();
   const bounds = objects.reduce(
     (acc, o) => {
       const r = o.getBoundingRect();
+      if (![r.left, r.top, r.width, r.height].every(Number.isFinite)) return acc;
       return {
         minX: Math.min(acc.minX, r.left),
         minY: Math.min(acc.minY, r.top),
@@ -41,9 +43,12 @@ export function exportDrawingToPdf(params: ExportDrawingParams): jsPDF {
 
   const realWidthMm = widthPx / pxPerMm;
   const realHeightMm = heightPx / pxPerMm;
-  const scaleDenominator = manualScaleDenominator ?? chooseFitScale(realWidthMm, realHeightMm, layout.drawingArea);
+  const requestedScale = Number(manualScaleDenominator);
+  const scaleDenominator = Number.isFinite(requestedScale) && requestedScale > 0
+    ? requestedScale
+    : chooseFitScale(realWidthMm, realHeightMm, layout.drawingArea);
 
-  const pxToMm = 1 / pxPerMm / scaleDenominator; // page-mm per canvas-px, at the chosen print scale
+  const pxToMm = 1 / pxPerMm / scaleDenominator;
   const paperWidthMm = realWidthMm / scaleDenominator;
   const paperHeightMm = realHeightMm / scaleDenominator;
   const offsetX = layout.drawingArea.x + Math.max(0, (layout.drawingArea.width - paperWidthMm) / 2);
@@ -56,13 +61,19 @@ export function exportDrawingToPdf(params: ExportDrawingParams): jsPDF {
     pxToMm,
   };
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: paper, putOnlyUsedFonts: true });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [layout.pageWidthMm, layout.pageHeightMm], putOnlyUsedFonts: true });
 
   doc.setDrawColor(0);
   doc.setLineWidth(0.5);
   doc.rect(5, 5, layout.pageWidthMm - 10, layout.pageHeightMm - 10);
 
-  for (const obj of objects) renderFabricObjectToPdf(doc, obj, transform);
+  for (const obj of objects) {
+    try {
+      renderFabricObjectToPdf(doc, obj, transform);
+    } catch {
+      // A corrupt imported symbol must not prevent the rest of the marked-up plan exporting.
+    }
+  }
 
   drawTitleBlock(doc, layout, { ...titleBlockInfo, scaleLabel: `1:${scaleDenominator}` });
   drawLegend(doc, layout, takeoffLines, unitSystem);
