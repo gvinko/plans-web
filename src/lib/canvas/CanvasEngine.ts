@@ -1,4 +1,5 @@
 import { Canvas, Circle, FabricImage, FabricText, Line, Point, type FabricObject, type TPointerEventInfo, type TPointerEvent } from 'fabric';
+import { getPlandroidData, setPlandroidData } from './plandroidData';
 
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 20;
@@ -42,6 +43,7 @@ export class CanvasEngine {
   private calibrationDraftObjects: (Circle | Line | FabricText)[] = [];
   private pendingCalibrationLabel: FabricText | null = null;
   private sketchImageObj: FabricImage | null = null;
+  private backgroundImageObj: FabricImage | null = null;
   private undoStack: FabricObject[][] = [];
   private clipboardObject: FabricObject | null = null;
 
@@ -75,11 +77,30 @@ export class CanvasEngine {
 
   async loadBackgroundImage(objectUrl: string, widthPx: number, heightPx: number): Promise<void> {
     const img = await FabricImage.fromURL(objectUrl);
-    img.set({ left: 0, top: 0, selectable: false, evented: false, hoverCursor: 'default' });
+    img.set({ left: 0, top: 0, selectable: false, evented: false, hoverCursor: 'default', plandroid: { kind: 'background-plan' } });
     this.canvas.add(img);
     this.canvas.sendObjectToBack(img);
+    this.backgroundImageObj = img;
     this.fitToViewport(widthPx, heightPx);
     this.canvas.requestRenderAll();
+  }
+
+  /** Lets the imported drawing be repositioned or resized before marks are added. The normal
+   * Select tool deliberately ignores this image, so ducts and symbols remain easy to edit. */
+  setBackgroundPlanEditing(enabled: boolean): boolean {
+    const image = this.backgroundImageObj ?? this.canvas.getObjects().find((obj) => (obj as FabricObject & { plandroid?: { kind?: string } }).plandroid?.kind === 'background-plan') as FabricImage | undefined;
+    if (!image) return false;
+    this.backgroundImageObj = image;
+    image.set({ selectable: enabled, evented: enabled, lockRotation: true, hasRotatingPoint: false, hoverCursor: enabled ? 'move' : 'default' });
+    if (enabled) {
+      this.canvas.setActiveObject(image);
+      this.canvas.bringObjectToFront(image);
+    } else {
+      this.canvas.discardActiveObject();
+      this.canvas.sendObjectToBack(image);
+    }
+    this.canvas.requestRenderAll();
+    return true;
   }
 
   /** Low-opacity underlay for tracing over a rough hand sketch — independent of the calibrated backgroundImage. */
@@ -184,6 +205,55 @@ export class CanvasEngine {
     const active = this.canvas.getActiveObject();
     if (!active) return;
     await this.cloneAndAdd(active);
+  }
+
+  /** Keeps a placed item selectable while preventing a duct-routing drag from shifting it. */
+  toggleSelectionLock(): void {
+    const selected = this.canvas.getActiveObjects();
+    if (selected.length === 0) return;
+    const shouldLock = selected.some((object) => !object.lockMovementX);
+    selected.forEach((object) => {
+      object.set({
+        lockMovementX: shouldLock,
+        lockMovementY: shouldLock,
+        lockScalingX: shouldLock,
+        lockScalingY: shouldLock,
+        lockRotation: shouldLock,
+      });
+      const data = getPlandroidData(object);
+      if (data) setPlandroidData(object, { ...data, plandroidLocked: shouldLock });
+      object.setCoords();
+    });
+    this.canvas.requestRenderAll();
+  }
+
+  /** Toggles a darker drafting display for selected placed components. */
+  toggleSelectionDarkness(): void {
+    const selected = this.canvas.getActiveObjects();
+    if (selected.length === 0) return;
+    selected.forEach((object) => {
+      const data = getPlandroidData(object);
+      if (!data || !['equipment', 'fitting', 'terminal'].includes(data.plandroidKind)) return;
+      const parts = this.getPaintParts(object);
+      const appearance = data.plandroidAppearance;
+      if (appearance?.darkened && appearance.originalPaint) {
+        const originalPaint = appearance.originalPaint;
+        parts.forEach((part, index) => part.set(originalPaint[index] ?? {}));
+        setPlandroidData(object, { ...data, plandroidAppearance: { ...appearance, darkened: false } });
+      } else {
+        const originalPaint = parts.map((part) => ({
+          fill: typeof part.fill === 'string' ? part.fill : undefined,
+          stroke: typeof part.stroke === 'string' ? part.stroke : undefined,
+        }));
+        parts.forEach((part) => part.set({
+          fill: this.darkenPaint(part.fill),
+          stroke: this.darkenPaint(part.stroke),
+        }));
+        setPlandroidData(object, { ...data, plandroidAppearance: { darkened: true, originalPaint } });
+      }
+      object.dirty = true;
+    });
+    this.canvas.requestRenderAll();
   }
 
   private async cloneAndAdd(source: FabricObject): Promise<void> {
@@ -303,6 +373,18 @@ export class CanvasEngine {
       return;
     }
 
+    if (e.key.toLowerCase() === 'l' && this.canvas.getActiveObject()) {
+      this.toggleSelectionLock();
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key.toLowerCase() === 'd' && this.canvas.getActiveObject()) {
+      this.toggleSelectionDarkness();
+      e.preventDefault();
+      return;
+    }
+
     const shortcutMode = TOOL_SHORTCUTS[e.key];
     if (shortcutMode && this.opts.onToolShortcut) {
       this.opts.onToolShortcut(shortcutMode);
@@ -321,6 +403,22 @@ export class CanvasEngine {
   private isTypingTarget(t: EventTarget | null): boolean {
     const tag = (t as HTMLElement)?.tagName;
     return tag === 'INPUT' || tag === 'TEXTAREA';
+  }
+
+  private getPaintParts(object: FabricObject): FabricObject[] {
+    const group = object as FabricObject & { getObjects?: () => FabricObject[] };
+    return group.getObjects?.() ?? [object];
+  }
+
+  private darkenPaint(value: unknown): unknown {
+    if (typeof value !== 'string' || !value.startsWith('#')) return value;
+    const raw = value.slice(1);
+    const hex = raw.length === 3 ? raw.split('').map((char) => char + char).join('') : raw;
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return value;
+    const darkened = [0, 2, 4]
+      .map((offset) => Math.round(parseInt(hex.slice(offset, offset + 2), 16) * 0.58).toString(16).padStart(2, '0'))
+      .join('');
+    return `#${darkened}`;
   }
 
   private handleCalibrationClick(opt: TPointerEventInfo<TPointerEvent>): void {
