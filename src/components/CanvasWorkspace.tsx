@@ -71,6 +71,7 @@ export default function CanvasWorkspace() {
   const [showZonesManager, setShowZonesManager] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
+  const [isPlanEditing, setIsPlanEditing] = useState(false);
   const [ductParams, setDuctParams] = useState<DuctToolParams>(DEFAULT_DUCT_PARAMS);
   const [wallEdgeSelection, setWallEdgeSelection] = useState<WallEdgeSelection | null>(null);
   const [wallPopoverScreen, setWallPopoverScreen] = useState<{ x: number; y: number } | null>(null);
@@ -288,6 +289,16 @@ export default function CanvasWorkspace() {
     handleToolChange('place-component');
   }
 
+  function handlePlanEditToggle() {
+    const next = !isPlanEditing;
+    if (!engineRef.current?.setBackgroundPlanEditing(next)) {
+      setLoadError('Upload a floor plan first, then you can move or resize it.');
+      return;
+    }
+    setIsPlanEditing(next);
+    handleToolChange('select');
+  }
+
   async function handleToggleIconStyle() {
     if (!activeProjectId || !project) return;
     await setIconStyle(activeProjectId, project.iconStyle === 'professional' ? 'simple' : 'professional');
@@ -368,6 +379,20 @@ export default function CanvasWorkspace() {
           Copy
         </button>
         <button
+          onClick={() => engineRef.current?.toggleSelectionLock()}
+          title="Lock or unlock selected components (L)"
+          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
+        >
+          Lock selection
+        </button>
+        <button
+          onClick={() => engineRef.current?.toggleSelectionDarkness()}
+          title="Toggle darker selected components (D)"
+          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
+        >
+          Darken selection
+        </button>
+        <button
           className={`text-xs px-2.5 py-1 rounded ${showPalette ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'}`}
           onClick={() => setShowPalette((v) => !v)}
         >
@@ -407,6 +432,13 @@ export default function CanvasWorkspace() {
         >
           Upload Floor Plan
         </button>
+        <button
+          className={`text-xs px-2.5 py-1 rounded ${isPlanEditing ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700'}`}
+          onClick={handlePlanEditToggle}
+          title="Move or resize the imported plan, then lock it again before drawing"
+        >
+          {isPlanEditing ? 'Lock Plan' : 'Move / Resize Plan'}
+        </button>
         <input
           ref={fileInputRef}
           type="file"
@@ -440,6 +472,12 @@ export default function CanvasWorkspace() {
           onDrop={handleDrop}
         >
           <canvas ref={canvasElRef} />
+
+          {isPlanEditing && (
+            <div className="absolute top-3 left-3 max-w-xs bg-amber-500 text-slate-950 text-xs font-medium px-3 py-2 rounded shadow-lg pointer-events-none">
+              Drag the plan to reposition it. Use its corner handles to crop the working view by scaling it, then press “Lock Plan” before placing ducts.
+            </div>
+          )}
 
           <SketchOverlayControls
             hasSketch={Boolean(planPage?.sketchImage)}
