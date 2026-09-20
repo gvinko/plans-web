@@ -26,6 +26,10 @@ export interface PlandroidData {
   plandroidScheduleTag?: string;
   plandroidAirflowLs?: number;
   plandroidScheduleNotes?: string;
+  /** A placement can stay selectable while its movement, scale and rotation are locked. */
+  plandroidLocked?: boolean;
+  /** Per-child paint values are retained so the drawing can be switched back from the darker display. */
+  plandroidAppearance?: { darkened?: boolean; originalPaint?: { fill?: string; stroke?: string }[] };
 }
 
 /** Fabric objects carry arbitrary extra props fine at runtime; this just gives us a typed view. */
