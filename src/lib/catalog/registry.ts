@@ -9,8 +9,21 @@ import {
   buildElbow,
   buildWye,
   buildBranchDamper,
+  buildBto,
+  buildZoneMotor,
+  buildAdvantageAir,
 } from './symbols';
 import type { ComponentDef } from './types';
+
+const BTO_SIZES = [
+  '16 / 14 / 14', '16 / 14 / 10', '14 / 14 / 12', '14 / 14 / 10',
+  '14 / 12 / 12', '14 / 12 / 10', '14 / 10 / 10', '12 / 10 / 10',
+  '12 / 10 / 08', '10 / 08 / 08', '14 / 10 / 10 / 10', '16 / 10 / 10 / 10',
+];
+
+const ZONE_MOTOR_SIZES = [
+  { mm: 250, inch: 10 }, { mm: 300, inch: 12 }, { mm: 350, inch: 14 }, { mm: 400, inch: 16 },
+];
 
 export const CATALOG: ComponentDef[] = [
   { id: 'fan-coil-unit', category: 'equipment', label: 'Fan Coil Unit', build: (style) => buildFanCoilUnit(style) },
@@ -31,4 +44,22 @@ export const CATALOG: ComponentDef[] = [
   { id: 'fitting-elbow-45', category: 'fitting', label: '45° Elbow', build: (style) => buildElbow(45, style) },
   { id: 'fitting-wye', category: 'fitting', label: 'Y-Piece (Wye)', build: (style) => buildWye(style) },
   { id: 'fitting-damper', category: 'fitting', label: 'Branch Damper', build: (style) => buildBranchDamper(style) },
+  ...BTO_SIZES.map((size) => ({
+    id: `bto-${size.replace(/\s*\/\s*/g, '-')}`,
+    category: 'fitting' as const,
+    label: `${size.split('/').length === 4 ? 'DBTO' : 'BTO'} — ${size}`,
+    build: (style: Parameters<typeof buildBto>[1]) => buildBto(size, style),
+  })),
+  ...ZONE_MOTOR_SIZES.map(({ mm, inch }) => ({
+    id: `zone-motor-${mm}`,
+    category: 'equipment' as const,
+    label: `Zone Motor — Ø${mm} mm (${inch}″)`,
+    build: (style: Parameters<typeof buildZoneMotor>[1]) => buildZoneMotor(mm, style),
+  })),
+  ...[4, 6, 8].flatMap((zones) => [200, 250, 300].map((diameter) => ({
+    id: `advantage-air-${zones}z-${diameter}`,
+    category: 'equipment' as const,
+    label: `Advantage Air — ${zones} zones Ø${diameter} mm`,
+    build: (style: Parameters<typeof buildAdvantageAir>[2]) => buildAdvantageAir(zones, diameter, style),
+  }))),
 ];
