@@ -389,6 +389,77 @@ export function buildCondenser(style: IconStyle = DEFAULT_STYLE): Group {
   return group;
 }
 
+const inchToMm = (inch: number) => Math.round(inch * 25.4);
+
+/** Round branch take-off using the exact nominal sizes carried in Echo's domestic cost sheet. */
+export function buildBto(sizeLabel: string, style: IconStyle = DEFAULT_STYLE): Group {
+  const sizes = sizeLabel.split('/').map((value) => Number(value.trim())).filter(Number.isFinite);
+  const inlet = sizes[0] ?? 14;
+  const branches = sizes.slice(1);
+  const span = 86;
+  const children: FabricObject[] = [footprint(112, 84)];
+  const stroke = style === 'professional' ? '#dbeafe' : '#94a3b8';
+  children.push(
+    new Circle({ left: -span / 2, top: 0, radius: 10, originX: 'center', originY: 'center', fill: '#172554', stroke, strokeWidth: 1.4 }),
+    new Line([-span / 2 + 10, 0, -8, 0], { stroke, strokeWidth: 7, originX: 'center', originY: 'center' }),
+    new Circle({ left: -3, top: 0, radius: 8, originX: 'center', originY: 'center', fill: '#1d4ed8', stroke, strokeWidth: 1.2 }),
+  );
+  const ports: PortDef[] = [{ id: 'inlet', x: -span / 2, y: 0, angleDeg: 180, kind: 'duct_round', sizeMm: { diameter: inchToMm(inlet) } }];
+  const branchAngle = branches.length === 3 ? 48 : 34;
+  branches.forEach((branch, index) => {
+    const angle = branches.length === 2 ? (index === 0 ? -branchAngle : branchAngle) : -branchAngle + index * branchAngle;
+    const radians = (angle * Math.PI) / 180;
+    const x = 39 * Math.cos(radians);
+    const y = 39 * Math.sin(radians);
+    children.push(
+      new Line([2, 0, x, y], { stroke, strokeWidth: 6, originX: 'center', originY: 'center' }),
+      new Circle({ left: x, top: y, radius: 7, originX: 'center', originY: 'center', fill: '#0f766e', stroke, strokeWidth: 1.2 }),
+    );
+    ports.push({ id: `branch-${index + 1}`, x, y, angleDeg: angle, kind: 'duct_round', sizeMm: { diameter: inchToMm(branch) } });
+  });
+  children.push(new FabricText(`${branches.length === 3 ? 'DBTO' : 'BTO'}\n${sizeLabel.replace(/ /g, '')}`, { left: 2, top: 30, fontSize: 8, fill: '#e2e8f0', textAlign: 'center', originX: 'center', originY: 'center' }));
+  const group = new Group(children, { originX: 'center', originY: 'center' });
+  setPlandroidData(group, { plandroidKind: 'fitting', plandroidComponentId: `bto-${sizeLabel.replace(/ /g, '').replace(/\//g, '-')}`, plandroidPorts: ports });
+  return group;
+}
+
+/** Motorised round zone damper. Nominal diameter is chosen before placement. */
+export function buildZoneMotor(diameterMm: number, style: IconStyle = DEFAULT_STYLE): Group {
+  const w = 68;
+  const h = 42;
+  const accent = style === 'professional' ? '#fde68a' : '#fbbf24';
+  const body = new Rect({ left: 0, top: 0, width: w, height: 16, originX: 'center', originY: 'center', fill: '#422006', stroke: accent, strokeWidth: 1.4, rx: 3, ry: 3 });
+  const blade = new Line([0, -15, 0, 15], { stroke: '#fbbf24', strokeWidth: 2, originX: 'center', originY: 'center' });
+  const actuator = new Rect({ left: 0, top: -18, width: 28, height: 12, originX: 'center', originY: 'center', fill: '#92400e', stroke: '#fde68a', strokeWidth: 1, rx: 2, ry: 2 });
+  const label = new FabricText(`ZM Ø${diameterMm}`, { left: 0, top: 19, fontSize: 8, fill: '#fef3c7', originX: 'center', originY: 'center' });
+  const group = new Group([footprint(w + 10, h + 12), body, blade, actuator, label], { originX: 'center', originY: 'center' });
+  const ports: PortDef[] = [
+    { id: 'in', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_flex', sizeMm: { diameter: diameterMm } },
+    { id: 'out', x: w / 2, y: 0, angleDeg: 0, kind: 'duct_flex', sizeMm: { diameter: diameterMm } },
+  ];
+  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: `zone-motor-${diameterMm}`, plandroidPorts: ports });
+  return group;
+}
+
+/** Advantage Air e-zone controller. Each selected zone is represented by a named, size-matched flex port. */
+export function buildAdvantageAir(zoneCount: number, diameterMm: number, style: IconStyle = DEFAULT_STYLE): Group {
+  const w = 116;
+  const h = 64;
+  const body = new Rect({ left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center', fill: '#102a43', stroke: '#38bdf8', strokeWidth: 1.5, rx: 6, ry: 6 });
+  const screen = new Rect({ left: -16, top: 3, width: 42, height: 28, originX: 'center', originY: 'center', fill: '#0f766e', stroke: '#5eead4', strokeWidth: 1, rx: 2, ry: 2 });
+  const children: FabricObject[] = [footprint(w + 12, h + 28), body, screen, new FabricText('ADVANTAGE\nAIR', { left: 28, top: -9, fontSize: 9, fontWeight: 'bold', fill: '#e0f2fe', textAlign: 'center', originX: 'center', originY: 'center' }), new FabricText(`${zoneCount} ZONES · Ø${diameterMm}`, { left: 0, top: 26, fontSize: 7, fill: '#bae6fd', originX: 'center', originY: 'center' })];
+  const ports: PortDef[] = [];
+  const spacing = w / (zoneCount + 1);
+  for (let index = 0; index < zoneCount; index++) {
+    const x = -w / 2 + spacing * (index + 1);
+    children.push(new Circle({ left: x, top: h / 2 + 7, radius: 3.5, originX: 'center', originY: 'center', fill: style === 'professional' ? '#5eead4' : '#38bdf8', stroke: 'transparent' }));
+    ports.push({ id: `zone-${index + 1}`, x, y: h / 2 + 10, angleDeg: 90, kind: 'duct_flex', sizeMm: { diameter: diameterMm } });
+  }
+  const group = new Group(children, { originX: 'center', originY: 'center' });
+  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: `advantage-air-${zoneCount}z-${diameterMm}`, plandroidPorts: ports });
+  return group;
+}
+
 /** Y-piece / wye branch fitting — three duct legs from a single junction: in, straight-through, and an angled branch. */
 export function buildWye(style: IconStyle = DEFAULT_STYLE): Group {
   const legLen = 36;
