@@ -48,7 +48,7 @@ export function exportDrawingToPdf(params: ExportDrawingParams): jsPDF {
     ? requestedScale
     : chooseFitScale(realWidthMm, realHeightMm, layout.drawingArea);
 
-  const pxToMm = 1 / pxPerMm / scaleDenominator;
+  const pxToMm = 1 / pxPerMm / scaleDenominator; // page-mm per canvas-px, at the chosen print scale
   const paperWidthMm = realWidthMm / scaleDenominator;
   const paperHeightMm = realHeightMm / scaleDenominator;
   const offsetX = layout.drawingArea.x + Math.max(0, (layout.drawingArea.width - paperWidthMm) / 2);
@@ -61,6 +61,8 @@ export function exportDrawingToPdf(params: ExportDrawingParams): jsPDF {
     pxToMm,
   };
 
+  // Use explicit dimensions rather than a shorthand page name. This avoids jsPDF's
+  // internal f2 error when a browser or minifier passes an unexpected format value.
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [layout.pageWidthMm, layout.pageHeightMm], putOnlyUsedFonts: true });
 
   doc.setDrawColor(0);
