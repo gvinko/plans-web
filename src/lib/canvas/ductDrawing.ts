@@ -44,6 +44,9 @@ export function attachDuctDrawing(
   const canvas = engine.canvas;
   let startPoint: Vec2 | null = null;
   let previewObj: FabricObject | null = null;
+  // Word-style flex connector: after a flex run is placed its two end controls are
+  // exposed by Fabric. Scaling/dragging reshapes the connector while ports remain
+  // available for snapping to terminals/equipment.
 
   function clearPreview() {
     if (previewObj) {
@@ -111,9 +114,11 @@ export function attachDuctDrawing(
         hasControls: true,
         lockScalingX: false,
         lockScalingY: false,
-        lockRotation: false,
+        lockRotation: true,
         transparentCorners: false,
-        cornerSize: 12,
+        cornerSize: 14,
+        borderDashArray: [5, 4],
+        centeredScaling: false,
       });
       canvas.add(path);
       canvas.setActiveObject(path);
