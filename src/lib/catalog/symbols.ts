@@ -49,83 +49,27 @@ function dashedCenterline(x1: number, y1: number, x2: number, y2: number): Line 
   });
 }
 
-export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
-  const w = 110;
-  const h = 70;
-  const body = new Rect({
-    left: 0,
-    top: -5,
-    width: 100,
-    height: 50,
-    originX: 'center',
-    originY: 'center',
-    fill: '#1e293b',
-    stroke: '#94a3b8',
-    strokeWidth: 1.5,
-    rx: 4,
-    ry: 4,
-  });
-  const fanRing = new Circle({
-    left: -15,
-    top: -5,
-    radius: 14,
-    originX: 'center',
-    originY: 'center',
-    fill: 'transparent',
-    stroke: '#38bdf8',
-    strokeWidth: 1.5,
-  });
-  const label = new FabricText('FCU', { left: 20, top: -5, fontSize: 11, fill: '#e2e8f0', originX: 'center', originY: 'center' });
-
-  const children: FabricObject[] = [footprint(w, h), body, fanRing, label];
-
-  if (style === 'professional') {
-    const casingLiner = new Rect({
-      left: 0,
-      top: -5,
-      width: 92,
-      height: 42,
-      originX: 'center',
-      originY: 'center',
-      fill: 'transparent',
-      stroke: '#475569',
-      strokeWidth: 0.75,
-      strokeDashArray: [3, 2],
-    });
-    // Standard 3-blade fan glyph instead of a plain crosshair.
-    const blades: Line[] = [0, 120, 240].map((deg) => {
-      const rad = (deg * Math.PI) / 180;
-      return new Line([-15, -5, -15 + Math.cos(rad) * 12, -5 + Math.sin(rad) * 12], {
-        stroke: '#38bdf8',
-        strokeWidth: 1.5,
-        originX: 'center',
-        originY: 'center',
-      });
-    });
-    const airflowArrow = new Polygon(
-      [
-        { x: 46, y: -15 },
-        { x: 54, y: -10 },
-        { x: 46, y: -5 },
-      ],
-      { fill: '#38bdf8', stroke: 'transparent', originX: 'center', originY: 'center' },
-    );
-    children.push(casingLiner, ...blades, airflowArrow);
-  } else {
-    children.push(
-      new Line([-25, -5, -5, -5], { stroke: '#38bdf8', strokeWidth: 1.5, originX: 'center', originY: 'center' }),
-      new Line([-15, -15, -15, 5], { stroke: '#38bdf8', strokeWidth: 1.5, originX: 'center', originY: 'center' }),
-    );
-  }
-
-  const group = new Group(children, { originX: 'center', originY: 'center' });
-
+export function buildDuctedIndoorUnit(type: 'Standard Ducted' | 'Slimline' | 'Bulkhead' | 'Underfloor', brand: string, model: string, capacityKw?: number): Group {
+  const dims = type === 'Bulkhead' ? { w: 92, h: 30 } : type === 'Slimline' ? { w: 112, h: 34 } : type === 'Underfloor' ? { w: 105, h: 44 } : { w: 120, h: 46 };
+  const { w, h } = dims;
+  const outline = new Rect({ left:0, top:0, width:w, height:h, originX:'center', originY:'center', fill:'#ffffff', stroke:'#2563eb', strokeWidth:2, rx:2, ry:2 });
+  const coil = new Rect({ left:-w*0.20, top:0, width:w*0.26, height:h-10, originX:'center', originY:'center', fill:'transparent', stroke:'#64748b', strokeWidth:1 });
+  const fan = new Circle({ left:w*0.12, top:0, radius:Math.min(10,h/4), originX:'center', originY:'center', fill:'transparent', stroke:'#2563eb', strokeWidth:1.3 });
+  const divider = new Line([0,-h/2+4,0,h/2-4], { stroke:'#94a3b8', strokeWidth:1 });
+  const typeCode = type === 'Standard Ducted' ? 'DUCTED' : type === 'Slimline' ? 'SLIM' : type === 'Bulkhead' ? 'BULK' : 'UNDER';
+  const label = new FabricText(`${brand}  ${model}`, { left:0, top:h/2+9, fontSize:7, fill:'#0f172a', originX:'center', originY:'center' });
+  const sub = new FabricText(`${typeCode}${capacityKw ? `  ${capacityKw}kW` : ''}`, { left:0, top:-h/2-7, fontSize:6, fill:'#475569', originX:'center', originY:'center' });
+  const group = new Group([footprint(w+16,h+30),outline,coil,fan,divider,label,sub], { originX:'center', originY:'center' });
   const ports: PortDef[] = [
-    { id: 'supply', x: 50, y: -15, angleDeg: 0, kind: 'duct_rect', sizeMm: { width: 300, depth: 200 } },
-    { id: 'return', x: 50, y: 15, angleDeg: 0, kind: 'duct_rect', sizeMm: { width: 300, depth: 200 } },
+    { id:'return', x:-w/2, y:0, angleDeg:180, kind:'duct_rect', sizeMm:{width:400,depth:250} },
+    { id:'supply', x:w/2, y:0, angleDeg:0, kind:'duct_rect', sizeMm:{width:400,depth:250} },
   ];
-  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: 'fan-coil-unit', plandroidPorts: ports });
+  setPlandroidData(group, { plandroidKind:'equipment', plandroidComponentId:`indoor-unit|${type}|${brand}|${model}|${capacityKw ?? ''}`, plandroidPorts:ports });
   return group;
+}
+
+export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
+  return buildDuctedIndoorUnit('Standard Ducted', 'Generic', 'FCU');
 }
 
 export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: IconStyle = DEFAULT_STYLE): Group {
