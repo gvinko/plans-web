@@ -7,7 +7,6 @@ import {
   setBackgroundImage,
   setSketchOverlay,
   setSketchOpacity,
-  setIconStyle,
 } from '../db/repository';
 import { CanvasEngine, type CalibrationPoint, type ToolMode } from '../lib/canvas/CanvasEngine';
 import type { IconStyle } from '../lib/catalog/types';
@@ -43,7 +42,6 @@ import ExportDialog from './ExportDialog';
 
 const DEFAULT_DUCT_PARAMS: DuctToolParams = { widthMm: 400, depthMm: 250, diameterMm: 200, ductFunction: 'supply' };
 
-const TOOLBAR_MODES: ToolMode[] = ['select', 'pan', 'calibrate', 'duct-rigid', 'duct-flex', 'trace-wall'];
 
 export default function CanvasWorkspace() {
   const { activeProjectId, activePlanPageId, activeTool, setActiveTool, setActiveProject } = useAppStore();
@@ -300,10 +298,6 @@ export default function CanvasWorkspace() {
     handleToolChange('select');
   }
 
-  async function handleToggleIconStyle() {
-    if (!activeProjectId || !project) return;
-    await setIconStyle(activeProjectId, project.iconStyle === 'professional' ? 'simple' : 'professional');
-  }
 
   async function handleCalibrationConfirm(mm: number) {
     if (!pendingCalibration || !activePlanPageId || !engineRef.current) return;
