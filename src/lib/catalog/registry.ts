@@ -11,6 +11,7 @@ import {
   buildBranchDamper,
   buildBto,
   buildZoneMotor,
+  buildWallSensor,
 } from './symbols';
 import type { ComponentDef } from './types';
 
@@ -49,6 +50,7 @@ export const CATALOG: ComponentDef[] = [
     label: `${size.split('/').length === 4 ? 'DBTO' : 'BTO'} — ${size}`,
     build: (style: Parameters<typeof buildBto>[1]) => buildBto(size, style),
   })),
+  { id: 'wall-sensor', category: 'equipment', label: 'Wall Sensor', build: (style) => buildWallSensor(style) },
   ...ZONE_MOTOR_SIZES.map(({ mm, inch }) => ({
     id: `zone-motor-${mm}`,
     category: 'equipment' as const,
