@@ -378,20 +378,27 @@ export default function CanvasWorkspace() {
         >
           Copy
         </button>
-        <button
-          onClick={() => engineRef.current?.toggleSelectionLock()}
-          title="Lock or unlock selected components (L)"
-          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
-        >
-          Lock selection
+        <button onClick={() => engineRef.current?.setSelectionLocked(true)}
+          title="Lock selected component in place (L)"
+          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700">
+          🔒 Lock
         </button>
-        <button
-          onClick={() => engineRef.current?.toggleSelectionDarkness()}
-          title="Toggle darker selected components (D)"
-          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
-        >
-          Darken selection
+        <button onClick={() => engineRef.current?.setSelectionLocked(false)}
+          title="Unlock selected component"
+          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700">
+          🔓 Unlock
         </button>
+        <button onClick={() => engineRef.current?.toggleSelectionDarkness()}
+          title="Make selected component darker/lighter (D)"
+          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700">
+          ◐ Dark / Light
+        </button>
+        <label className="text-xs px-2 py-1 rounded bg-slate-800 flex items-center gap-1" title="Selected item visibility">
+          Visibility
+          <input type="range" min="20" max="100" defaultValue="100"
+            onChange={(e) => engineRef.current?.setSelectionOpacity(Number(e.target.value) / 100)}
+            className="w-20" />
+        </label>
         <button
           className={`text-xs px-2.5 py-1 rounded ${showPalette ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'}`}
           onClick={() => setShowPalette((v) => !v)}
@@ -452,7 +459,7 @@ export default function CanvasWorkspace() {
         />
         <div className="flex-1" />
         {isDuctTool && !scalePxPerMm && (
-          <span className="text-xs text-amber-400">Calibrate the plan before drawing duct</span>
+          <span className="text-xs text-amber-400">Sketch mode — calibrate later for accurate duct sizes</span>
         )}
         <span className="text-xs font-mono text-slate-400">
           {scalePxPerMm ? `${scalePxPerMm.toFixed(4)} px/mm` : 'Not calibrated'}
