@@ -8,6 +8,8 @@ import type { CanvasEngine } from './CanvasEngine';
 import type { IconStyle } from '../catalog/types';
 import { nextScheduleTag } from './scheduleTags';
 import { cfmToLs } from '../units';
+import { buildDuctedIndoorUnit } from '../catalog/symbols';
+import type { UnitType } from '../catalog/unitModels';
 
 /** Active only while toolMode is 'place-component'. Handles both the built-in catalog (sync)
  * and imported price-book items (one Dexie lookup, since only their id is known synchronously). */
@@ -28,7 +30,10 @@ export function attachComponentPlacement(
     const style = getIconStyle();
 
     const builtIn = CATALOG.find((c) => c.id === componentId);
-    const obj = builtIn ? builtIn.build(style) : await buildFromImported(componentId, style);
+    const unitParts = componentId.startsWith('indoor-unit|') ? componentId.split('|') : null;
+    const obj = unitParts
+      ? buildDuctedIndoorUnit(unitParts[1] as UnitType, unitParts[2], unitParts[3], unitParts[4] ? Number(unitParts[4]) : undefined)
+      : builtIn ? builtIn.build(style) : await buildFromImported(componentId, style);
     if (!obj) return;
 
     obj.set({ left: pointer.x, top: pointer.y });
@@ -37,7 +42,7 @@ export function attachComponentPlacement(
     // Only equipment/terminal placements get schedule tags — fittings (elbows, couplings) aren't scheduled items.
     const data = getPlandroidData(obj);
     if (data && (data.plandroidKind === 'equipment' || data.plandroidKind === 'terminal')) {
-      const label = builtIn?.label ?? data.plandroidImportedMeta?.itemName ?? componentId;
+      const label = unitParts ? `${unitParts[2]} ${unitParts[3]}` : builtIn?.label ?? data.plandroidImportedMeta?.itemName ?? componentId;
       const tag = nextScheduleTag(canvas, componentId, label);
       const importedAirflow = data.plandroidImportedMeta;
       const airflowLs =
