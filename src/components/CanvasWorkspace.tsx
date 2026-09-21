@@ -56,6 +56,7 @@ export default function CanvasWorkspace() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [zoomPct, setZoomPct] = useState(100);
+  const [activeRibbon, setActiveRibbon] = useState<'PLAN'|'HVAC'|'DUCT'|'FITTINGS'|'OUTLETS'|'CONTROLS'|'NOTES'|'EXPORT'>('HVAC');
   const [isDragOver, setIsDragOver] = useState(false);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -347,124 +348,47 @@ export default function CanvasWorkspace() {
 
   return (
     <div className="h-full flex flex-col">
-      <header className="flex items-center gap-3 px-4 py-2 border-b border-slate-700 flex-wrap">
-        <button className="text-xs text-slate-400 hover:text-slate-200" onClick={() => setActiveProject(null)}>
-          ← Projects
-        </button>
-        <div className="flex items-center gap-1 ml-2">
-          {TOOLBAR_MODES.map((mode) => (
-            <button
-              key={mode}
-              onClick={() => handleToolChange(mode)}
-              className={`text-xs px-2.5 py-1 rounded capitalize ${
-                activeTool === mode ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'
-              }`}
-            >
-              {mode.replace('-', ' ')}
-            </button>
+      <header className="border-b border-slate-700 bg-slate-950">
+        <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto">
+          <button className="text-xs text-slate-400 hover:text-slate-200 shrink-0" onClick={() => setActiveProject(null)}>← Projects</button>
+          {(['PLAN','HVAC','DUCT','FITTINGS','OUTLETS','CONTROLS','NOTES','EXPORT'] as const).map((tab) => (
+            <button key={tab} onClick={() => setActiveRibbon(tab)}
+              className={`text-xs font-semibold px-3 py-1.5 rounded shrink-0 ${activeRibbon===tab?'bg-sky-600':'bg-slate-800 hover:bg-slate-700'}`}>{tab}</button>
           ))}
+          <div className="flex-1" />
+          <span className="text-xs font-mono text-slate-400 shrink-0">{zoomPct}%</span>
         </div>
-        <button
-          onClick={() => engineRef.current?.undo()}
-          title="Undo last add (Ctrl+Z)"
-          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
-        >
-          Undo
-        </button>
-        <button
-          onClick={() => engineRef.current?.duplicateSelection()}
-          title="Duplicate selection (Ctrl+C then Ctrl+V also works)"
-          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
-        >
-          Copy
-        </button>
-        <button onClick={() => engineRef.current?.setSelectionLocked(true)}
-          title="Lock selected component in place (L)"
-          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700">
-          🔒 Lock
-        </button>
-        <button onClick={() => engineRef.current?.setSelectionLocked(false)}
-          title="Unlock selected component"
-          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700">
-          🔓 Unlock
-        </button>
-        <button onClick={() => engineRef.current?.toggleSelectionDarkness()}
-          title="Make selected component darker/lighter (D)"
-          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700">
-          ◐ Dark / Light
-        </button>
-        <label className="text-xs px-2 py-1 rounded bg-slate-800 flex items-center gap-1" title="Darken selected component">
-          Darkness
-          <input type="range" min="0" max="100" defaultValue="0"
-            onChange={(e) => engineRef.current?.setSelectionDarknessLevel(Number(e.target.value))}
-            className="w-24" />
-        </label>
-        <button
-          className={`text-xs px-2.5 py-1 rounded ${showPalette ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'}`}
-          onClick={() => setShowPalette((v) => !v)}
-        >
-          Components
-        </button>
-        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowBom(true)}>
-          BOM &amp; Costing
-        </button>
-        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowSchedule(true)}>
-          Schedule
-        </button>
-        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowDuctColors(true)}>
-          Duct Colours
-        </button>
-        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowZonesManager(true)}>
-          Zones
-        </button>
-        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowImporter(true)}>
-          Import Catalog
-        </button>
-        <button
-          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
-          onClick={handleToggleIconStyle}
-          title="Switch between simple schematic icons and closer-to-standard MEP drafting symbols"
-        >
-          Icons: {project?.iconStyle === 'professional' ? 'Professional' : 'Simple'}
-        </button>
-        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowCompanySettings(true)}>
-          Company Info
-        </button>
-        <button className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700" onClick={() => setShowExport(true)}>
-          Export PDF
-        </button>
-        <button
-          className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          Upload Floor Plan
-        </button>
-        <button
-          className={`text-xs px-2.5 py-1 rounded ${isPlanEditing ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700'}`}
-          onClick={handlePlanEditToggle}
-          title="Move or resize the imported plan, then lock it again before drawing"
-        >
-          {isPlanEditing ? 'Lock Plan' : 'Move / Resize Plan'}
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp,application/pdf"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleFileLoad(file);
-            e.target.value = '';
-          }}
-        />
-        <div className="flex-1" />
-        {isDuctTool && !scalePxPerMm && (
-          <span className="text-xs text-amber-400">Sketch mode — calibrate later for accurate duct sizes</span>
-        )}
-        <span className="text-xs font-mono text-slate-400">
-          {scalePxPerMm ? `${scalePxPerMm.toFixed(4)} px/mm` : 'Not calibrated'}
-        </span>
-        <span className="text-xs font-mono text-slate-400">{zoomPct}%</span>
+        <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-800 overflow-x-auto">
+          <button onClick={() => handleToolChange('select')} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Select</button>
+          <button onClick={() => engineRef.current?.undo()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Undo</button>
+          <button onClick={() => engineRef.current?.duplicateSelection()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Copy</button>
+          <button onClick={() => engineRef.current?.setSelectionLocked(true)} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">🔒 Lock</button>
+          <button onClick={() => engineRef.current?.setSelectionLocked(false)} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">🔓 Unlock</button>
+          <label className="text-xs px-2 py-1 rounded bg-slate-800 flex items-center gap-1 shrink-0">Darkness
+            <input type="range" min="0" max="100" defaultValue="0" onChange={(e)=>engineRef.current?.setSelectionDarknessLevel(Number(e.target.value))} className="w-20"/>
+          </label>
+          {activeRibbon==='PLAN' && <>
+            <button onClick={()=>fileInputRef.current?.click()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Upload Plan</button>
+            <button onClick={()=>handleToolChange('calibrate')} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Calibrate</button>
+            <button onClick={handlePlanEditToggle} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">{isPlanEditing?'Lock Plan':'Move / Resize Plan'}</button>
+          </>}
+          {activeRibbon==='HVAC' && <button onClick={()=>setShowPalette(true)} className="text-xs px-2.5 py-1 rounded bg-sky-700 shrink-0">Indoor / Outdoor Units</button>}
+          {activeRibbon==='DUCT' && <>
+            <button onClick={()=>handleToolChange('duct-rigid')} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Rigid Duct</button>
+            <button onClick={()=>handleToolChange('duct-flex')} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Flex Connector</button>
+            <button onClick={()=>setShowDuctColors(true)} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Colours</button>
+          </>}
+          {(activeRibbon==='FITTINGS'||activeRibbon==='OUTLETS'||activeRibbon==='CONTROLS') && <button onClick={()=>setShowPalette(true)} className="text-xs px-2.5 py-1 rounded bg-sky-700 shrink-0">Components</button>}
+          {activeRibbon==='CONTROLS' && <button onClick={()=>setShowZonesManager(true)} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Zones</button>}
+          {activeRibbon==='EXPORT' && <>
+            <button onClick={()=>setShowSchedule(true)} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Schedule</button>
+            <button onClick={()=>setShowBom(true)} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">BOM & Costing</button>
+            <button onClick={()=>setShowExport(true)} className="text-xs px-2.5 py-1 rounded bg-sky-700 shrink-0">Export PDF</button>
+          </>}
+          {isDuctTool&&!scalePxPerMm&&<span className="text-xs text-amber-400 shrink-0">Sketch mode</span>}
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden"
+            onChange={(e)=>{const file=e.target.files?.[0]; if(file) handleFileLoad(file); e.target.value='';}}/>
+        </div>
       </header>
 
       <div className="flex flex-1 min-h-0">
