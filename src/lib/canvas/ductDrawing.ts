@@ -77,8 +77,9 @@ export function attachDuctDrawing(
     const mode = resetIfToolChanged();
     if (mode !== 'duct-rigid' && mode !== 'duct-flex') return;
 
-    const pxPerMm = getPxPerMm();
-    if (!pxPerMm) return; // duct dimensions are only meaningful once the plan is calibrated
+    // Allow duct sketching before calibration so site plans can be drawn immediately.
+    // Once calibrated, the real px/mm scale is used; before that we use a sensible visual sketch scale.
+    const pxPerMm = getPxPerMm() ?? 0.1;
 
     const point = resolveClickPoint(canvas.getPointer(opt.e), mode);
 
@@ -114,8 +115,7 @@ export function attachDuctDrawing(
   function onMouseMove(opt: TPointerEventInfo<TPointerEvent>) {
     const mode = resetIfToolChanged();
     if ((mode !== 'duct-rigid' && mode !== 'duct-flex') || !startPoint) return;
-    const pxPerMm = getPxPerMm();
-    if (!pxPerMm) return;
+    const pxPerMm = getPxPerMm() ?? 0.1;
 
     const point = resolveClickPoint(canvas.getPointer(opt.e), mode);
     const params = getParams();
