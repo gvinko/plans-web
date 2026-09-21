@@ -103,7 +103,20 @@ export function attachDuctDrawing(
       const color = resolveRoundDuctColor(params.diameterMm, overrides, DEFAULT_FLEX_COLOR);
       const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
       setPlandroidId(path, nanoid());
+      // Flex is intentionally editable after placement: drag it, stretch it from its
+      // end/side handles, or snap either end to a compatible flex connection.
+      path.set({
+        selectable: true,
+        evented: true,
+        hasControls: true,
+        lockScalingX: false,
+        lockScalingY: false,
+        lockRotation: false,
+        transparentCorners: false,
+        cornerSize: 12,
+      });
       canvas.add(path);
+      canvas.setActiveObject(path);
       engine.recordUndoGroup([path]);
     }
     clearPreview();
