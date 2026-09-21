@@ -10,7 +10,7 @@ export async function createProject(name: string, designer = ''): Promise<Projec
     designer,
     client: '',
     unitSystem: 'metric',
-    iconStyle: 'simple',
+    iconStyle: 'professional',
     ductColorOverrides: {},
     createdAt: now,
     updatedAt: now,
