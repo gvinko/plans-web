@@ -249,6 +249,25 @@ export class CanvasEngine {
     this.canvas.requestRenderAll();
   }
 
+  /** Darkness is implemented as a practical black overlay amount via opacity.
+   * 0 = normal, 100 = strongest/darkest. Works for components and duct alike. */
+  setSelectionDarknessLevel(level: number): void {
+    const selected = this.canvas.getActiveObjects();
+    const opacity = 1 - Math.max(0, Math.min(100, level)) * 0.006;
+    selected.forEach((object) => {
+      const parts = this.getPaintParts(object);
+      parts.forEach((part) => {
+        const fill = part.fill;
+        const stroke = part.stroke;
+        if (typeof fill === 'string' && fill.startsWith('#')) part.set({ fill: this.mixTowardBlack(fill, level / 100) });
+        if (typeof stroke === 'string' && stroke.startsWith('#')) part.set({ stroke: this.mixTowardBlack(stroke, level / 100) });
+      });
+      object.set({ opacity: Math.max(0.55, opacity) });
+      object.dirty = true;
+    });
+    this.canvas.requestRenderAll();
+  }
+
   /** Toggles a darker drafting display for selected placed components. */
   toggleSelectionDarkness(): void {
     const selected = this.canvas.getActiveObjects();
@@ -430,6 +449,14 @@ export class CanvasEngine {
   private getPaintParts(object: FabricObject): FabricObject[] {
     const group = object as FabricObject & { getObjects?: () => FabricObject[] };
     return group.getObjects?.() ?? [object];
+  }
+
+  private mixTowardBlack(value: string, amount: number): string {
+    const raw = value.slice(1);
+    const hex = raw.length === 3 ? raw.split('').map((char) => char + char).join('') : raw.slice(0, 6);
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return value;
+    const factor = 1 - Math.max(0, Math.min(1, amount)) * 0.8;
+    return '#' + [0, 2, 4].map((o) => Math.round(parseInt(hex.slice(o, o + 2), 16) * factor).toString(16).padStart(2, '0')).join('');
   }
 
   private darkenPaint(value: unknown): unknown {
