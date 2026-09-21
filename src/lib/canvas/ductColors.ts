@@ -15,10 +15,10 @@ export const DEFAULT_FLEX_COLOR = '#9ca3af';
 export const ROUND_DUCT_PRESETS: RoundSizePreset[] = [
   { inch: 8, mm: 200, color: '#38bdf8' },
   { inch: 10, mm: 250, color: '#34d399' },
-  { inch: 12, mm: 300, color: '#f59e0b' },
-  { inch: 14, mm: 350, color: '#f472b6' },
-  { inch: 16, mm: 400, color: '#a78bfa' },
-  { inch: 18, mm: 450, color: '#fb7185' },
+  { inch: 12, mm: 300, color: '#facc15' },
+  { inch: 14, mm: 350, color: '#a855f7' },
+  { inch: 16, mm: 400, color: '#f97316' },
+  { inch: 18, mm: 450, color: '#ec4899' },
 ];
 
 const NOMINAL_TOLERANCE_MM = 15;
