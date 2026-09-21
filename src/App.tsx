@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { db } from './db';
 import type { PlanPage } from './db/schema';
-import { createProject, createPlanPage } from './db/repository';
+import { createProject, createPlanPage, deleteProjectCascade } from './db/repository';
 import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
@@ -11,6 +11,9 @@ export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
   const projects = useLiveQuery(() => db.projects.orderBy('updatedAt').reverse().toArray(), []);
   const { activeProjectId, activePlanPageId, setActiveProject, setActivePlanPage } = useAppStore();
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [suburb, setSuburb] = useState('');
 
   const pagesForActiveProject = useLiveQuery(
     () =>
@@ -49,22 +52,33 @@ export default function App() {
       </header>
 
       <main className="flex-1 p-4">
+        {showNewProject && (
+          <div className="mb-4 max-w-md rounded border border-slate-700 bg-slate-900 p-4">
+            <h2 className="text-sm font-semibold mb-3">New Project</h2>
+            <div className="grid gap-2">
+              <input autoFocus value={customerName} onChange={(e)=>setCustomerName(e.target.value)} placeholder="Customer name *" className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+              <input value={suburb} onChange={(e)=>setSuburb(e.target.value)} placeholder="Suburb *" className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+              <div className="flex gap-2">
+                <button disabled={!customerName.trim() || !suburb.trim()} onClick={async()=>{const p=await createProject(`${customerName.trim()} — ${suburb.trim()}`); setShowNewProject(false); setCustomerName(''); setSuburb(''); setActiveProject(p.id);}} className="bg-sky-600 disabled:opacity-40 px-3 py-1.5 rounded text-sm">Create Project</button>
+                <button onClick={()=>setShowNewProject(false)} className="bg-slate-700 px-3 py-1.5 rounded text-sm">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
         <button
           className="bg-sky-600 hover:bg-sky-500 px-3 py-1.5 rounded text-sm"
-          onClick={() => createProject(`Untitled Project ${(projects?.length ?? 0) + 1}`)}
+          onClick={() => setShowNewProject(true)}
         >
           + New Project
         </button>
 
         <ul className="mt-4 space-y-1">
           {projects?.map((p) => (
-            <li key={p.id}>
-              <button
-                className="font-mono text-sm text-slate-300 hover:text-sky-400"
-                onClick={() => setActiveProject(p.id)}
-              >
+            <li key={p.id} className="flex items-center justify-between gap-3 rounded bg-slate-900 px-3 py-2">
+              <button className="font-mono text-sm text-slate-300 hover:text-sky-400 text-left flex-1" onClick={() => setActiveProject(p.id)}>
                 {p.name} — rev {p.revision}
               </button>
+              <button className="text-xs text-red-400 hover:text-red-300 px-2 py-1" onClick={async()=>{if(window.confirm(`Delete "${p.name}"? This permanently deletes its saved plans and drawings.`)) await deleteProjectCascade(p.id);}}>Delete</button>
             </li>
           ))}
         </ul>
