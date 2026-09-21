@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { CATALOG } from '../lib/catalog/registry';
 import type { ComponentCategory } from '../lib/catalog/types';
+import { UNIT_MODELS, UNIT_TYPES, type UnitType } from '../lib/catalog/unitModels';
 
 interface ComponentPaletteProps {
   pendingComponentId: string | null;
@@ -19,6 +21,10 @@ export default function ComponentPalette({ pendingComponentId, onSelect, onCance
   const categories: ComponentCategory[] = ['equipment', 'fitting', 'terminal'];
   const importedEquipment = useLiveQuery(() => db.equipmentCatalog.toArray(), []);
   const importedFittings = useLiveQuery(() => db.fittingsCatalog.toArray(), []);
+  const [unitType, setUnitType] = useState<UnitType | ''>('');
+  const [brand, setBrand] = useState('');
+  const brands = unitType ? [...new Set(UNIT_MODELS.filter(u => u.type === unitType).map(u => u.brand))] : [];
+  const models = unitType && brand ? UNIT_MODELS.filter(u => u.type === unitType && u.brand === brand) : [];
 
   return (
     <aside className="w-56 shrink-0 border-l border-slate-700 bg-slate-900 flex flex-col overflow-y-auto">
@@ -29,6 +35,17 @@ export default function ComponentPalette({ pendingComponentId, onSelect, onCance
             Cancel
           </button>
         )}
+      </div>
+
+      <div className="px-3 py-3 border-b border-slate-700">
+        <h3 className="text-[10px] uppercase tracking-wide text-sky-400 mb-2">Indoor Unit — choose type, brand & model</h3>
+        <select value={unitType} onChange={(e)=>{setUnitType(e.target.value as UnitType);setBrand('');}} className="w-full mb-2 bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs">
+          <option value="">1. Unit type…</option>{UNIT_TYPES.map(t=><option key={t}>{t}</option>)}
+        </select>
+        {unitType && <select value={brand} onChange={(e)=>setBrand(e.target.value)} className="w-full mb-2 bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs">
+          <option value="">2. Brand…</option>{brands.map(b=><option key={b}>{b}</option>)}
+        </select>}
+        {brand && <div className="max-h-48 overflow-y-auto space-y-1">{models.map(u=><button key={u.model} onClick={()=>onSelect(`indoor-unit|${u.type}|${u.brand}|${u.model}|${u.capacityKw ?? ''}`)} className="w-full text-left text-xs px-2 py-1.5 rounded bg-sky-900 hover:bg-sky-800">{u.model}{u.capacityKw ? ` — ${u.capacityKw}kW` : ''}</button>)}</div>}
       </div>
 
       {categories.map((cat) => (
