@@ -546,3 +546,33 @@ export function buildElbow(bendDeg: 90 | 45, style: IconStyle = DEFAULT_STYLE): 
   });
   return group;
 }
+
+export function buildOutdoorUnit(fans: 1 | 2): Group {
+  const w = fans === 1 ? 64 : 100, h = 52;
+  const body = new Rect({left:0,top:0,width:w,height:h,originX:'center',originY:'center',fill:'#f8fafc',stroke:'#334155',strokeWidth:1.5,rx:3,ry:3});
+  const children: FabricObject[]=[footprint(w+10,h+10),body];
+  const xs=fans===1?[0]:[-25,25];
+  xs.forEach(x=>{children.push(new Circle({left:x,top:0,radius:17,originX:'center',originY:'center',fill:'transparent',stroke:'#475569',strokeWidth:1.2})); [0,120,240].forEach(d=>{const r=d*Math.PI/180;children.push(new Line([x,0,x+Math.cos(r)*14,Math.sin(r)*14],{stroke:'#475569',strokeWidth:1,originX:'center',originY:'center'}));});});
+  const g=new Group(children,{originX:'center',originY:'center'});
+  setPlandroidData(g,{plandroidKind:'equipment',plandroidComponentId:`condenser-${fans}fan`,plandroidPorts:[{id:'pipe',x:w/2,y:0,angleDeg:0,kind:'duct_round',sizeMm:{diameter:20}}]}); return g;
+}
+export function buildRoomIndoorUnit(kind:'split'|'cassette'|'ceiling-console'|'floor-console'): Group {
+  const square=kind==='cassette'; const w=square?52:kind==='split'?82:68; const h=square?52:kind==='floor-console'?34:26;
+  const body=new Rect({left:0,top:0,width:w,height:h,originX:'center',originY:'center',fill:'#f8fafc',stroke:'#334155',strokeWidth:1.5,rx:3,ry:3});
+  const children: FabricObject[]=[footprint(w+10,h+10),body];
+  if(square){children.push(new Line([-20,-20,20,20],{stroke:'#64748b',strokeWidth:1}),new Line([-20,20,20,-20],{stroke:'#64748b',strokeWidth:1}));}
+  else for(let y=-5;y<=5;y+=5) children.push(new Line([-w/2+8,y,w/2-8,y],{stroke:'#64748b',strokeWidth:.8}));
+  const g=new Group(children,{originX:'center',originY:'center'});
+  setPlandroidData(g,{plandroidKind:'equipment',plandroidComponentId:`indoor-${kind}`,plandroidPorts:[]}); return g;
+}
+export function buildWallControl(kind:'controller'|'sensor'): Group {
+  const body=new Rect({left:0,top:0,width:30,height:22,originX:'center',originY:'center',fill:'#fff',stroke:'#334155',strokeWidth:1.5,rx:2,ry:2});
+  const label=new FabricText(kind==='controller'?'WC':'TEMP',{left:0,top:0,fontSize:7,fontWeight:'bold',fill:'#0f172a',originX:'center',originY:'center'});
+  const g=new Group([footprint(36,28),body,label],{originX:'center',originY:'center'}); setPlandroidData(g,{plandroidKind:'equipment',plandroidComponentId:`wall-${kind}`,plandroidPorts:[]}); return g;
+}
+export function buildPipeDrain(kind:'pipes'|'drain'): Group {
+  const children: FabricObject[]=[footprint(100,20)];
+  if(kind==='pipes'){children.push(new Line([-45,-3,45,-3],{stroke:'#dc2626',strokeWidth:2}),new Line([-45,3,45,3],{stroke:'#f97316',strokeWidth:2}));}
+  else children.push(new Line([-45,0,45,0],{stroke:'#16a34a',strokeWidth:2,strokeDashArray:[7,5]}));
+  const g=new Group(children,{originX:'center',originY:'center'}); setPlandroidData(g,{plandroidKind:'equipment',plandroidComponentId:kind,plandroidPorts:[]}); return g;
+}
