@@ -441,22 +441,14 @@ export function buildZoneMotor(diameterMm: number, style: IconStyle = DEFAULT_ST
   return group;
 }
 
-/** Advantage Air e-zone controller. Each selected zone is represented by a named, size-matched flex port. */
-export function buildAdvantageAir(zoneCount: number, diameterMm: number, style: IconStyle = DEFAULT_STYLE): Group {
-  const w = 116;
-  const h = 64;
-  const body = new Rect({ left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center', fill: '#102a43', stroke: '#38bdf8', strokeWidth: 1.5, rx: 6, ry: 6 });
-  const screen = new Rect({ left: -16, top: 3, width: 42, height: 28, originX: 'center', originY: 'center', fill: '#0f766e', stroke: '#5eead4', strokeWidth: 1, rx: 2, ry: 2 });
-  const children: FabricObject[] = [footprint(w + 12, h + 28), body, screen, new FabricText('ADVANTAGE\nAIR', { left: 28, top: -9, fontSize: 9, fontWeight: 'bold', fill: '#e0f2fe', textAlign: 'center', originX: 'center', originY: 'center' }), new FabricText(`${zoneCount} ZONES · Ø${diameterMm}`, { left: 0, top: 26, fontSize: 7, fill: '#bae6fd', originX: 'center', originY: 'center' })];
-  const ports: PortDef[] = [];
-  const spacing = w / (zoneCount + 1);
-  for (let index = 0; index < zoneCount; index++) {
-    const x = -w / 2 + spacing * (index + 1);
-    children.push(new Circle({ left: x, top: h / 2 + 7, radius: 3.5, originX: 'center', originY: 'center', fill: style === 'professional' ? '#5eead4' : '#38bdf8', stroke: 'transparent' }));
-    ports.push({ id: `zone-${index + 1}`, x, y: h / 2 + 10, angleDeg: 90, kind: 'duct_flex', sizeMm: { diameter: diameterMm } });
-  }
-  const group = new Group(children, { originX: 'center', originY: 'center' });
-  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: `advantage-air-${zoneCount}z-${diameterMm}`, plandroidPorts: ports });
+/** Small wall temperature / zone sensor symbol for plan placement. */
+export function buildWallSensor(style: IconStyle = DEFAULT_STYLE): Group {
+  const accent = style === 'professional' ? '#93c5fd' : '#60a5fa';
+  const body = new Rect({ left: 0, top: 0, width: 24, height: 24, originX: 'center', originY: 'center', fill: '#f8fafc', stroke: accent, strokeWidth: 1.5, rx: 3, ry: 3 });
+  const dot = new Circle({ left: 0, top: -3, radius: 2.5, originX: 'center', originY: 'center', fill: accent, stroke: 'transparent' });
+  const label = new FabricText('WS', { left: 0, top: 6, fontSize: 7, fontWeight: 'bold', fill: '#1e3a8a', originX: 'center', originY: 'center' });
+  const group = new Group([footprint(34, 34), body, dot, label], { originX: 'center', originY: 'center' });
+  setPlandroidData(group, { plandroidKind: 'equipment', plandroidComponentId: 'wall-sensor', plandroidPorts: [] });
   return group;
 }
 
