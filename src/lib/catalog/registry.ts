@@ -12,6 +12,10 @@ import {
   buildBto,
   buildZoneMotor,
   buildWallSensor,
+  buildOutdoorUnit,
+  buildRoomIndoorUnit,
+  buildWallControl,
+  buildPipeDrain,
 } from './symbols';
 import type { ComponentDef } from './types';
 
@@ -26,8 +30,13 @@ const ZONE_MOTOR_SIZES = [
 ];
 
 export const CATALOG: ComponentDef[] = [
-  { id: 'fan-coil-unit', category: 'equipment', label: 'Fan Coil Unit', build: (style) => buildFanCoilUnit(style) },
-  { id: 'condenser', category: 'equipment', label: 'Condenser (Outdoor Unit)', build: (style) => buildCondenser(style) },
+  { id: 'fan-coil-unit', category: 'equipment', label: 'Ducted Indoor Unit', build: (style) => buildFanCoilUnit(style) },
+  { id: 'condenser-1fan', category: 'equipment', label: 'Outdoor — Single Fan (Top View)', build: () => buildOutdoorUnit(1) },
+  { id: 'condenser-2fan', category: 'equipment', label: 'Outdoor — Double Fan (Top View)', build: () => buildOutdoorUnit(2) },
+  { id: 'indoor-split', category: 'equipment', label: 'Split Indoor Head (Top View)', build: () => buildRoomIndoorUnit('split') },
+  { id: 'indoor-cassette', category: 'equipment', label: 'Cassette Indoor (Top View)', build: () => buildRoomIndoorUnit('cassette') },
+  { id: 'indoor-ceiling-console', category: 'equipment', label: 'Ceiling Console (Top View)', build: () => buildRoomIndoorUnit('ceiling-console') },
+  { id: 'indoor-floor-console', category: 'equipment', label: 'Floor Console (Top View)', build: () => buildRoomIndoorUnit('floor-console') },
   { id: 'plenum-supply-2way', category: 'fitting', label: 'Supply Plenum — 2-Way', build: (style) => buildPlenum('supply', 2, style) },
   { id: 'plenum-supply-3way', category: 'fitting', label: 'Supply Plenum — 3-Way', build: (style) => buildPlenum('supply', 3, style) },
   { id: 'plenum-return', category: 'fitting', label: 'Return Plenum', build: (style) => buildPlenum('return', 3, style) },
@@ -50,7 +59,10 @@ export const CATALOG: ComponentDef[] = [
     label: `${size.split('/').length === 4 ? 'DBTO' : 'BTO'} — ${size}`,
     build: (style: Parameters<typeof buildBto>[1]) => buildBto(size, style),
   })),
-  { id: 'wall-sensor', category: 'equipment', label: 'Wall Sensor', build: (style) => buildWallSensor(style) },
+  { id: 'wall-controller', category: 'equipment', label: 'Wall Controller — WC', build: () => buildWallControl('controller') },
+  { id: 'wall-sensor', category: 'equipment', label: 'Wall Sensor — TEMP', build: () => buildWallControl('sensor') },
+  { id: 'refrigerant-pipes', category: 'equipment', label: 'Refrigerant Pipes', build: () => buildPipeDrain('pipes') },
+  { id: 'condensate-drain', category: 'equipment', label: 'Condensate Drain', build: () => buildPipeDrain('drain') },
   ...ZONE_MOTOR_SIZES.map(({ mm, inch }) => ({
     id: `zone-motor-${mm}`,
     category: 'equipment' as const,
