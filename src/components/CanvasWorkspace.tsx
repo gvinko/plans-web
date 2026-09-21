@@ -393,11 +393,11 @@ export default function CanvasWorkspace() {
           className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700">
           ◐ Dark / Light
         </button>
-        <label className="text-xs px-2 py-1 rounded bg-slate-800 flex items-center gap-1" title="Selected item visibility">
-          Visibility
-          <input type="range" min="20" max="100" defaultValue="100"
-            onChange={(e) => engineRef.current?.setSelectionOpacity(Number(e.target.value) / 100)}
-            className="w-20" />
+        <label className="text-xs px-2 py-1 rounded bg-slate-800 flex items-center gap-1" title="Darken selected component">
+          Darkness
+          <input type="range" min="0" max="100" defaultValue="0"
+            onChange={(e) => engineRef.current?.setSelectionDarknessLevel(Number(e.target.value))}
+            className="w-24" />
         </label>
         <button
           className={`text-xs px-2.5 py-1 rounded ${showPalette ? 'bg-sky-600' : 'bg-slate-800 hover:bg-slate-700'}`}
