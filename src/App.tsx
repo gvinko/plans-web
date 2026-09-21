@@ -7,6 +7,9 @@ import { createProject, createPlanPage, deleteProjectCascade } from './db/reposi
 import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
+const PLANDROID_VERSION = '0.3.0';
+const BUILD_ID = '2026-09-22-01';
+
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
   const projects = useLiveQuery(() => db.projects.orderBy('updatedAt').reverse().toArray(), []);
@@ -40,7 +43,7 @@ export default function App() {
   return (
     <div className="h-full flex flex-col">
       <header className="flex items-center justify-between px-4 py-2 border-b border-slate-700">
-        <h1 className="font-mono text-sm tracking-wide">PLANDROID WEB</h1>
+        <h1 className="font-mono text-sm tracking-wide">PLANDROID WEB <span className="text-sky-400">v{PLANDROID_VERSION}</span> <span className="text-slate-500">Build {BUILD_ID}</span></h1>
         <span className="text-xs text-slate-400">
           {offlineReady ? 'Offline ready' : needRefresh ? 'Update available' : 'Loading…'}
         </span>
