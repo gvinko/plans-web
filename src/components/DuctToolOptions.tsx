@@ -1,4 +1,5 @@
 import type { DuctFunction } from '../lib/canvas/ductDrawing';
+import { ROUND_DUCT_PRESETS } from '../lib/canvas/ductColors';
 
 interface DuctToolOptionsProps {
   mode: 'duct-rigid' | 'duct-flex';
@@ -53,18 +54,16 @@ export default function DuctToolOptions({ mode, widthMm, depthMm, diameterMm, du
           <span className="text-slate-500">mm</span>
         </>
       ) : (
-        <label className="flex items-center gap-1">
-          Ø
-          <input
-            type="number"
-            min={50}
-            step={10}
-            value={diameterMm}
-            onChange={(e) => onChange({ widthMm, depthMm, diameterMm: Number(e.target.value), ductFunction })}
-            className="w-16 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5"
-          />
-          <span className="text-slate-500">mm</span>
-        </label>
+        <div className="flex items-center gap-1">
+          <span>Ø</span>
+          {ROUND_DUCT_PRESETS.map((p) => (
+            <button key={p.mm} type="button" title={`${p.mm} mm`} onClick={() => onChange({ widthMm, depthMm, diameterMm: p.mm, ductFunction })}
+              className={`px-2 py-1 rounded border ${diameterMm === p.mm ? 'border-white' : 'border-slate-600'}`}
+              style={{ backgroundColor: p.color, color: p.mm === 300 ? '#111827' : '#fff' }}>
+              {p.mm}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
