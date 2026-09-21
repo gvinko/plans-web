@@ -11,7 +11,6 @@ import {
   buildBranchDamper,
   buildBto,
   buildZoneMotor,
-  buildAdvantageAir,
 } from './symbols';
 import type { ComponentDef } from './types';
 
@@ -56,10 +55,5 @@ export const CATALOG: ComponentDef[] = [
     label: `Zone Motor — Ø${mm} mm (${inch}″)`,
     build: (style: Parameters<typeof buildZoneMotor>[1]) => buildZoneMotor(mm, style),
   })),
-  ...[4, 6, 8].flatMap((zones) => [200, 250, 300].map((diameter) => ({
-    id: `advantage-air-${zones}z-${diameter}`,
-    category: 'equipment' as const,
-    label: `Advantage Air — ${zones} zones Ø${diameter} mm`,
-    build: (style: Parameters<typeof buildAdvantageAir>[2]) => buildAdvantageAir(zones, diameter, style),
-  }))),
+
 ];
