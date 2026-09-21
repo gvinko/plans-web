@@ -227,6 +227,28 @@ export class CanvasEngine {
     this.canvas.requestRenderAll();
   }
 
+  /** Explicitly locks or unlocks the current selection. */
+  setSelectionLocked(locked: boolean): void {
+    const selected = this.canvas.getActiveObjects();
+    selected.forEach((object) => {
+      object.set({
+        lockMovementX: locked, lockMovementY: locked,
+        lockScalingX: locked, lockScalingY: locked, lockRotation: locked,
+      });
+      const data = getPlandroidData(object);
+      if (data) setPlandroidData(object, { ...data, plandroidLocked: locked });
+      object.setCoords();
+    });
+    this.canvas.requestRenderAll();
+  }
+
+  /** Sets opacity for selected drawing objects/components. */
+  setSelectionOpacity(opacity: number): void {
+    const selected = this.canvas.getActiveObjects();
+    selected.forEach((object) => object.set({ opacity: Math.max(0.2, Math.min(1, opacity)) }));
+    this.canvas.requestRenderAll();
+  }
+
   /** Toggles a darker drafting display for selected placed components. */
   toggleSelectionDarkness(): void {
     const selected = this.canvas.getActiveObjects();
