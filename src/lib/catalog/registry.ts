@@ -26,7 +26,7 @@ const BTO_SIZES = [
 ];
 
 const ZONE_MOTOR_SIZES = [
-  { mm: 250, inch: 10 }, { mm: 300, inch: 12 }, { mm: 350, inch: 14 }, { mm: 400, inch: 16 },
+  { mm: 250, inch: 10 }, { mm: 300, inch: 12 }, { mm: 350, inch: 14 }, { mm: 400, inch: 16 }, { mm: 450, inch: 18 },
 ];
 
 export const CATALOG: ComponentDef[] = [
@@ -60,7 +60,7 @@ export const CATALOG: ComponentDef[] = [
     build: (style: Parameters<typeof buildBto>[1]) => buildBto(size, style),
   })),
   { id: 'wall-controller', category: 'equipment', label: 'Wall Controller — WC', build: () => buildWallControl('controller') },
-  { id: 'wall-sensor', category: 'equipment', label: 'Wall Sensor — TEMP', build: () => buildWallControl('sensor') },
+  { id: 'wall-sensor', category: 'equipment', label: 'Wall Sensor — WS', build: () => buildWallControl('sensor') },
   { id: 'refrigerant-pipes', category: 'equipment', label: 'Refrigerant Pipes', build: () => buildPipeDrain('pipes') },
   { id: 'condensate-drain', category: 'equipment', label: 'Condensate Drain', build: () => buildPipeDrain('drain') },
   ...ZONE_MOTOR_SIZES.map(({ mm, inch }) => ({
