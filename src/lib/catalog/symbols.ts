@@ -67,82 +67,38 @@ export function buildFanCoilUnit(_style: IconStyle = DEFAULT_STYLE): Group {
   return buildDuctedIndoorUnit('Standard Ducted', 'Generic', 'FCU');
 }
 
-export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: IconStyle = DEFAULT_STYLE): Group {
-  const w = 140;
-  const h = 50;
-  const body = new Rect({
-    left: 0,
-    top: 0,
-    width: w,
-    height: h,
-    originX: 'center',
-    originY: 'center',
-    fill: kind === 'supply' ? '#0c4a6e' : '#7c2d12',
-    stroke: '#94a3b8',
-    strokeWidth: 1.5,
-  });
-  const label = new FabricText(kind === 'supply' ? 'SUPPLY PLENUM' : 'RETURN PLENUM', {
-    left: 0,
-    top: 0,
-    fontSize: 8,
-    fill: '#e2e8f0',
-    originX: 'center',
-    originY: 'center',
-  });
+export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, _style: IconStyle = DEFAULT_STYLE): Group {
+  const stroke = '#334155';
+  const fill = '#f8fafc';
 
-  const children: FabricObject[] = [footprint(w + 20, h + 20), body, label];
-
-  const ports: PortDef[] = [
-    { id: 'inlet', x: -w / 2, y: 0, angleDeg: 180, kind: 'duct_rect', sizeMm: { width: 400, depth: 250 } },
-  ];
-  const spacing = w / (branchCount + 1);
-  for (let i = 0; i < branchCount; i++) {
-    ports.push({
-      id: `branch-${i}`,
-      x: -w / 2 + spacing * (i + 1),
-      y: h / 2,
-      angleDeg: 90,
-      kind: 'duct_rect',
-      sizeMm: { width: 200, depth: 150 },
-    });
+  if (kind === 'return') {
+    const w = 118;
+    const h = 38;
+    const body = new Rect({ left:0, top:0, width:w, height:h, originX:'center', originY:'center', fill, stroke, strokeWidth:1.6 });
+    const ports: PortDef[] = [
+      { id:'unit', x:-w/2, y:0, angleDeg:180, kind:'duct_rect', sizeMm:{width:400,depth:250} },
+      { id:'return-1', x:15, y:-h/2, angleDeg:-90, kind:'duct_flex', sizeMm:{diameter:350} },
+      { id:'return-2', x:45, y:-h/2, angleDeg:-90, kind:'duct_flex', sizeMm:{diameter:350} },
+    ];
+    const group = new Group([footprint(w+10,h+10), body], { originX:'center', originY:'center' });
+    setPlandroidData(group,{plandroidKind:'fitting',plandroidComponentId:'plenum-return',plandroidPorts:ports});
+    return group;
   }
 
-  if (style === 'professional') {
-    const liner = new Rect({
-      left: 0,
-      top: 0,
-      width: w - 8,
-      height: h - 8,
-      originX: 'center',
-      originY: 'center',
-      fill: 'transparent',
-      stroke: '#475569',
-      strokeWidth: 0.75,
-      strokeDashArray: [3, 2],
-    });
-    // Spigot stubs at each branch — small trapezoids reading as real sheet-metal takeoffs.
-    const spigots = ports.slice(1).map(
-      (p) =>
-        new Polygon(
-          [
-            { x: p.x - 10, y: h / 2 },
-            { x: p.x + 10, y: h / 2 },
-            { x: p.x + 6, y: h / 2 + 12 },
-            { x: p.x - 6, y: h / 2 + 12 },
-          ],
-          { fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1, originX: 'center', originY: 'center' },
-        ),
-    );
-    const inletStub = ductLeg(-w / 2 - 14, 0, -w / 2, 0, 14);
-    children.push(liner, inletStub, ...spigots);
-  }
-
-  const group = new Group(children, { originX: 'center', originY: 'center' });
-  setPlandroidData(group, {
-    plandroidKind: 'fitting',
-    plandroidComponentId: `plenum-${kind}`,
-    plandroidPorts: ports,
-  });
+  const three = branchCount >= 3;
+  const points = three
+    ? [{x:-45,y:-34},{x:0,y:-46},{x:45,y:-34}]
+    : [{x:-38,y:-34},{x:38,y:-34}];
+  const body = new Polygon(
+    three
+      ? [{x:-48,y:20},{x:-48,y:-10},{x:-28,y:-28},{x:0,y:-18},{x:28,y:-28},{x:48,y:-10},{x:48,y:20}]
+      : [{x:-44,y:20},{x:-44,y:-10},{x:-22,y:-28},{x:0,y:-16},{x:22,y:-28},{x:44,y:-10},{x:44,y:20}],
+    { fill, stroke, strokeWidth:1.6, originX:'center', originY:'center' }
+  );
+  const ports: PortDef[] = [{id:'unit',x:0,y:20,angleDeg:90,kind:'duct_rect',sizeMm:{width:400,depth:250}}];
+  points.forEach((p,i)=>ports.push({id:`branch-${i+1}`,x:p.x,y:p.y,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:350}}));
+  const group = new Group([footprint(120,100),body],{originX:'center',originY:'center'});
+  setPlandroidData(group,{plandroidKind:'fitting',plandroidComponentId:`plenum-supply-${branchCount}way`,plandroidPorts:ports});
   return group;
 }
 
