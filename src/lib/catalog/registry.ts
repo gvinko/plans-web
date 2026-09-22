@@ -1,5 +1,4 @@
 import {
-  buildFanCoilUnit,
   buildPlenum,
   buildExactAir,
   buildDiffuser,
@@ -29,7 +28,6 @@ const ZONE_MOTOR_SIZES = [
 ];
 
 export const CATALOG: ComponentDef[] = [
-  { id: 'fan-coil-unit', category: 'equipment', label: 'Ducted Indoor Unit', build: (style) => buildFanCoilUnit(style) },
   { id: 'condenser-1fan', category: 'equipment', label: 'Outdoor — Single Fan (Top View)', build: () => buildOutdoorUnit(1) },
   { id: 'condenser-2fan', category: 'equipment', label: 'Outdoor — Double Fan (Top View)', build: () => buildOutdoorUnit(2) },
   { id: 'indoor-split', category: 'equipment', label: 'Split Indoor Head (Top View)', build: () => buildRoomIndoorUnit('split') },
