@@ -91,6 +91,9 @@ export function attachDuctDrawing(
       return;
     }
 
+    // Flex uses press-drag-release. A second mouse-down should not commit it.
+    if (mode === 'duct-flex') return;
+
     const params = getParams();
     const overrides = getDuctColorOverrides();
     if (mode === 'duct-rigid') {
@@ -156,6 +159,38 @@ export function attachDuctDrawing(
     canvas.requestRenderAll();
   }
 
+
+  function onMouseUp(opt: TPointerEventInfo<TPointerEvent>) {
+    const mode = resetIfToolChanged();
+    if (mode !== 'duct-flex' || !startPoint) return;
+    const pxPerMm = getPxPerMm() ?? 0.1;
+    const point = resolveClickPoint(canvas.getPointer(opt.e), mode);
+    if (Math.hypot(point.x - startPoint.x, point.y - startPoint.y) < 8 / canvas.getZoom()) {
+      clearPreview();
+      startPoint = null;
+      canvas.requestRenderAll();
+      return;
+    }
+    const params = getParams();
+    const overrides = getDuctColorOverrides();
+    const color = resolveRoundDuctColor(params.diameterMm, overrides, DEFAULT_FLEX_COLOR);
+    clearPreview();
+    const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
+    setPlandroidId(path, nanoid());
+    path.set({
+      selectable:true, evented:true, hasControls:true,
+      lockScalingX:false, lockScalingY:false, lockRotation:true,
+      transparentCorners:false, cornerSize:16, borderDashArray:[5,4],
+      centeredScaling:false,
+    });
+    canvas.add(path);
+    canvas.setActiveObject(path);
+    engine.recordUndoGroup([path]);
+    startPoint = null;
+    canvas.requestRenderAll();
+    onSegmentCommitted();
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       startPoint = null;
@@ -166,11 +201,13 @@ export function attachDuctDrawing(
 
   canvas.on('mouse:down', onMouseDown);
   canvas.on('mouse:move', onMouseMove);
+  canvas.on('mouse:up', onMouseUp);
   window.addEventListener('keydown', onKeyDown);
 
   return () => {
     canvas.off('mouse:down', onMouseDown);
     canvas.off('mouse:move', onMouseMove);
+    canvas.off('mouse:up', onMouseUp);
     window.removeEventListener('keydown', onKeyDown);
     clearPreview();
   };
