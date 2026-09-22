@@ -1,6 +1,5 @@
 import {
   buildFanCoilUnit,
-  buildCondenser,
   buildPlenum,
   buildDiffuser,
   buildGrille,
@@ -11,7 +10,6 @@ import {
   buildBranchDamper,
   buildBto,
   buildZoneMotor,
-  buildWallSensor,
   buildOutdoorUnit,
   buildRoomIndoorUnit,
   buildWallControl,
