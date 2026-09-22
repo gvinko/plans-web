@@ -111,6 +111,31 @@ export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, _style: 
   return group;
 }
 
+export function buildExactAir(outletCount = 6): Group {
+  const count = Math.max(2, Math.min(8, outletCount));
+  const stroke = '#334155', fill = '#f8fafc';
+  const w = 104, h = 72;
+  const body = new Rect({ left:0, top:0, width:w, height:h, rx:8, ry:8, originX:'center', originY:'center', fill, stroke, strokeWidth:1.6 });
+  const inlet = new Rect({ left:0, top:h/2+12, width:30, height:24, originX:'center', originY:'center', fill, stroke, strokeWidth:1.5 });
+  const children: FabricObject[] = [footprint(150,130), body, inlet];
+  const ports: PortDef[] = [{ id:'inlet', x:0, y:h/2+24, angleDeg:90, kind:'duct_flex', sizeMm:{diameter:400} }];
+  const leftCount = Math.ceil(count/2);
+  const rightCount = count-leftCount;
+  const addSide=(side:-1|1,n:number,offset:number)=>{
+    for(let i=0;i<n;i++){
+      const y=-h/2+16+(i*(h-32)/Math.max(1,n-1));
+      const x=side*(w/2+12);
+      children.push(new Rect({left:x,top:y,width:24,height:16,originX:'center',originY:'center',fill,stroke,strokeWidth:1.4}));
+      ports.push({id:`outlet-${offset+i+1}`,x:side*(w/2+24),y,angleDeg:side<0?180:0,kind:'duct_flex',sizeMm:{diameter:300}});
+    }
+  };
+  addSide(-1,leftCount,0); addSide(1,rightCount,leftCount);
+  children.push(new FabricText('EXACT AIR',{left:0,top:0,fontSize:9,fontWeight:'bold',fill:'#334155',originX:'center',originY:'center'}));
+  const group=new Group(children,{originX:'center',originY:'center'});
+  setPlandroidData(group,{plandroidKind:'fitting',plandroidComponentId:`exact-air-${count}`,plandroidPorts:ports});
+  return group;
+}
+
 export type DiffuserType = 'supply4way' | 'swirl' | 'linearSlot' | 'round';
 
 export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STYLE): Group {
