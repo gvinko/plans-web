@@ -113,23 +113,34 @@ export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, _style: 
 export function buildExactAir(outletCount = 6): Group {
   const count = Math.max(2, Math.min(8, outletCount));
   const stroke = '#334155', fill = '#f8fafc';
-  const w = 104, h = 72;
-  const body = new Rect({ left:0, top:0, width:w, height:h, rx:8, ry:8, originX:'center', originY:'center', fill, stroke, strokeWidth:1.6 });
-  const inlet = new Rect({ left:0, top:h/2+12, width:30, height:24, originX:'center', originY:'center', fill, stroke, strokeWidth:1.5 });
-  const children: FabricObject[] = [footprint(150,130), body, inlet];
-  const ports: PortDef[] = [{ id:'inlet', x:0, y:h/2+24, angleDeg:90, kind:'duct_flex', sizeMm:{diameter:400} }];
-  const leftCount = Math.ceil(count/2);
-  const rightCount = count-leftCount;
-  const addSide=(side:-1|1,n:number,offset:number)=>{
-    for(let i=0;i<n;i++){
-      const y=-h/2+16+(i*(h-32)/Math.max(1,n-1));
-      const x=side*(w/2+12);
-      children.push(new Rect({left:x,top:y,width:24,height:16,originX:'center',originY:'center',fill,stroke,strokeWidth:1.4}));
-      ports.push({id:`outlet-${offset+i+1}`,x:side*(w/2+24),y,angleDeg:side<0?180:0,kind:'duct_flex',sizeMm:{diameter:300}});
-    }
-  };
-  addSide(-1,leftCount,0); addSide(1,rightCount,leftCount);
-  children.push(new FabricText('EXACT AIR',{left:0,top:0,fontSize:9,fontWeight:'bold',fill:'#334155',originX:'center',originY:'center'}));
+  const w = count <= 3 ? 72 : count <= 5 ? 82 : 92;
+  const h = count <= 3 ? 52 : 58;
+  const body = new Polygon([
+    {x:-w/2+8,y:-h/2},{x:w/2-8,y:-h/2},{x:w/2,y:-h/2+8},
+    {x:w/2,y:h/2-8},{x:w/2-8,y:h/2},{x:-w/2+8,y:h/2},
+    {x:-w/2,y:h/2-8},{x:-w/2,y:-h/2+8}
+  ], {fill,stroke,strokeWidth:1.5,originX:'center',originY:'center'});
+  const children: FabricObject[]=[footprint(w+70,h+70),body];
+  const ports: PortDef[]=[];
+  // One larger inlet at the top, kept compact so the symbol sits neatly beside the indoor unit.
+  children.push(new Rect({left:0,top:-h/2-9,width:18,height:18,originX:'center',originY:'center',fill,stroke,strokeWidth:1.4}));
+  ports.push({id:'inlet',x:0,y:-h/2-18,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:400}});
+  // Active outlets are distributed around the lower/side edge; unused positions are not drawn.
+  const positions=[
+    {x:-w*.27,y:h/2+10,a:35},{x:0,y:h/2+11,a:90},{x:w*.27,y:h/2+10,a:145},
+    {x:-w/2-9,y:6,a:180},{x:w/2+9,y:6,a:0},
+    {x:-w/2-9,y:-12,a:180},{x:w/2+9,y:-12,a:0},
+    {x:0,y:h/2+11,a:90},
+  ];
+  for(let i=0;i<count;i++){
+    const p=positions[i];
+    const horizontal=p.a===0||p.a===180;
+    children.push(new Rect({left:p.x,top:p.y,width:horizontal?18:14,height:horizontal?14:20,angle:(p.a===35?-35:p.a===145?35:0),originX:'center',originY:'center',fill,stroke,strokeWidth:1.3}));
+    const dx=p.a===0?9:p.a===180?-9:0, dy=p.a===90?10:8;
+    ports.push({id:`outlet-${i+1}`,x:p.x+dx,y:p.y+dy,angleDeg:p.a,kind:'duct_flex',sizeMm:{diameter:300}});
+  }
+  // Tiny identifier only; avoids the oversized label from the previous build.
+  children.push(new FabricText('EA',{left:0,top:0,fontSize:8,fontWeight:'bold',fill:'#64748b',originX:'center',originY:'center'}));
   const group=new Group(children,{originX:'center',originY:'center'});
   setPlandroidData(group,{plandroidKind:'fitting',plandroidComponentId:`exact-air-${count}`,plandroidPorts:ports});
   return group;
