@@ -52,14 +52,9 @@ function dashedCenterline(x1: number, y1: number, x2: number, y2: number): Line 
 export function buildDuctedIndoorUnit(type: 'Standard Ducted' | 'Slimline' | 'Bulkhead' | 'Underfloor', brand: string, model: string, capacityKw?: number): Group {
   const dims = type === 'Bulkhead' ? { w: 92, h: 30 } : type === 'Slimline' ? { w: 112, h: 34 } : type === 'Underfloor' ? { w: 105, h: 44 } : { w: 120, h: 46 };
   const { w, h } = dims;
-  const outline = new Rect({ left:0, top:0, width:w, height:h, originX:'center', originY:'center', fill:'#ffffff', stroke:'#2563eb', strokeWidth:2, rx:2, ry:2 });
-  const coil = new Rect({ left:-w*0.20, top:0, width:w*0.26, height:h-10, originX:'center', originY:'center', fill:'transparent', stroke:'#64748b', strokeWidth:1 });
-  const fan = new Circle({ left:w*0.12, top:0, radius:Math.min(10,h/4), originX:'center', originY:'center', fill:'transparent', stroke:'#2563eb', strokeWidth:1.3 });
-  const divider = new Line([0,-h/2+4,0,h/2-4], { stroke:'#94a3b8', strokeWidth:1 });
-  const typeCode = type === 'Standard Ducted' ? 'DUCTED' : type === 'Slimline' ? 'SLIM' : type === 'Bulkhead' ? 'BULK' : 'UNDER';
-  const label = new FabricText(`${brand}  ${model}`, { left:0, top:h/2+9, fontSize:7, fill:'#0f172a', originX:'center', originY:'center' });
-  const sub = new FabricText(`${typeCode}${capacityKw ? `  ${capacityKw}kW` : ''}`, { left:0, top:-h/2-7, fontSize:6, fill:'#475569', originX:'center', originY:'center' });
-  const group = new Group([footprint(w+16,h+30),outline,coil,fan,divider,label,sub], { originX:'center', originY:'center' });
+  const outline = new Rect({ left:0, top:0, width:w, height:h, originX:'center', originY:'center', fill:'#f8fafc', stroke:'#334155', strokeWidth:1.6, rx:2, ry:2 });
+  const label = new FabricText(model, { left:0, top:0, fontSize:7, fontWeight:'bold', fill:'#0f172a', originX:'center', originY:'center' });
+  const group = new Group([footprint(w+10,h+10),outline,label], { originX:'center', originY:'center' });
   const ports: PortDef[] = [
     { id:'return', x:-w/2, y:0, angleDeg:180, kind:'duct_rect', sizeMm:{width:400,depth:250} },
     { id:'supply', x:w/2, y:0, angleDeg:0, kind:'duct_rect', sizeMm:{width:400,depth:250} },
@@ -567,7 +562,7 @@ export function buildRoomIndoorUnit(kind:'split'|'cassette'|'ceiling-console'|'f
 }
 export function buildWallControl(kind:'controller'|'sensor'): Group {
   const body=new Rect({left:0,top:0,width:30,height:22,originX:'center',originY:'center',fill:'#fff',stroke:'#334155',strokeWidth:1.5,rx:2,ry:2});
-  const label=new FabricText(kind==='controller'?'WC':'TEMP',{left:0,top:0,fontSize:7,fontWeight:'bold',fill:'#0f172a',originX:'center',originY:'center'});
+  const label=new FabricText(kind==='controller'?'WC':'WS',{left:0,top:0,fontSize:7,fontWeight:'bold',fill:'#0f172a',originX:'center',originY:'center'});
   const g=new Group([footprint(36,28),body,label],{originX:'center',originY:'center'}); setPlandroidData(g,{plandroidKind:'equipment',plandroidComponentId:`wall-${kind}`,plandroidPorts:[]}); return g;
 }
 export function buildPipeDrain(kind:'pipes'|'drain'): Group {
