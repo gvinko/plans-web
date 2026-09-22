@@ -53,8 +53,7 @@ export function buildDuctedIndoorUnit(type: 'Standard Ducted' | 'Slimline' | 'Bu
   const dims = type === 'Bulkhead' ? { w: 92, h: 30 } : type === 'Slimline' ? { w: 112, h: 34 } : type === 'Underfloor' ? { w: 105, h: 44 } : { w: 120, h: 46 };
   const { w, h } = dims;
   const outline = new Rect({ left:0, top:0, width:w, height:h, originX:'center', originY:'center', fill:'#f8fafc', stroke:'#334155', strokeWidth:1.6, rx:2, ry:2 });
-  const label = new FabricText(model, { left:0, top:0, fontSize:7, fontWeight:'bold', fill:'#0f172a', originX:'center', originY:'center' });
-  const group = new Group([footprint(w+10,h+10),outline,label], { originX:'center', originY:'center' });
+  const group = new Group([footprint(w+10,h+10),outline], { originX:'center', originY:'center' });
   const ports: PortDef[] = [
     { id:'return', x:-w/2, y:0, angleDeg:180, kind:'duct_rect', sizeMm:{width:400,depth:250} },
     { id:'supply', x:w/2, y:0, angleDeg:0, kind:'duct_rect', sizeMm:{width:400,depth:250} },
