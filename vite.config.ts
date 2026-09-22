@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       devOptions: { enabled: true },
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
@@ -30,7 +30,10 @@ export default defineConfig({
         // this is a pure cache-first offline app, not a stale-while-revalidate one.
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         navigateFallback: 'index.html',
-        runtimeCaching: [], // explicitly empty: zero external runtime fetches by design
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: false,
+        runtimeCaching: [],
       },
     }),
   ],
