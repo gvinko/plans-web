@@ -14,10 +14,10 @@ export const DEFAULT_FLEX_COLOR = '#9ca3af';
  * override hasn't been set; otherwise the supply/return function color above wins. */
 export const ROUND_DUCT_PRESETS: RoundSizePreset[] = [
   { inch: 8, mm: 200, color: '#38bdf8' },
-  { inch: 10, mm: 250, color: '#34d399' },
-  { inch: 12, mm: 300, color: '#facc15' },
-  { inch: 14, mm: 350, color: '#a855f7' },
-  { inch: 16, mm: 400, color: '#f97316' },
+  { inch: 10, mm: 250, color: '#3b82f6' },
+  { inch: 12, mm: 300, color: '#22c55e' },
+  { inch: 14, mm: 350, color: '#f97316' },
+  { inch: 16, mm: 400, color: '#a855f7' },
   { inch: 18, mm: 450, color: '#ec4899' },
 ];
 
