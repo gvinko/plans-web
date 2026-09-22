@@ -476,6 +476,7 @@ export default function CanvasWorkspace() {
             pendingComponentId={pendingComponentId}
             onSelect={handleSelectComponent}
             onCancel={() => handleToolChange('select')}
+            section={activeRibbon === 'FITTINGS' || activeRibbon === 'OUTLETS' || activeRibbon === 'CONTROLS' ? activeRibbon : 'HVAC'}
           />
         )}
       </div>
