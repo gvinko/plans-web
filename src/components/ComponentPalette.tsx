@@ -9,6 +9,7 @@ interface ComponentPaletteProps {
   pendingComponentId: string | null;
   onSelect: (componentId: string) => void;
   onCancel: () => void;
+  section?: 'HVAC' | 'FITTINGS' | 'OUTLETS' | 'CONTROLS';
 }
 
 const CATEGORY_LABELS: Record<ComponentCategory, string> = {
@@ -17,8 +18,14 @@ const CATEGORY_LABELS: Record<ComponentCategory, string> = {
   terminal: 'Terminals',
 };
 
-export default function ComponentPalette({ pendingComponentId, onSelect, onCancel }: ComponentPaletteProps) {
-  const categories: ComponentCategory[] = ['equipment', 'fitting', 'terminal'];
+export default function ComponentPalette({ pendingComponentId, onSelect, onCancel, section = 'HVAC' }: ComponentPaletteProps) {
+  const categories: ComponentCategory[] = section === 'FITTINGS' ? ['fitting'] : section === 'OUTLETS' ? ['terminal'] : ['equipment'];
+  const visibleCatalog = CATALOG.filter((item) => {
+    if (section === 'FITTINGS') return item.category === 'fitting';
+    if (section === 'OUTLETS') return item.category === 'terminal';
+    if (section === 'CONTROLS') return item.id.startsWith('wall-') || item.id.startsWith('zone-motor-');
+    return item.category === 'equipment' && !item.id.startsWith('wall-') && !item.id.startsWith('zone-motor-');
+  });
   const importedEquipment = useLiveQuery(() => db.equipmentCatalog.toArray(), []);
   const importedFittings = useLiveQuery(() => db.fittingsCatalog.toArray(), []);
   const [unitType, setUnitType] = useState<UnitType | ''>('');
@@ -37,7 +44,7 @@ export default function ComponentPalette({ pendingComponentId, onSelect, onCance
         )}
       </div>
 
-      <div className="px-3 py-3 border-b border-slate-700">
+      {section === 'HVAC' && <div className="px-3 py-3 border-b border-slate-700">
         <h3 className="text-[10px] uppercase tracking-wide text-sky-400 mb-2">Indoor Unit — choose type, brand & model</h3>
         <select value={unitType} onChange={(e)=>{setUnitType(e.target.value as UnitType);setBrand('');}} className="w-full mb-2 bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs">
           <option value="">1. Unit type…</option>{UNIT_TYPES.map(t=><option key={t}>{t}</option>)}
@@ -46,13 +53,13 @@ export default function ComponentPalette({ pendingComponentId, onSelect, onCance
           <option value="">2. Brand…</option>{brands.map(b=><option key={b}>{b}</option>)}
         </select>}
         {brand && <div className="max-h-48 overflow-y-auto space-y-1">{models.map(u=><button key={u.model} onClick={()=>onSelect(`indoor-unit|${u.type}|${u.brand}|${u.model}|${u.capacityKw ?? ''}`)} className="w-full text-left text-xs px-2 py-1.5 rounded bg-sky-900 hover:bg-sky-800">{u.model}{u.capacityKw ? ` — ${u.capacityKw}kW` : ''}</button>)}</div>}
-      </div>
+      </div>}
 
       {categories.map((cat) => (
         <div key={cat} className="px-3 py-2">
           <h3 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">{CATEGORY_LABELS[cat]}</h3>
           <div className="space-y-1">
-            {CATALOG.filter((c) => c.category === cat).map((c) => (
+            {visibleCatalog.filter((c) => c.category === cat).map((c) => (
               <button
                 key={c.id}
                 onClick={() => onSelect(c.id)}
