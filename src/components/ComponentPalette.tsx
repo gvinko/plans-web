@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { CATALOG } from '../lib/catalog/registry';
