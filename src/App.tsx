@@ -7,8 +7,8 @@ import { createProject, createPlanPage, deleteProjectCascade } from './db/reposi
 import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
-const PLANDROID_VERSION = '0.3.0';
-const BUILD_ID = '2026-09-22-01';
+const PLANDROID_VERSION = '0.5.0';
+const BUILD_ID = '2026-09-23-PLENUM-AI';
 
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
@@ -44,9 +44,10 @@ export default function App() {
     <div className="h-full flex flex-col">
       <header className="flex items-center justify-between px-4 py-2 border-b border-slate-700">
         <h1 className="font-mono text-sm tracking-wide">PLANDROID WEB <span className="text-sky-400">v{PLANDROID_VERSION}</span> <span className="text-slate-500">Build {BUILD_ID}</span></h1>
-        <span className="text-xs text-slate-400">
-          {offlineReady ? 'Offline ready' : needRefresh ? 'Update available' : 'Loading…'}
-        </span>
+        <div className="flex items-center gap-2">
+          <a href="https://chatgpt.com/" target="_blank" rel="noreferrer" className="text-xs bg-emerald-700 hover:bg-emerald-600 px-2 py-1 rounded">Ask ChatGPT</a>
+          <span className="text-xs text-slate-400">{needRefresh ? 'Update available' : offlineReady ? 'Up to date · offline ready' : 'Checking version…'}</span>
+        </div>
         {needRefresh && (
           <button className="text-xs bg-sky-600 px-2 py-1 rounded" onClick={() => updateServiceWorker(true)}>
             Reload to update
