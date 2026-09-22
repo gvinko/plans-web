@@ -63,7 +63,7 @@ export function buildDuctedIndoorUnit(type: 'Standard Ducted' | 'Slimline' | 'Bu
   return group;
 }
 
-export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
+export function buildFanCoilUnit(_style: IconStyle = DEFAULT_STYLE): Group {
   return buildDuctedIndoorUnit('Standard Ducted', 'Generic', 'FCU');
 }
 
