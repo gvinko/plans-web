@@ -30,6 +30,7 @@ export function attachSnapEngine(canvas: Canvas): () => void {
       strokeWidth: 2 / zoom,
       selectable: false,
       evented: false,
+      excludeFromExport: true,
     });
     canvas.add(highlight);
     canvas.requestRenderAll();
