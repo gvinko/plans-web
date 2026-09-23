@@ -469,8 +469,11 @@ export class CanvasEngine {
   };
 
   private isTypingTarget(t: EventTarget | null): boolean {
-    const tag = (t as HTMLElement)?.tagName;
-    return tag === 'INPUT' || tag === 'TEXTAREA';
+    const el = t as HTMLElement | null;
+    const tag = el?.tagName;
+    // Never let canvas shortcuts steal keys from form controls, editable text, or an open modal.
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return true;
+    return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
   }
 
   private getPaintParts(object: FabricObject): FabricObject[] {
@@ -527,6 +530,7 @@ export class CanvasEngine {
       strokeWidth: 1 / zoom,
       selectable: false,
       evented: false,
+      excludeFromExport: true,
     });
     this.canvas.add(marker);
     this.calibrationDraftObjects.push(marker);
@@ -541,6 +545,7 @@ export class CanvasEngine {
       strokeDashArray: [6 / zoom, 4 / zoom],
       selectable: false,
       evented: false,
+      excludeFromExport: true,
     });
     const label = new FabricText('…', {
       left: (p1.x + p2.x) / 2,
@@ -552,6 +557,7 @@ export class CanvasEngine {
       evented: false,
       originX: 'center',
       originY: 'bottom',
+      excludeFromExport: true,
     });
     this.canvas.add(line, label);
     this.calibrationDraftObjects.push(line, label);
