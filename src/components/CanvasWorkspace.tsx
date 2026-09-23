@@ -78,6 +78,8 @@ export default function CanvasWorkspace() {
   const [roomSelection, setRoomSelection] = useState<RoomSelection | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved'|'saving'|'unsaved'>('saved');
   const saveNowRef = useRef<(() => Promise<void>) | null>(null);
+  const isHydratingRef = useRef(false);
+  const lastSavedJsonRef = useRef<string>('');
 
   // Controllers read these via ref so they always see the latest value without re-attaching listeners.
   const pendingComponentIdRef = useRef<string | null>(null);
@@ -189,10 +191,15 @@ export default function CanvasWorkspace() {
       const engine = engineRef.current;
       if (!page || !engine || cancelled) return;
 
-      // Drawing JSON and plan images are separate persistence layers. Load drawing first,
-      // then restore the durable IndexedDB image blobs behind it.
-      if (page.canvasJSON) await engine.loadFromJSON(page.canvasJSON);
-      else engine.canvas.clear();
+      // Never allow load-time Fabric events to autosave a blank/partial canvas over a real job.
+      isHydratingRef.current = true;
+      if (page.canvasJSON) {
+        await engine.loadFromJSON(page.canvasJSON);
+        lastSavedJsonRef.current = page.canvasJSON;
+      } else {
+        engine.canvas.clear();
+        lastSavedJsonRef.current = engine.serializeDrawingState();
+      }
       if (page.backgroundImage) {
         const url = URL.createObjectURL(page.backgroundImage);
         backgroundObjectUrlRef.current = url;
@@ -203,7 +210,12 @@ export default function CanvasWorkspace() {
         sketchObjectUrlRef.current = url;
         await engine.loadSketchOverlay(url, page.sketchWidthPx, page.sketchHeightPx, page.sketchOpacity);
       }
-    })();
+      isHydratingRef.current = false;
+      setSaveStatus('saved');
+    })().catch((err) => {
+      isHydratingRef.current = false;
+      setLoadError(err instanceof Error ? err.message : 'Failed to restore saved project');
+    });
     return () => {
       cancelled = true;
       [backgroundObjectUrlRef, sketchObjectUrlRef].forEach((ref) => {
@@ -220,13 +232,28 @@ export default function CanvasWorkspace() {
     const engine = engineRef.current;
     if (!engine || !activePlanPageId) return;
     const saveNow = async () => {
+      if (isHydratingRef.current) return;
+      const json = engine.serializeDrawingState();
+      // Refuse to overwrite a non-empty saved drawing with an accidental empty state.
+      const parsed = JSON.parse(json) as { objects?: unknown[] };
+      const previous = lastSavedJsonRef.current ? JSON.parse(lastSavedJsonRef.current) as { objects?: unknown[] } : null;
+      if ((parsed.objects?.length ?? 0) === 0 && (previous?.objects?.length ?? 0) > 0) {
+        setSaveStatus('unsaved');
+        setLoadError('Safety stop: PlanDroid blocked an empty canvas from overwriting your saved job.');
+        return;
+      }
       setSaveStatus('saving');
-      await saveCanvasState(activePlanPageId, engine.serializeDrawingState());
+      await saveCanvasState(activePlanPageId, json);
+      lastSavedJsonRef.current = json;
       setSaveStatus('saved');
     };
     saveNowRef.current = saveNow;
     const persist = debounce(() => { void saveNow(); }, 600);
-    const markDirty = () => { setSaveStatus('unsaved'); persist(); };
+    const markDirty = () => {
+      if (isHydratingRef.current) return;
+      setSaveStatus('unsaved');
+      persist();
+    };
     engine.canvas.on('object:added', markDirty);
     engine.canvas.on('object:modified', markDirty);
     engine.canvas.on('object:removed', markDirty);
