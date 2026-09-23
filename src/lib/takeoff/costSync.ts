@@ -4,7 +4,7 @@ import type { CostItem } from '../../db/schema';
 import type { TakeoffLine } from './takeoff';
 import { parseDimensionsToPortSize, sizeMatches } from '../catalog/parseDimensions';
 
-const FALLBACK_MARGIN_PERCENT = 20;
+export const DEFAULT_MARGIN_PERCENT = 20;
 
 /** Best-match price for a duct-run line from the imported ductwork price book, if any. */
 async function findDuctworkUnitCost(line: TakeoffLine): Promise<number | null> {
@@ -28,7 +28,6 @@ async function resolveDefaultUnitCost(line: TakeoffLine): Promise<number> {
 export async function syncCostItems(projectId: string, lines: TakeoffLine[]): Promise<CostItem[]> {
   const existing = await db.costItems.where({ projectId }).toArray();
   const existingByRef = new Map(existing.map((c) => [c.refType, c]));
-  const seenRefs = new Set<string>();
 
   // Resolve prices for genuinely new lines up front — keeps the transaction itself synchronous-ish and narrow.
   const defaultCosts = new Map<string, number>();
@@ -42,7 +41,6 @@ export async function syncCostItems(projectId: string, lines: TakeoffLine[]): Pr
 
   await db.transaction('rw', db.costItems, async () => {
     for (const line of lines) {
-      seenRefs.add(line.key);
       const current = existingByRef.get(line.key);
 
       if (current) {
@@ -58,7 +56,7 @@ export async function syncCostItems(projectId: string, lines: TakeoffLine[]): Pr
           refType: line.key,
           description: line.itemLabel,
           unitCost: defaultCosts.get(line.key) ?? 0,
-          marginPercent: FALLBACK_MARGIN_PERCENT,
+          marginPercent: DEFAULT_MARGIN_PERCENT,
           laborHoursPerUnit: 0,
           quantity: line.quantity,
           isManualOverride: false,
@@ -68,11 +66,6 @@ export async function syncCostItems(projectId: string, lines: TakeoffLine[]): Pr
       }
     }
 
-    for (const item of existing) {
-      if (!seenRefs.has(item.refType)) {
-        await db.costItems.delete(item.id);
-      }
-    }
   });
 
   return result;
