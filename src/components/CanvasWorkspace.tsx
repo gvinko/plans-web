@@ -258,10 +258,27 @@ export default function CanvasWorkspace() {
 
     const queueSave = () => {
       if (isHydratingRef.current || disposed) return;
+      // Mark dirty synchronously so the UI cannot continue showing a stale SAVE tick
+      // while the new snapshot is waiting behind a previous IndexedDB write.
       setSaveStatus('unsaved');
+      const jsonAtChange = engine.serializeDrawingState();
       saveQueueRef.current = saveQueueRef.current
         .catch(() => undefined)
-        .then(saveSnapshot)
+        .then(async () => {
+          if (disposed) return;
+          setSaveStatus('saving');
+          await saveCanvasState(activePlanPageId, jsonAtChange);
+          const verified = await db.planPages.get(activePlanPageId);
+          if (!verified?.canvasJSON || verified.canvasJSON !== jsonAtChange) throw new Error('Saved drawing could not be verified.');
+          lastSavedJsonRef.current = jsonAtChange;
+          // Only show the tick when the canvas still exactly matches the snapshot just verified.
+          if (engine.serializeDrawingState() === jsonAtChange) {
+            setLoadError(null);
+            setSaveStatus('saved');
+          } else {
+            setSaveStatus('unsaved');
+          }
+        })
         .catch((err) => {
           if (!disposed) {
             setSaveStatus('unsaved');
