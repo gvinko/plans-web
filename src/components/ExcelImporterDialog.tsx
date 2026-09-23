@@ -40,6 +40,7 @@ export default function ExcelImporterDialog({ onClose }: ExcelImporterDialogProp
   }
 
   async function handleClear() {
+    if (!window.confirm('Clear the entire imported equipment and pricing catalog? This cannot be undone.')) return;
     await clearImportedCatalog();
     setSummary(null);
   }
