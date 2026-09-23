@@ -12,25 +12,23 @@ export interface ImportSummary {
 
 export async function importCatalogRows(rows: ImportedCatalogRow[]): Promise<ImportSummary> {
   const now = Date.now();
-  const equipment: ImportedCatalogItem[] = [];
-  const ductwork: ImportedCatalogItem[] = [];
-  const fittings: ImportedCatalogItem[] = [];
-
-  for (const row of rows) {
-    const item: ImportedCatalogItem = { id: nanoid(), ...row, importedAt: now };
-    const store = classifyCategory(row.category);
-    if (store === 'equipmentCatalog') equipment.push(item);
-    else if (store === 'ductworkCatalog') ductwork.push(item);
-    else fittings.push(item);
-  }
-
+  const summary: ImportSummary = { equipment: 0, ductwork: 0, fittings: 0 };
   await db.transaction('rw', [db.equipmentCatalog, db.ductworkCatalog, db.fittingsCatalog], async () => {
-    if (equipment.length) await db.equipmentCatalog.bulkAdd(equipment);
-    if (ductwork.length) await db.ductworkCatalog.bulkAdd(ductwork);
-    if (fittings.length) await db.fittingsCatalog.bulkAdd(fittings);
+    for (const row of rows) {
+      const storeName = classifyCategory(row.category);
+      const table = storeName === 'equipmentCatalog' ? db.equipmentCatalog : storeName === 'ductworkCatalog' ? db.ductworkCatalog : db.fittingsCatalog;
+      const existing = (await table.toArray()).find((x) =>
+        x.itemName.trim().toLowerCase() === row.itemName.trim().toLowerCase() &&
+        x.category.trim().toLowerCase() === row.category.trim().toLowerCase()
+      );
+      const item: ImportedCatalogItem = { id: existing?.id ?? nanoid(), ...row, importedAt: now };
+      await table.put(item);
+      if (storeName === 'equipmentCatalog') summary.equipment++;
+      else if (storeName === 'ductworkCatalog') summary.ductwork++;
+      else summary.fittings++;
+    }
   });
-
-  return { equipment: equipment.length, ductwork: ductwork.length, fittings: fittings.length };
+  return summary;
 }
 
 export async function clearImportedCatalog(): Promise<void> {
