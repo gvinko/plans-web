@@ -71,6 +71,7 @@ export default function CanvasWorkspace() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const [isPlanEditing, setIsPlanEditing] = useState(false);
+  const [showPlanHelp, setShowPlanHelp] = useState(true);
   const [ductParams, setDuctParams] = useState<DuctToolParams>(DEFAULT_DUCT_PARAMS);
   const [wallEdgeSelection, setWallEdgeSelection] = useState<WallEdgeSelection | null>(null);
   const [wallPopoverScreen, setWallPopoverScreen] = useState<{ x: number; y: number } | null>(null);
@@ -330,6 +331,7 @@ export default function CanvasWorkspace() {
       return;
     }
     setIsPlanEditing(next);
+    if (!next) setShowPlanHelp(false);
     handleToolChange('select');
   }
 
@@ -434,9 +436,10 @@ export default function CanvasWorkspace() {
         >
           <canvas ref={canvasElRef} />
 
-          {isPlanEditing && (
-            <div className="absolute top-3 left-3 max-w-xs bg-amber-500 text-slate-950 text-xs font-medium px-3 py-2 rounded shadow-lg pointer-events-none">
-              Drag the plan to reposition it. Use its corner handles to crop the working view by scaling it, then press “Lock Plan” before placing ducts.
+          {isPlanEditing && showPlanHelp && (
+            <div className="absolute top-3 left-3 max-w-xs bg-amber-500 text-slate-950 text-xs font-medium px-3 py-2 rounded shadow-lg">
+              <button onClick={()=>setShowPlanHelp(false)} className="float-right ml-2 font-bold">×</button>
+              Drag the plan to reposition or resize it, then press “Lock Plan”.
             </div>
           )}
 
