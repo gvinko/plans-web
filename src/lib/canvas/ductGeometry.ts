@@ -78,7 +78,6 @@ export function buildFlexDuctObject(
   strokeColor = '#9ca3af',
 ): Path {
   const lengthPx = distance(p1, p2);
-  const lengthMm = lengthPx / pxPerMm;
   const diameterPx = Math.min(Math.max(diameterMm * pxPerMm, 8), 40);
 
   const n = unitNormal(p1, p2);
@@ -95,6 +94,9 @@ export function buildFlexDuctObject(
       y: mt * mt * p1.y + 2 * mt * t * control.y + t * t * p2.y,
     });
   }
+
+  const curveLengthPx = centerPts.slice(1).reduce((sum, p, i) => sum + distance(centerPts[i], p), 0);
+  const lengthMm = curveLengthPx / pxPerMm;
 
   const railA: Vec2[] = [];
   const railB: Vec2[] = [];
