@@ -110,7 +110,7 @@ export class CanvasEngine {
       this.sketchImageObj = null;
     }
     const img = await FabricImage.fromURL(objectUrl);
-    img.set({ left: 0, top: 0, opacity, selectable: false, evented: false, hoverCursor: 'default' });
+    img.set({ left: 0, top: 0, opacity, selectable: false, evented: false, hoverCursor: 'default', plandroid: { kind: 'sketch-overlay' } });
     this.canvas.add(img);
     this.canvas.sendObjectToBack(img);
     this.sketchImageObj = img;
@@ -157,8 +157,27 @@ export class CanvasEngine {
     this.canvas.requestRenderAll();
   }
 
+  /** Serialize user drawing objects only. Background/sketch images are persisted separately as
+   * IndexedDB blobs, so object URLs must never be written into canvas JSON (they expire on reload). */
+  serializeDrawingState(): string {
+    const full = this.canvas.toObject(['plandroid', 'plandroidId']) as { objects?: Array<Record<string, unknown>>; [key: string]: unknown };
+    const objects = (full.objects ?? []).filter((obj) => {
+      const kind = (obj.plandroid as { kind?: string } | undefined)?.kind;
+      return kind !== 'background-plan' && kind !== 'sketch-overlay';
+    });
+    return JSON.stringify({ ...full, objects });
+  }
+
   loadFromJSON(json: string): Promise<void> {
-    return this.canvas.loadFromJSON(JSON.parse(json)).then(() => {
+    const parsed = JSON.parse(json) as { objects?: Array<Record<string, unknown>>; [key: string]: unknown };
+    // Backward-compatible cleanup for saves made before backgrounds were separated.
+    if (Array.isArray(parsed.objects)) {
+      parsed.objects = parsed.objects.filter((obj) => {
+        const kind = (obj.plandroid as { kind?: string } | undefined)?.kind;
+        return kind !== 'background-plan' && kind !== 'sketch-overlay';
+      });
+    }
+    return this.canvas.loadFromJSON(parsed).then(() => {
       this.canvas.requestRenderAll();
       this.undoStack = [];
     });
