@@ -7,8 +7,8 @@ import { createProject, createPlanPage, deleteProjectCascade } from './db/reposi
 import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
-const PLANDROID_VERSION = '0.5.0';
-const BUILD_ID = '2026-09-23-PLENUM-AI';
+const PLANDROID_VERSION = '0.6.0';
+const BUILD_ID = '2026-09-23-QA-REPAIR';
 
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
