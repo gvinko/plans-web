@@ -1,14 +1,18 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
-  base: './', // relative paths — required for Cloudflare Pages sub-path safety
+  base: './',
+  resolve: {
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+  }, // relative paths — required for Cloudflare Pages sub-path safety
   plugins: [
     react(),
     VitePWA({
       registerType: 'prompt',
-      devOptions: { enabled: true },
+      devOptions: { enabled: false },
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
         name: 'Plandroid Web — HVAC Duct Design & Takeoff',
@@ -28,7 +32,8 @@ export default defineConfig({
       workbox: {
         // App shell + all built assets precached. No network calls ever attempted —
         // this is a pure cache-first offline app, not a stale-while-revalidate one.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,ico,woff2}'],
+        maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
         clientsClaim: true,
