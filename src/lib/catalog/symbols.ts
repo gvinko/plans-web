@@ -67,48 +67,53 @@ export function buildFanCoilUnit(_style: IconStyle = DEFAULT_STYLE): Group {
 }
 
 export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, _style: IconStyle = DEFAULT_STYLE): Group {
-  const stroke='#334155', fill='#f8fafc';
+  const stroke = '#334155';
+  const fill = '#f8fafc';
+
   if (kind === 'return') {
-    // One continuous RA top-view outline: unit neck at left, compact box, two return necks.
-    const outline=new Polygon([
-      {x:-70,y:-10},{x:-48,y:-10},{x:-48,y:-24},{x:-24,y:-24},{x:-24,y:-38},{x:-8,y:-38},
-      {x:-8,y:-24},{x:24,y:-24},{x:24,y:-38},{x:40,y:-38},{x:40,y:-24},{x:52,y:-24},
-      {x:52,y:24},{x:-48,y:24},{x:-48,y:10},{x:-70,y:10}
-    ],{fill,stroke,strokeWidth:1.6,originX:'center',originY:'center'});
-    const ports:PortDef[]=[
-      {id:'unit',x:-70,y:0,angleDeg:180,kind:'duct_rect',sizeMm:{width:400,depth:250}},
-      {id:'return-1',x:-16,y:-38,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:350}},
-      {id:'return-2',x:32,y:-38,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:350}},
+    // Classic return plenum: shallow rectangular box above the FCU with two round flex take-offs.
+    const w = 92;
+    const h = 30;
+    const body = new Rect({ left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center', fill, stroke, strokeWidth: 1.6, rx: 2, ry: 2 });
+    const label = new FabricText('RETURN PLENUM', { left: 0, top: 1, fontSize: 7, fill: '#64748b', originX: 'center', originY: 'center' });
+    const children: FabricObject[] = [footprint(120, 70), body, label];
+    const outletXs = [-24, 24];
+    outletXs.forEach((x) => children.push(new Circle({ left: x, top: -h / 2 - 7, radius: 6, originX: 'center', originY: 'center', fill, stroke, strokeWidth: 1.4 })));
+    const ports: PortDef[] = [
+      { id: 'unit', x: 0, y: h / 2, angleDeg: 90, kind: 'duct_rect', sizeMm: { width: 400, depth: 250 } },
+      { id: 'return-1', x: -24, y: -h / 2 - 13, angleDeg: -90, kind: 'duct_flex', sizeMm: { diameter: 350 } },
+      { id: 'return-2', x: 24, y: -h / 2 - 13, angleDeg: -90, kind: 'duct_flex', sizeMm: { diameter: 350 } },
     ];
-    const group=new Group([footprint(150,90),outline],{originX:'center',originY:'center'});
-    setPlandroidData(group,{plandroidKind:'fitting',plandroidComponentId:'plenum-return',plandroidPorts:ports});
+    const group = new Group(children, { originX: 'center', originY: 'center' });
+    setPlandroidData(group, { plandroidKind: 'fitting', plandroidComponentId: 'plenum-return', plandroidPorts: ports });
     return group;
   }
-  const three=branchCount>=3;
-  // Continuous supply outline with integrated take-off necks (no separate box children).
-  const pts = three ? [
-    {x:-15,y:48},{x:15,y:48},{x:15,y:25},{x:44,y:15},{x:54,y:-7},{x:45,y:-12},{x:32,y:8},
-    {x:18,y:0},{x:9,y:-28},{x:-9,y:-28},{x:-18,y:0},{x:-32,y:8},{x:-45,y:-12},{x:-54,y:-7},{x:-44,y:15},{x:-15,y:25}
-  ] : [
-    {x:-15,y:46},{x:15,y:46},{x:15,y:24},{x:38,y:12},{x:50,y:-13},{x:36,y:-20},{x:23,y:4},
-    {x:0,y:-7},{x:-23,y:4},{x:-36,y:-20},{x:-50,y:-13},{x:-38,y:12},{x:-15,y:24}
+
+  // Classic supply plenum from Gerad's reference: narrow FCU neck at top, tapered body,
+  // then two or three round flex outlets along the wide bottom edge.
+  const count = branchCount >= 3 ? 3 : 2;
+  const topW = 48;
+  const bottomW = count === 3 ? 96 : 78;
+  const topY = -34;
+  const bottomY = 30;
+  const outline = new Polygon([
+    { x: -topW / 2, y: topY },
+    { x: topW / 2, y: topY },
+    { x: bottomW / 2, y: bottomY },
+    { x: -bottomW / 2, y: bottomY },
+  ], { fill, stroke, strokeWidth: 1.6, originX: 'center', originY: 'center' });
+  const label = new FabricText('SUPPLY PLENUM', { left: 0, top: 0, fontSize: 7, fill: '#64748b', originX: 'center', originY: 'center' });
+  const children: FabricObject[] = [footprint(125, 105), outline, label];
+  const outletXs = count === 3 ? [-30, 0, 30] : [-22, 22];
+  const ports: PortDef[] = [
+    { id: 'unit', x: 0, y: topY, angleDeg: -90, kind: 'duct_rect', sizeMm: { width: 400, depth: 250 } },
   ];
-  const outline=new Polygon(pts,{fill,stroke,strokeWidth:1.6,originX:'center',originY:'center'});
-  const ports:PortDef[]=[{id:'unit',x:0,y:48,angleDeg:90,kind:'duct_rect',sizeMm:{width:400,depth:250}}];
-  if(three){
-    ports.push(
-      {id:'branch-1',x:-43,y:-17,angleDeg:-125,kind:'duct_flex',sizeMm:{diameter:350}},
-      {id:'branch-2',x:0,y:-28,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:350}},
-      {id:'branch-3',x:43,y:-17,angleDeg:-55,kind:'duct_flex',sizeMm:{diameter:350}},
-    );
-  } else {
-    ports.push(
-      {id:'branch-1',x:-43,y:-17,angleDeg:-125,kind:'duct_flex',sizeMm:{diameter:350}},
-      {id:'branch-2',x:43,y:-17,angleDeg:-55,kind:'duct_flex',sizeMm:{diameter:350}},
-    );
-  }
-  const group=new Group([footprint(125,105),outline],{originX:'center',originY:'center'});
-  setPlandroidData(group,{plandroidKind:'fitting',plandroidComponentId:`plenum-supply-${branchCount}way`,plandroidPorts:ports});
+  outletXs.forEach((x, i) => {
+    children.push(new Circle({ left: x, top: bottomY + 7, radius: 6, originX: 'center', originY: 'center', fill, stroke, strokeWidth: 1.4 }));
+    ports.push({ id: `branch-${i + 1}`, x, y: bottomY + 13, angleDeg: 90, kind: 'duct_flex', sizeMm: { diameter: 350 } });
+  });
+  const group = new Group(children, { originX: 'center', originY: 'center' });
+  setPlandroidData(group, { plandroidKind: 'fitting', plandroidComponentId: `plenum-supply-${count}way`, plandroidPorts: ports });
   return group;
 }
 
