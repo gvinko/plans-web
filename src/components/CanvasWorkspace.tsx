@@ -393,6 +393,7 @@ export default function CanvasWorkspace() {
           <button onClick={() => handleToolChange('select')} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Select</button>
           <button onClick={handleSaveNow} className="text-xs px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 shrink-0">{saveStatus==='saving'?'Saving…':saveStatus==='unsaved'?'Save •':'Saved ✓'}</button>
           <button onClick={() => engineRef.current?.undo()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Undo</button>
+          <button onClick={() => engineRef.current?.deleteSelection()} className="text-xs px-2.5 py-1 rounded bg-red-900/70 hover:bg-red-800 shrink-0">Delete</button>
           <button onClick={() => engineRef.current?.duplicateSelection()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Copy</button>
           <button onClick={() => engineRef.current?.setSelectionLocked(true)} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">🔒 Lock</button>
           <button onClick={() => engineRef.current?.setSelectionLocked(false)} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">🔓 Unlock</button>
