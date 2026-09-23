@@ -24,7 +24,7 @@ import {
   type WallEdgeSelection,
 } from '../lib/canvas/wallDimensionEdit';
 import { attachZoneSelection, type RoomSelection } from '../lib/canvas/zoneSelection';
-import { debounce } from '../lib/debounce';
+import { debounce, type Debounced } from '../lib/debounce';
 import { useAppStore } from '../store/appStore';
 import CalibrationModal from './CalibrationModal';
 import ComponentPalette from './ComponentPalette';
@@ -80,6 +80,7 @@ export default function CanvasWorkspace() {
   const saveNowRef = useRef<(() => Promise<void>) | null>(null);
   const isHydratingRef = useRef(false);
   const lastSavedJsonRef = useRef<string>('');
+  const persistRef = useRef<Debounced<[]> | null>(null);
 
   // Controllers read these via ref so they always see the latest value without re-attaching listeners.
   const pendingComponentIdRef = useRef<string | null>(null);
@@ -158,6 +159,7 @@ export default function CanvasWorkspace() {
     const detachZoneSelection = attachZoneSelection(engine.canvas, setRoomSelection);
 
     return () => {
+      persistRef.current?.flush();
       detachSnap();
       detachPlacement();
       detachDuctDrawing();
@@ -249,6 +251,7 @@ export default function CanvasWorkspace() {
     };
     saveNowRef.current = saveNow;
     const persist = debounce(() => { void saveNow(); }, 600);
+    persistRef.current = persist;
     const markDirty = () => {
       if (isHydratingRef.current) return;
       setSaveStatus('unsaved');
@@ -258,10 +261,12 @@ export default function CanvasWorkspace() {
     engine.canvas.on('object:modified', markDirty);
     engine.canvas.on('object:removed', markDirty);
     return () => {
-      saveNowRef.current = null;
+      persist.flush();
       engine.canvas.off('object:added', markDirty);
       engine.canvas.off('object:modified', markDirty);
       engine.canvas.off('object:removed', markDirty);
+      if (persistRef.current === persist) persistRef.current = null;
+      saveNowRef.current = null;
     };
   }, [activePlanPageId]);
 
@@ -310,6 +315,10 @@ export default function CanvasWorkspace() {
       setLoadError(`Unsupported file type: ${file.name}`);
       return;
     }
+    const engine = engineRef.current;
+    const hasDrawing = engine.canvas.getObjects().some((o) => !o.excludeFromExport);
+    if ((planPage?.backgroundImage || hasDrawing) &&
+      !window.confirm('Replace the floor plan? Your drawing is kept, but the scale is reset and must be recalibrated.')) return;
     setIsLoadingFile(true);
     setLoadError(null);
     try {
@@ -320,8 +329,7 @@ export default function CanvasWorkspace() {
       const url = URL.createObjectURL(blob);
       backgroundObjectUrlRef.current = url;
 
-      engineRef.current.canvas.clear();
-      await engineRef.current.loadBackgroundImage(url, widthPx, heightPx);
+      await engine.loadBackgroundImage(url, widthPx, heightPx);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load floor plan');
     } finally {
