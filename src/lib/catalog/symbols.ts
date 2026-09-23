@@ -67,51 +67,53 @@ export function buildFanCoilUnit(_style: IconStyle = DEFAULT_STYLE): Group {
 }
 
 export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, _style: IconStyle = DEFAULT_STYLE): Group {
-  const stroke = '#334155';
-  const fill = '#f8fafc';
-
+  const stroke='#334155', fill='#f8fafc';
   if (kind === 'return') {
-    const w=108, h=38;
-    const body=new Rect({left:0,top:4,width:w,height:h,originX:'center',originY:'center',fill,stroke,strokeWidth:1.6});
-    const neck1=new Rect({left:18,top:-27,width:18,height:24,originX:'center',originY:'center',fill,stroke,strokeWidth:1.5});
-    const neck2=new Rect({left:46,top:-27,width:18,height:24,originX:'center',originY:'center',fill,stroke,strokeWidth:1.5});
-    const unitNeck=new Rect({left:-66,top:4,width:24,height:20,originX:'center',originY:'center',fill,stroke,strokeWidth:1.5});
+    // One continuous RA top-view outline: unit neck at left, compact box, two return necks.
+    const outline=new Polygon([
+      {x:-70,y:-10},{x:-48,y:-10},{x:-48,y:-24},{x:-24,y:-24},{x:-24,y:-38},{x:-8,y:-38},
+      {x:-8,y:-24},{x:24,y:-24},{x:24,y:-38},{x:40,y:-38},{x:40,y:-24},{x:52,y:-24},
+      {x:52,y:24},{x:-48,y:24},{x:-48,y:10},{x:-70,y:10}
+    ],{fill,stroke,strokeWidth:1.6,originX:'center',originY:'center'});
     const ports:PortDef[]=[
-      {id:'unit',x:-78,y:4,angleDeg:180,kind:'duct_rect',sizeMm:{width:400,depth:250}},
-      {id:'return-1',x:18,y:-39,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:350}},
-      {id:'return-2',x:46,y:-39,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:350}},
+      {id:'unit',x:-70,y:0,angleDeg:180,kind:'duct_rect',sizeMm:{width:400,depth:250}},
+      {id:'return-1',x:-16,y:-38,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:350}},
+      {id:'return-2',x:32,y:-38,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:350}},
     ];
-    const group=new Group([footprint(170,90),body,unitNeck,neck1,neck2],{originX:'center',originY:'center'});
+    const group=new Group([footprint(150,90),outline],{originX:'center',originY:'center'});
     setPlandroidData(group,{plandroidKind:'fitting',plandroidComponentId:'plenum-return',plandroidPorts:ports});
     return group;
   }
-
   const three=branchCount>=3;
-  const bodyW=three?96:86;
-  const body=new Polygon(
-    three
-      ? [{x:-48,y:24},{x:-48,y:-8},{x:-30,y:-24},{x:-14,y:-14},{x:0,y:-24},{x:14,y:-14},{x:30,y:-24},{x:48,y:-8},{x:48,y:24}]
-      : [{x:-43,y:24},{x:-43,y:-8},{x:-22,y:-26},{x:0,y:-14},{x:22,y:-26},{x:43,y:-8},{x:43,y:24}],
-    {fill,stroke,strokeWidth:1.6,originX:'center',originY:'center'}
-  );
-  const unitNeck=new Rect({left:0,top:36,width:30,height:24,originX:'center',originY:'center',fill,stroke,strokeWidth:1.5});
-  const outletXs=three?[-31,0,31]:[-28,28];
-  const outletAngles=three?[-35,0,35]:[-35,35];
-  const necks:FabricObject[]=[];
+  // Continuous supply outline with integrated take-off necks (no separate box children).
+  const pts = three ? [
+    {x:-15,y:48},{x:15,y:48},{x:15,y:25},{x:44,y:15},{x:54,y:-7},{x:45,y:-12},{x:32,y:8},
+    {x:18,y:0},{x:9,y:-28},{x:-9,y:-28},{x:-18,y:0},{x:-32,y:8},{x:-45,y:-12},{x:-54,y:-7},{x:-44,y:15},{x:-15,y:25}
+  ] : [
+    {x:-15,y:46},{x:15,y:46},{x:15,y:24},{x:38,y:12},{x:50,y:-13},{x:36,y:-20},{x:23,y:4},
+    {x:0,y:-7},{x:-23,y:4},{x:-36,y:-20},{x:-50,y:-13},{x:-38,y:12},{x:-15,y:24}
+  ];
+  const outline=new Polygon(pts,{fill,stroke,strokeWidth:1.6,originX:'center',originY:'center'});
   const ports:PortDef[]=[{id:'unit',x:0,y:48,angleDeg:90,kind:'duct_rect',sizeMm:{width:400,depth:250}}];
-  outletXs.forEach((x,i)=>{
-    const angle=outletAngles[i];
-    const y=-38;
-    necks.push(new Rect({left:x,top:y,width:18,height:30,angle,originX:'center',originY:'center',fill,stroke,strokeWidth:1.5}));
-    ports.push({id:`branch-${i+1}`,x:x,y:-54,angleDeg:-90+angle,kind:'duct_flex',sizeMm:{diameter:350}});
-  });
-  const group=new Group([footprint(bodyW+50,125),body,unitNeck,...necks],{originX:'center',originY:'center'});
+  if(three){
+    ports.push(
+      {id:'branch-1',x:-43,y:-17,angleDeg:-125,kind:'duct_flex',sizeMm:{diameter:350}},
+      {id:'branch-2',x:0,y:-28,angleDeg:-90,kind:'duct_flex',sizeMm:{diameter:350}},
+      {id:'branch-3',x:43,y:-17,angleDeg:-55,kind:'duct_flex',sizeMm:{diameter:350}},
+    );
+  } else {
+    ports.push(
+      {id:'branch-1',x:-43,y:-17,angleDeg:-125,kind:'duct_flex',sizeMm:{diameter:350}},
+      {id:'branch-2',x:43,y:-17,angleDeg:-55,kind:'duct_flex',sizeMm:{diameter:350}},
+    );
+  }
+  const group=new Group([footprint(125,105),outline],{originX:'center',originY:'center'});
   setPlandroidData(group,{plandroidKind:'fitting',plandroidComponentId:`plenum-supply-${branchCount}way`,plandroidPorts:ports});
   return group;
 }
 
 export function buildExactAir(outletCount = 6): Group {
-  const count = Math.max(2, Math.min(8, outletCount));
+  const count = Math.max(2, Math.min(6, outletCount));
   const stroke = '#334155', fill = '#f8fafc';
   const w = count <= 3 ? 72 : count <= 5 ? 82 : 92;
   const h = count <= 3 ? 52 : 58;
@@ -153,9 +155,9 @@ export function buildDiffuser(type: DiffuserType, style: IconStyle = DEFAULT_STY
   const w = isSlot ? 90 : 50;
   const h = isSlot ? 18 : 50;
 
-  const body: FabricObject = isSlot
-    ? new Rect({ left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center', fill: '#1e293b', stroke: '#94a3b8', strokeWidth: 1.5 })
-    : new Circle({ left: 0, top: 0, radius: w / 2, originX: 'center', originY: 'center', fill: '#1e293b', stroke: '#94a3b8', strokeWidth: 1.5 });
+  const body: FabricObject = (isSlot || type === 'supply4way')
+    ? new Rect({ left: 0, top: 0, width: w, height: h, originX: 'center', originY: 'center', fill: '#f8fafc', stroke: '#475569', strokeWidth: 1.5 })
+    : new Circle({ left: 0, top: 0, radius: w / 2, originX: 'center', originY: 'center', fill: '#f8fafc', stroke: '#475569', strokeWidth: 1.5 });
 
   const decorations: FabricObject[] = [];
 
