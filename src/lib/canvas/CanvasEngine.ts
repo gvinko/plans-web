@@ -194,6 +194,17 @@ export class CanvasEngine {
     if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
   }
 
+  /** Record a deletion from toolbar/UI code as well as keyboard delete. */
+  deleteSelection(): void {
+    const active = [...this.canvas.getActiveObjects()];
+    if (!active.length) return;
+    this.undoStack.push({ type: 'delete', objects: active });
+    if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
+    active.forEach((o) => this.canvas.remove(o));
+    this.canvas.discardActiveObject();
+    this.canvas.requestRenderAll();
+  }
+
   /** Removes the most recently recorded undo group — shared by the Ctrl+Z handler and the toolbar Undo button. */
   undo(): void {
     const action = this.undoStack.pop();
@@ -409,14 +420,7 @@ export class CanvasEngine {
     }
 
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.canvas.getActiveObject()) {
-      const active = [...this.canvas.getActiveObjects()];
-      if (active.length) {
-        this.undoStack.push({ type: 'delete', objects: active });
-        if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
-      }
-      active.forEach((o) => this.canvas.remove(o));
-      this.canvas.discardActiveObject();
-      this.canvas.requestRenderAll();
+      this.deleteSelection();
       e.preventDefault();
       return;
     }
