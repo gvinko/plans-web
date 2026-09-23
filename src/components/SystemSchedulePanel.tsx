@@ -20,6 +20,15 @@ interface SystemSchedulePanelProps {
   onClose: () => void;
 }
 
+function cleanComponentName(id?: string): string {
+  if (!id) return '—';
+  if (id.startsWith('indoor-unit|')) {
+    const [, , brand, model] = id.split('|');
+    return `${brand || 'Ducted'} – Ducted Indoor Unit${model && model !== 'Ducted' ? ` – ${model}` : ''}`;
+  }
+  return id.replace(/-/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 function readRows(canvas: Canvas): ScheduleRow[] {
   const rows: ScheduleRow[] = [];
   for (const obj of canvas.getObjects()) {
@@ -31,7 +40,7 @@ function readRows(canvas: Canvas): ScheduleRow[] {
     rows.push({
       objId,
       tag: data.plandroidScheduleTag ?? '\u2014',
-      item: builtIn?.label ?? data.plandroidImportedMeta?.itemName ?? data.plandroidComponentId ?? '\u2014',
+      item: builtIn?.label ?? data.plandroidImportedMeta?.itemName ?? cleanComponentName(data.plandroidComponentId),
       airflowLs: data.plandroidAirflowLs ?? null,
       zoneId: data.plandroidZoneId ?? null,
       notes: data.plandroidScheduleNotes ?? '',
@@ -78,7 +87,7 @@ export default function SystemSchedulePanel({ projectId, getCanvas, onClose }: S
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6">
       <div className="bg-slate-900 border border-slate-700 rounded-lg w-full max-w-3xl max-h-full flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
-          <h2 className="text-sm font-mono">System Schedule \u2014 This Page</h2>
+          <h2 className="text-sm font-mono">System Schedule — This Page</h2>
           <div className="flex items-center gap-2">
             <button onClick={refresh} className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700">
               Refresh
