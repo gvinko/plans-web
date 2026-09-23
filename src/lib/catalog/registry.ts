@@ -37,7 +37,7 @@ export const CATALOG: ComponentDef[] = [
   { id: 'plenum-supply-2way', category: 'fitting', label: 'Supply Plenum — 2-Way', build: (style) => buildPlenum('supply', 2, style) },
   { id: 'plenum-supply-3way', category: 'fitting', label: 'Supply Plenum — 3-Way', build: (style) => buildPlenum('supply', 3, style) },
   { id: 'plenum-return', category: 'fitting', label: 'Return Plenum', build: (style) => buildPlenum('return', 3, style) },
-  ...[2,3,4,5,6,7,8].map((count) => ({ id:`exact-air-${count}`, category:'fitting' as const, label:`Exact Air — ${count} outlets`, build:()=>buildExactAir(count) })),
+  ...[2,3,4,5,6].map((count) => ({ id:`exact-air-${count}`, category:'fitting' as const, label:`Exact Air — ${count} outlets`, build:()=>buildExactAir(count) })),
   { id: 'diffuser-round', category: 'terminal', label: 'Diffuser — Round', build: (style) => buildDiffuser('round', style) },
   { id: 'diffuser-supply4way', category: 'terminal', label: 'Diffuser — 4-Way', build: (style) => buildDiffuser('supply4way', style) },
   { id: 'diffuser-swirl', category: 'terminal', label: 'Diffuser — Swirl', build: (style) => buildDiffuser('swirl', style) },
