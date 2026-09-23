@@ -44,7 +44,7 @@ export class CanvasEngine {
   private pendingCalibrationLabel: FabricText | null = null;
   private sketchImageObj: FabricImage | null = null;
   private backgroundImageObj: FabricImage | null = null;
-  private undoStack: FabricObject[][] = [];
+  private undoStack: Array<{ type: 'add' | 'delete'; objects: FabricObject[] }> = [];
   private clipboardObject: FabricObject | null = null;
 
   constructor(el: HTMLCanvasElement, opts: CanvasEngineOptions) {
@@ -171,15 +171,17 @@ export class CanvasEngine {
   recordUndoGroup(objects: FabricObject[]): void {
     const real = objects.filter(Boolean);
     if (real.length === 0) return;
-    this.undoStack.push(real);
+    this.undoStack.push({ type: 'add', objects: real });
     if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
   }
 
   /** Removes the most recently recorded undo group — shared by the Ctrl+Z handler and the toolbar Undo button. */
   undo(): void {
-    const group = this.undoStack.pop();
-    if (group) {
-      group.forEach((o) => this.canvas.remove(o));
+    const action = this.undoStack.pop();
+    if (action) {
+      if (action.type === 'add') action.objects.forEach((o) => this.canvas.remove(o));
+      else action.objects.forEach((o) => this.canvas.add(o));
+      this.canvas.discardActiveObject();
       this.canvas.requestRenderAll();
     }
   }
@@ -388,7 +390,11 @@ export class CanvasEngine {
     }
 
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.canvas.getActiveObject()) {
-      const active = this.canvas.getActiveObjects();
+      const active = [...this.canvas.getActiveObjects()];
+      if (active.length) {
+        this.undoStack.push({ type: 'delete', objects: active });
+        if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
+      }
       active.forEach((o) => this.canvas.remove(o));
       this.canvas.discardActiveObject();
       this.canvas.requestRenderAll();
