@@ -1,5 +1,5 @@
 import { Canvas, Circle, FabricImage, FabricText, Line, Point, type FabricObject, type TPointerEventInfo, type TPointerEvent } from 'fabric';
-import { getPlandroidData, setPlandroidData } from './plandroidData';
+import { getPlandroidData, setPlandroidData, SERIALIZED_PROPS } from './plandroidData';
 
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 20;
@@ -77,7 +77,8 @@ export class CanvasEngine {
 
   async loadBackgroundImage(objectUrl: string, widthPx: number, heightPx: number): Promise<void> {
     const img = await FabricImage.fromURL(objectUrl);
-    img.set({ left: 0, top: 0, selectable: false, evented: false, hoverCursor: 'default', plandroid: { kind: 'background-plan' } });
+    if (this.backgroundImageObj) this.canvas.remove(this.backgroundImageObj);
+    img.set({ left: 0, top: 0, selectable: false, evented: false, hoverCursor: 'default', excludeFromExport: true });
     this.canvas.add(img);
     this.canvas.sendObjectToBack(img);
     this.backgroundImageObj = img;
@@ -110,9 +111,10 @@ export class CanvasEngine {
       this.sketchImageObj = null;
     }
     const img = await FabricImage.fromURL(objectUrl);
-    img.set({ left: 0, top: 0, opacity, selectable: false, evented: false, hoverCursor: 'default', plandroid: { kind: 'sketch-overlay' } });
+    img.set({ left: 0, top: 0, opacity, selectable: false, evented: false, hoverCursor: 'default', excludeFromExport: true });
     this.canvas.add(img);
-    this.canvas.sendObjectToBack(img);
+    if (this.backgroundImageObj) this.canvas.moveObjectTo(img, 1);
+    else this.canvas.sendObjectToBack(img);
     this.sketchImageObj = img;
     this.fitToViewport(widthPx, heightPx);
     this.canvas.requestRenderAll();
@@ -160,11 +162,8 @@ export class CanvasEngine {
   /** Serialize user drawing objects only. Background/sketch images are persisted separately as
    * IndexedDB blobs, so object URLs must never be written into canvas JSON (they expire on reload). */
   serializeDrawingState(): string {
-    const full = this.canvas.toObject(['plandroid', 'plandroidId']) as { objects?: Array<Record<string, unknown>>; [key: string]: unknown };
-    const objects = (full.objects ?? []).filter((obj) => {
-      const kind = (obj.plandroid as { kind?: string } | undefined)?.kind;
-      return kind !== 'background-plan' && kind !== 'sketch-overlay';
-    });
+    const full = this.canvas.toObject([...SERIALIZED_PROPS]) as { objects?: Array<Record<string, unknown>>; [key: string]: unknown };
+    const objects = (full.objects ?? []).filter((obj) => obj.type?.toString().toLowerCase() !== 'image' && !(obj.plandroid && !obj.plandroidId));
     return JSON.stringify({ ...full, objects });
   }
 
@@ -173,8 +172,7 @@ export class CanvasEngine {
     // Backward-compatible cleanup for saves made before backgrounds were separated.
     if (Array.isArray(parsed.objects)) {
       parsed.objects = parsed.objects.filter((obj) => {
-        const kind = (obj.plandroid as { kind?: string } | undefined)?.kind;
-        return kind !== 'background-plan' && kind !== 'sketch-overlay';
+        return obj.type?.toString().toLowerCase() !== 'image' && !(obj.plandroid && !obj.plandroidId);
       });
     }
     return this.canvas.loadFromJSON(parsed).then(() => {
