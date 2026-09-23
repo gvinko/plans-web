@@ -189,10 +189,10 @@ export default function CanvasWorkspace() {
       const engine = engineRef.current;
       if (!page || !engine || cancelled) return;
 
-      if (page.canvasJSON) {
-        await engine.loadFromJSON(page.canvasJSON);
-        return;
-      }
+      // Drawing JSON and plan images are separate persistence layers. Load drawing first,
+      // then restore the durable IndexedDB image blobs behind it.
+      if (page.canvasJSON) await engine.loadFromJSON(page.canvasJSON);
+      else engine.canvas.clear();
       if (page.backgroundImage) {
         const url = URL.createObjectURL(page.backgroundImage);
         backgroundObjectUrlRef.current = url;
@@ -221,7 +221,7 @@ export default function CanvasWorkspace() {
     if (!engine || !activePlanPageId) return;
     const saveNow = async () => {
       setSaveStatus('saving');
-      await saveCanvasState(activePlanPageId, JSON.stringify(engine.canvas.toObject(['plandroid', 'plandroidId'])));
+      await saveCanvasState(activePlanPageId, engine.serializeDrawingState());
       setSaveStatus('saved');
     };
     saveNowRef.current = saveNow;
@@ -528,7 +528,7 @@ export default function CanvasWorkspace() {
         <BomPanel
           projectId={activeProjectId}
           activePlanPageId={activePlanPageId}
-          getLiveCanvasJson={() => engineRef.current?.canvas.toObject(['plandroid', 'plandroidId']) ?? null}
+          getLiveCanvasJson={() => engineRef.current ? JSON.parse(engineRef.current.serializeDrawingState()) : null}
           onClose={() => setShowBom(false)}
         />
       )}
