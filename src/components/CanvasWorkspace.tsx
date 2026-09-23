@@ -24,7 +24,6 @@ import {
   type WallEdgeSelection,
 } from '../lib/canvas/wallDimensionEdit';
 import { attachZoneSelection, type RoomSelection } from '../lib/canvas/zoneSelection';
-import { debounce, type Debounced } from '../lib/debounce';
 import { useAppStore } from '../store/appStore';
 import CalibrationModal from './CalibrationModal';
 import ComponentPalette from './ComponentPalette';
@@ -80,7 +79,7 @@ export default function CanvasWorkspace() {
   const saveNowRef = useRef<(() => Promise<void>) | null>(null);
   const isHydratingRef = useRef(false);
   const lastSavedJsonRef = useRef<string>('');
-  const persistRef = useRef<Debounced<[]> | null>(null);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   // Controllers read these via ref so they always see the latest value without re-attaching listeners.
   const pendingComponentIdRef = useRef<string | null>(null);
@@ -159,7 +158,6 @@ export default function CanvasWorkspace() {
     const detachZoneSelection = attachZoneSelection(engine.canvas, setRoomSelection);
 
     return () => {
-      persistRef.current?.flush();
       detachSnap();
       detachPlacement();
       detachDuctDrawing();
@@ -229,43 +227,66 @@ export default function CanvasWorkspace() {
     };
   }, [activePlanPageId]);
 
-  // --- autosave canvas state on any change ---
+  // --- immediate, ordered persistence on every committed canvas change ---
+  // Reliability is more important than minimizing IndexedDB writes: each change is snapshotted
+  // immediately and writes are serialized so an older async save can never overwrite a newer one.
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !activePlanPageId) return;
-    const saveNow = async () => {
-      if (isHydratingRef.current) return;
+    let disposed = false;
+
+    const saveSnapshot = async () => {
+      if (isHydratingRef.current || disposed) return;
       const json = engine.serializeDrawingState();
-      // Refuse to overwrite a non-empty saved drawing with an accidental empty state.
       const parsed = JSON.parse(json) as { objects?: unknown[] };
       const previous = lastSavedJsonRef.current ? JSON.parse(lastSavedJsonRef.current) as { objects?: unknown[] } : null;
       if ((parsed.objects?.length ?? 0) === 0 && (previous?.objects?.length ?? 0) > 0) {
         setSaveStatus('unsaved');
         setLoadError('Safety stop: PlanDroid blocked an empty canvas from overwriting your saved job.');
-        return;
+        throw new Error('Empty drawing overwrite blocked');
       }
       setSaveStatus('saving');
       await saveCanvasState(activePlanPageId, json);
+      const verified = await db.planPages.get(activePlanPageId);
+      if (!verified?.canvasJSON || verified.canvasJSON !== json) throw new Error('Saved drawing could not be verified.');
       lastSavedJsonRef.current = json;
-      setSaveStatus('saved');
+      if (!disposed) {
+        setLoadError(null);
+        setSaveStatus('saved');
+      }
     };
-    saveNowRef.current = saveNow;
-    const persist = debounce(() => { void saveNow(); }, 600);
-    persistRef.current = persist;
-    const markDirty = () => {
-      if (isHydratingRef.current) return;
+
+    const queueSave = () => {
+      if (isHydratingRef.current || disposed) return;
       setSaveStatus('unsaved');
-      persist();
+      saveQueueRef.current = saveQueueRef.current
+        .catch(() => undefined)
+        .then(saveSnapshot)
+        .catch((err) => {
+          if (!disposed) {
+            setSaveStatus('unsaved');
+            setLoadError(err instanceof Error ? `SAVE FAILED: ${err.message}` : 'SAVE FAILED');
+          }
+        });
     };
-    engine.canvas.on('object:added', markDirty);
-    engine.canvas.on('object:modified', markDirty);
-    engine.canvas.on('object:removed', markDirty);
+
+    saveNowRef.current = async () => {
+      if (isHydratingRef.current) throw new Error('Project is still loading.');
+      // Wait for any queued autosave, then capture and verify the current canvas.
+      await saveQueueRef.current.catch(() => undefined);
+      await saveSnapshot();
+    };
+
+    engine.canvas.on('object:added', queueSave);
+    engine.canvas.on('object:modified', queueSave);
+    engine.canvas.on('object:removed', queueSave);
     return () => {
-      persist.flush();
-      engine.canvas.off('object:added', markDirty);
-      engine.canvas.off('object:modified', markDirty);
-      engine.canvas.off('object:removed', markDirty);
-      if (persistRef.current === persist) persistRef.current = null;
+      // queueSave has already snapshotted every committed Fabric event; don't dispose until
+      // the queued IndexedDB writes have been allowed to complete.
+      disposed = true;
+      engine.canvas.off('object:added', queueSave);
+      engine.canvas.off('object:modified', queueSave);
+      engine.canvas.off('object:removed', queueSave);
       saveNowRef.current = null;
     };
   }, [activePlanPageId]);
@@ -280,11 +301,11 @@ export default function CanvasWorkspace() {
     return () => window.removeEventListener('beforeunload', warn);
   }, [saveStatus]);
 
-  async function handleSaveNow() {
+  async function handleSaveNow(): Promise<boolean> {
     if (!saveNowRef.current || !activePlanPageId) {
       setSaveStatus('unsaved');
       setLoadError('Save is not ready yet. Your drawing has not been discarded.');
-      return;
+      return false;
     }
     try {
       await saveNowRef.current();
@@ -294,9 +315,11 @@ export default function CanvasWorkspace() {
       }
       setLoadError(null);
       setSaveStatus('saved');
+      return true;
     } catch (err) {
       setSaveStatus('unsaved');
       setLoadError(err instanceof Error ? `SAVE FAILED: ${err.message}` : 'SAVE FAILED: drawing was not verified.');
+      return false;
     }
   }
 
@@ -304,7 +327,11 @@ export default function CanvasWorkspace() {
     if (saveStatus === 'unsaved') {
       const save = window.confirm('You have unsaved changes. Press OK to SAVE & LEAVE, or Cancel to stay on this project.');
       if (!save) return;
-      await handleSaveNow();
+      const saved = await handleSaveNow();
+      if (!saved) return;
+    } else {
+      const saved = await handleSaveNow();
+      if (!saved) return;
     }
     setActiveProject(null);
   }
