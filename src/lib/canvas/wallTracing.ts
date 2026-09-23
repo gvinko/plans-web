@@ -24,8 +24,7 @@ export function buildTracedRoomObject(vertices: Vec2[], zone?: { id: string; col
       objectCaching: false,
     },
   );
-  setPlandroidData(poly, { plandroidKind: 'traced_room', plandroidPorts: [], plandroidZoneId: zone?.id });
-  (poly as unknown as { plandroidTraceVerticesPx: Vec2[] }).plandroidTraceVerticesPx = vertices;
+  setPlandroidData(poly, { plandroidKind: 'traced_room', plandroidPorts: [], plandroidZoneId: zone?.id, plandroidTraceVerticesPx: vertices });
   setPlandroidId(poly, nanoid());
   return poly;
 }
@@ -64,6 +63,7 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
       fill: '#38bdf8',
       selectable: false,
       evented: false,
+      excludeFromExport: true,
     });
     canvas.add(marker);
     markers.push(marker);
@@ -121,6 +121,7 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
       selectable: false,
       evented: false,
       strokeDashArray: [5, 4],
+      excludeFromExport: true,
     });
     canvas.add(previewLine);
     canvas.requestRenderAll();
