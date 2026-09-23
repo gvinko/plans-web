@@ -75,6 +75,8 @@ export default function CanvasWorkspace() {
   const [wallEdgeSelection, setWallEdgeSelection] = useState<WallEdgeSelection | null>(null);
   const [wallPopoverScreen, setWallPopoverScreen] = useState<{ x: number; y: number } | null>(null);
   const [roomSelection, setRoomSelection] = useState<RoomSelection | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'saved'|'saving'|'unsaved'>('saved');
+  const saveNowRef = useRef<(() => Promise<void>) | null>(null);
 
   // Controllers read these via ref so they always see the latest value without re-attaching listeners.
   const pendingComponentIdRef = useRef<string | null>(null);
@@ -135,7 +137,11 @@ export default function CanvasWorkspace() {
       () => pxPerMmRef.current,
       () => ductParamsRef.current,
       () => ductColorOverridesRef.current,
-      () => {},
+      () => {
+        setSaveStatus('unsaved');
+        setActiveTool('select');
+        engine.setToolMode('select');
+      },
     );
     const detachWallTracing = attachWallTracing(engine, () => pxPerMmRef.current, () => handleToolChange('select'));
     const detachWallDimensionEdit = attachWallDimensionEdit(engine, (sel) => {
@@ -212,18 +218,47 @@ export default function CanvasWorkspace() {
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !activePlanPageId) return;
-    const persist = debounce(() => {
-      saveCanvasState(activePlanPageId, JSON.stringify(engine.canvas.toObject(['plandroid', 'plandroidId'])));
-    }, 600);
-    engine.canvas.on('object:added', persist);
-    engine.canvas.on('object:modified', persist);
-    engine.canvas.on('object:removed', persist);
+    const saveNow = async () => {
+      setSaveStatus('saving');
+      await saveCanvasState(activePlanPageId, JSON.stringify(engine.canvas.toObject(['plandroid', 'plandroidId'])));
+      setSaveStatus('saved');
+    };
+    saveNowRef.current = saveNow;
+    const persist = debounce(() => { void saveNow(); }, 600);
+    const markDirty = () => { setSaveStatus('unsaved'); persist(); };
+    engine.canvas.on('object:added', markDirty);
+    engine.canvas.on('object:modified', markDirty);
+    engine.canvas.on('object:removed', markDirty);
     return () => {
-      engine.canvas.off('object:added', persist);
-      engine.canvas.off('object:modified', persist);
-      engine.canvas.off('object:removed', persist);
+      saveNowRef.current = null;
+      engine.canvas.off('object:added', markDirty);
+      engine.canvas.off('object:modified', markDirty);
+      engine.canvas.off('object:removed', markDirty);
     };
   }, [activePlanPageId]);
+
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (saveStatus !== 'unsaved') return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [saveStatus]);
+
+  async function handleSaveNow() {
+    await saveNowRef.current?.();
+  }
+
+  async function handleLeaveProjects() {
+    if (saveStatus === 'unsaved') {
+      const save = window.confirm('You have unsaved changes. Press OK to SAVE & LEAVE, or Cancel to stay on this project.');
+      if (!save) return;
+      await handleSaveNow();
+    }
+    setActiveProject(null);
+  }
 
   async function handleFileLoad(file: File) {
     if (!activePlanPageId || !engineRef.current) return;
@@ -344,7 +379,7 @@ export default function CanvasWorkspace() {
     <div className="h-full flex flex-col">
       <header className="border-b border-slate-700 bg-slate-950">
         <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto">
-          <button className="text-xs text-slate-400 hover:text-slate-200 shrink-0" onClick={() => setActiveProject(null)}>← Projects</button>
+          <button className="text-xs text-slate-400 hover:text-slate-200 shrink-0" onClick={handleLeaveProjects}>← Projects</button>
           {(['PLAN','HVAC','DUCT','FITTINGS','OUTLETS','CONTROLS','NOTES','EXPORT'] as const).map((tab) => (
             <button key={tab} onClick={() => setActiveRibbon(tab)}
               className={`text-xs font-semibold px-3 py-1.5 rounded shrink-0 ${activeRibbon===tab?'bg-sky-600':'bg-slate-800 hover:bg-slate-700'}`}>{tab}</button>
@@ -354,6 +389,7 @@ export default function CanvasWorkspace() {
         </div>
         <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-800 overflow-x-auto">
           <button onClick={() => handleToolChange('select')} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Select</button>
+          <button onClick={handleSaveNow} className="text-xs px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 shrink-0">{saveStatus==='saving'?'Saving…':saveStatus==='unsaved'?'Save •':'Saved ✓'}</button>
           <button onClick={() => engineRef.current?.undo()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Undo</button>
           <button onClick={() => engineRef.current?.duplicateSelection()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Copy</button>
           <button onClick={() => engineRef.current?.setSelectionLocked(true)} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">🔒 Lock</button>
