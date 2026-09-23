@@ -1,4 +1,4 @@
-import type { Canvas, FabricObject, TPointerEventInfo, TPointerEvent } from 'fabric';
+import { Point, util, type Canvas, type FabricObject, type TPointerEventInfo, type TPointerEvent, type Polygon } from 'fabric';
 import type { CanvasEngine } from './CanvasEngine';
 import { distance, distancePointToSegment, midpoint, type Vec2 } from './geometry';
 import { getPlandroidData, getPlandroidId, setPlandroidId } from './plandroidData';
@@ -60,6 +60,15 @@ export function applyWallLength(vertices: Vec2[], edgeIndex: number, newLengthPx
 
 const EDGE_CLICK_THRESHOLD_SCREEN_PX = 20;
 
+function readTraceVertices(obj: FabricObject): Vec2[] | null {
+  const stored = getPlandroidData(obj)?.plandroidTraceVerticesPx;
+  if (stored?.length) return stored;
+  const poly = obj as Polygon;
+  if (!poly.points?.length) return null;
+  const m = poly.calcTransformMatrix();
+  return poly.points.map((p) => util.transformPoint(new Point(p.x - poly.pathOffset.x, p.y - poly.pathOffset.y), m));
+}
+
 export function attachWallDimensionEdit(engine: CanvasEngine, onEdgeSelected: (sel: WallEdgeSelection) => void): () => void {
   const canvas = engine.canvas;
   function onMouseDown(opt: TPointerEventInfo<TPointerEvent>) {
@@ -67,7 +76,7 @@ export function attachWallDimensionEdit(engine: CanvasEngine, onEdgeSelected: (s
     const target = opt.target as FabricObject | undefined;
     if (!target || getPlandroidData(target)?.plandroidKind !== 'traced_room') return;
 
-    const vertices = (target as unknown as { plandroidTraceVerticesPx?: Vec2[] }).plandroidTraceVerticesPx;
+    const vertices = readTraceVertices(target);
     if (!vertices || vertices.length < 2) return;
 
     const pointer = canvas.getPointer(opt.e);
@@ -96,7 +105,7 @@ export function attachWallDimensionEdit(engine: CanvasEngine, onEdgeSelected: (s
 
 export function getTraceVertices(canvas: Canvas, objId: string): Vec2[] | null {
   const obj = canvas.getObjects().find((o) => getPlandroidId(o) === objId);
-  return (obj as unknown as { plandroidTraceVerticesPx?: Vec2[] } | undefined)?.plandroidTraceVerticesPx ?? null;
+  return obj ? readTraceVertices(obj) : null;
 }
 
 /** Rebuilds the room object in place (Fabric can't cheaply resize an existing Polygon's points array).
