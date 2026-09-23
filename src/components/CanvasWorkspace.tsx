@@ -276,7 +276,23 @@ export default function CanvasWorkspace() {
   }, [saveStatus]);
 
   async function handleSaveNow() {
-    await saveNowRef.current?.();
+    if (!saveNowRef.current || !activePlanPageId) {
+      setSaveStatus('unsaved');
+      setLoadError('Save is not ready yet. Your drawing has not been discarded.');
+      return;
+    }
+    try {
+      await saveNowRef.current();
+      const verified = await db.planPages.get(activePlanPageId);
+      if (!verified?.canvasJSON || verified.canvasJSON !== lastSavedJsonRef.current) {
+        throw new Error('PlanDroid could not verify the saved drawing.');
+      }
+      setLoadError(null);
+      setSaveStatus('saved');
+    } catch (err) {
+      setSaveStatus('unsaved');
+      setLoadError(err instanceof Error ? `SAVE FAILED: ${err.message}` : 'SAVE FAILED: drawing was not verified.');
+    }
   }
 
   async function handleLeaveProjects() {
@@ -418,7 +434,7 @@ export default function CanvasWorkspace() {
         </div>
         <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-800 overflow-x-auto">
           <button onClick={() => handleToolChange('select')} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Select</button>
-          <button onClick={handleSaveNow} className="text-xs px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 shrink-0">{saveStatus==='saving'?'Saving…':saveStatus==='unsaved'?'Save •':'Saved ✓'}</button>
+          <button onClick={handleSaveNow} className="text-xs px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 shrink-0">{saveStatus==='saving'?'Saving…':saveStatus==='unsaved'?'SAVE •':'SAVE ✓'}</button>
           <button onClick={() => engineRef.current?.undo()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Undo</button>
           <button onClick={() => engineRef.current?.deleteSelection()} className="text-xs px-2.5 py-1 rounded bg-red-900/70 hover:bg-red-800 shrink-0">Delete</button>
           <button onClick={() => engineRef.current?.duplicateSelection()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Copy</button>
