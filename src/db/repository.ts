@@ -112,7 +112,7 @@ export async function setSketchOpacity(planPageId: string, opacity: number): Pro
 export async function deleteProjectCascade(projectId: string): Promise<void> {
   await db.transaction(
     'rw',
-    [db.projects, db.planPages, db.ductRuns, db.fittings, db.terminals, db.equipment, db.costItems],
+    [db.projects, db.planPages, db.ductRuns, db.fittings, db.terminals, db.equipment, db.costItems, db.zones],
     async () => {
       const pages = await db.planPages.where({ projectId }).toArray();
       const pageIds = pages.map((p) => p.id);
@@ -121,6 +121,7 @@ export async function deleteProjectCascade(projectId: string): Promise<void> {
       await db.terminals.where('planPageId').anyOf(pageIds).delete();
       await db.equipment.where('planPageId').anyOf(pageIds).delete();
       await db.costItems.where({ projectId }).delete();
+      await db.zones.where({ projectId }).delete();
       await db.planPages.where({ projectId }).delete();
       await db.projects.delete(projectId);
     },
