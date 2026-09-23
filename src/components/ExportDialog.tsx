@@ -7,6 +7,7 @@ import { computeTakeoff } from '../lib/takeoff/takeoff';
 import { getAppSettings } from '../db/appSettingsRepository';
 import { loadImageFromBlob } from '../lib/pdf/loadImage';
 import type { UnitSystem } from '../lib/units';
+import { SERIALIZED_PROPS } from '../lib/canvas/plandroidData';
 
 interface ExportDialogProps {
   projectId: string;
@@ -53,7 +54,7 @@ export default function ExportDialog({
     setIsExporting(true);
     setError(null);
     try {
-      const canvasJson = canvas.toObject(['plandroid', 'plandroidId']);
+      const canvasJson = canvas.toObject([...SERIALIZED_PROPS]);
       const records = await collectProjectRecords(projectId, activePlanPageId, canvasJson);
       const takeoffLines = computeTakeoff(records);
       const appSettings = await getAppSettings();
