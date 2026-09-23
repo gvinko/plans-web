@@ -72,7 +72,7 @@ export function attachDuctDrawing(
   function resolveClickPoint(rawPointer: Vec2, mode: 'duct-rigid' | 'duct-flex'): Vec2 {
     const kind: PortKind = mode === 'duct-rigid' ? 'duct_rect' : 'duct_flex';
     const radius = CLICK_SNAP_RADIUS_SCREEN_PX / canvas.getZoom();
-    const match = findNearestPortToPoint(rawPointer, canvas.getObjects(), kind, radius);
+    const match = findNearestPortToPoint(rawPointer, canvas.getObjects().filter((o) => o !== previewObj), kind, radius);
     return match ? { x: match.worldX, y: match.worldY } : rawPointer;
   }
 
@@ -147,12 +147,12 @@ export function attachDuctDrawing(
       const functionFallback = params.ductFunction === 'return' ? DEFAULT_RETURN_COLOR : DEFAULT_SUPPLY_COLOR;
       const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, functionFallback);
       const { rect } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm, color);
-      rect.set({ opacity: 0.5, selectable: false, evented: false });
+      rect.set({ opacity: 0.5, selectable: false, evented: false, excludeFromExport: true });
       previewObj = rect;
     } else {
       const color = resolveRoundDuctColor(params.diameterMm, overrides, DEFAULT_FLEX_COLOR);
       const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
-      path.set({ opacity: 0.5, selectable: false, evented: false });
+      path.set({ opacity: 0.5, selectable: false, evented: false, excludeFromExport: true });
       previewObj = path;
     }
     canvas.add(previewObj);
