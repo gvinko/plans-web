@@ -93,7 +93,6 @@ export async function setBackgroundImage(
     backgroundImageHeightPx: heightPx,
     // new raster invalidates any prior calibration — real-world reference no longer applies
     scale: { pxPerMm: null, calibratedAt: null, referencePoints: null, referenceLengthMm: null },
-    canvasJSON: null,
   });
 }
 
