@@ -13,7 +13,7 @@ export const DEFAULT_FLEX_COLOR = '#9ca3af';
  * for telling sizes apart at a glance on a printed drawing. Only applied when a size-specific
  * override hasn't been set; otherwise the supply/return function color above wins. */
 export const ROUND_DUCT_PRESETS: RoundSizePreset[] = [
-  { inch: 8, mm: 200, color: '#38bdf8' },
+  { inch: 8, mm: 200, color: '#eab308' },
   { inch: 10, mm: 250, color: '#3b82f6' },
   { inch: 12, mm: 300, color: '#22c55e' },
   { inch: 14, mm: 350, color: '#f97316' },
