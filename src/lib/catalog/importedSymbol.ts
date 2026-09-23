@@ -3,6 +3,7 @@ import type { PortDef, IconStyle } from './types';
 import { parseDimensionsToPortSize } from './parseDimensions';
 import { setPlandroidData } from '../canvas/plandroidData';
 import type { ImportedCatalogItem } from '../../db/schema';
+import { classifyCategory } from '../import/excelSchema';
 
 export function buildImportedCatalogSymbol(item: ImportedCatalogItem, style: IconStyle = 'simple'): Group {
   const w = 90;
@@ -69,8 +70,10 @@ export function buildImportedCatalogSymbol(item: ImportedCatalogItem, style: Ico
     { id: 'out', x: w / 2, y: 0, angleDeg: 0, kind, sizeMm: size },
   ];
 
+  const classified = classifyCategory(item.category);
+  const plandroidKind = classified === 'equipmentCatalog' ? 'equipment' : 'fitting';
   setPlandroidData(group, {
-    plandroidKind: 'fitting',
+    plandroidKind,
     plandroidComponentId: item.id,
     plandroidPorts: ports,
     plandroidImportedMeta: {
