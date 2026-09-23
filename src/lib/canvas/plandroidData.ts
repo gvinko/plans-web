@@ -53,3 +53,6 @@ export function getPlandroidId(obj: FabricObject): string | null {
 export function setPlandroidId(obj: FabricObject, id: string): void {
   (obj as unknown as { plandroidId: string }).plandroidId = id;
 }
+
+/** Every custom property that must survive autosave/export. */
+export const SERIALIZED_PROPS = ['plandroid', 'plandroidId', 'plandroidAreaLabelFor'] as const;
