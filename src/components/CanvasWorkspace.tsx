@@ -78,7 +78,7 @@ export default function CanvasWorkspace() {
   const [saveStatus, setSaveStatus] = useState<'saved'|'saving'|'unsaved'>('saved');
   const [persistenceDebug, setPersistenceDebug] = useState<string>('');
   const saveNowRef = useRef<(() => Promise<void>) | null>(null);
-  const isHydratingRef = useRef(false);
+  const isHydratingRef = useRef(true);
   const lastSavedJsonRef = useRef<string>('');
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -187,6 +187,9 @@ export default function CanvasWorkspace() {
   useEffect(() => {
     if (!activePlanPageId) return;
     let cancelled = false;
+    // Close the autosave gate synchronously, before the async IndexedDB read begins.
+    // Otherwise the autosave listener can observe Fabric clear/load events and persist a blank canvas.
+    isHydratingRef.current = true;
     (async () => {
       const page = await db.planPages.get(activePlanPageId);
       const engine = engineRef.current;
@@ -242,7 +245,7 @@ export default function CanvasWorkspace() {
   // immediately and writes are serialized so an older async save can never overwrite a newer one.
   useEffect(() => {
     const engine = engineRef.current;
-    if (!engine || !activePlanPageId) return;
+    if (!engine || !activePlanPageId || !planPage || isHydratingRef.current) return;
     const saveSnapshot = async () => {
       if (isHydratingRef.current) return;
       const json = engine.serializeDrawingState();
@@ -316,7 +319,7 @@ export default function CanvasWorkspace() {
       engine.canvas.off('object:removed', queueSave);
       saveNowRef.current = null;
     };
-  }, [activePlanPageId]);
+  }, [activePlanPageId, planPage]);
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
