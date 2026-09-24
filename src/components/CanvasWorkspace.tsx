@@ -76,6 +76,7 @@ export default function CanvasWorkspace() {
   const [wallPopoverScreen, setWallPopoverScreen] = useState<{ x: number; y: number } | null>(null);
   const [roomSelection, setRoomSelection] = useState<RoomSelection | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved'|'saving'|'unsaved'>('saved');
+  const [persistenceDebug, setPersistenceDebug] = useState<string>('');
   const saveNowRef = useRef<(() => Promise<void>) | null>(null);
   const isHydratingRef = useRef(false);
   const lastSavedJsonRef = useRef<string>('');
@@ -212,6 +213,15 @@ export default function CanvasWorkspace() {
       }
       isHydratingRef.current = false;
       setSaveStatus('saved');
+      const restoredJson = page.canvasJSON;
+      let storedObjects = 0;
+      if (restoredJson) {
+        try {
+          const parsed = JSON.parse(restoredJson) as { objects?: unknown[] };
+          storedObjects = parsed.objects?.length ?? 0;
+        } catch { /* diagnostic only */ }
+      }
+      setPersistenceDebug(`OPEN page=${page.id.slice(0,8)} DB=${storedObjects} Fabric=${engine.canvas.getObjects().filter(o => !o.excludeFromExport).length} bg=${page.backgroundImage ? 'Y' : 'N'}`);
     })().catch((err) => {
       isHydratingRef.current = false;
       setLoadError(err instanceof Error ? err.message : 'Failed to restore saved project');
@@ -248,6 +258,7 @@ export default function CanvasWorkspace() {
       const verified = await db.planPages.get(activePlanPageId);
       if (!verified?.canvasJSON || verified.canvasJSON !== json) throw new Error('Saved drawing could not be verified.');
       lastSavedJsonRef.current = json;
+      setPersistenceDebug(`SAVE page=${activePlanPageId.slice(0,8)} DB=${parsed.objects?.length ?? 0} Fabric=${engine.canvas.getObjects().filter(o => !o.excludeFromExport).length}`);
       setLoadError(null);
       setSaveStatus('saved');
     };
@@ -266,6 +277,12 @@ export default function CanvasWorkspace() {
           const verified = await db.planPages.get(activePlanPageId);
           if (!verified?.canvasJSON || verified.canvasJSON !== jsonAtChange) throw new Error('Saved drawing could not be verified.');
           lastSavedJsonRef.current = jsonAtChange;
+          let queuedCount = 0;
+          try {
+            const parsed = JSON.parse(jsonAtChange) as { objects?: unknown[] };
+            queuedCount = parsed.objects?.length ?? 0;
+          } catch { /* diagnostic only */ }
+          setPersistenceDebug(`AUTO page=${activePlanPageId.slice(0,8)} DB=${queuedCount} Fabric=${engine.canvas.getObjects().filter(o => !o.excludeFromExport).length}`);
           // Only show the tick when the canvas still exactly matches the snapshot just verified.
           if (engine.serializeDrawingState() === jsonAtChange) {
             setLoadError(null);
@@ -479,6 +496,7 @@ export default function CanvasWorkspace() {
         </div>
         <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-800 overflow-x-auto">
           <button onClick={() => handleToolChange('select')} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Select</button>
+          {persistenceDebug && <span className="text-[10px] font-mono text-amber-300 shrink-0" title="Persistence diagnostic">{persistenceDebug}</span>}
           <button onClick={handleSaveNow} className="text-xs px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 shrink-0">{saveStatus==='saving'?'Saving…':saveStatus==='unsaved'?'SAVE •':'SAVE ✓'}</button>
           <button onClick={() => engineRef.current?.undo()} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Undo</button>
           <button onClick={() => engineRef.current?.deleteSelection()} className="text-xs px-2.5 py-1 rounded bg-red-900/70 hover:bg-red-800 shrink-0">Delete</button>
