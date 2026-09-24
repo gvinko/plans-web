@@ -8,7 +8,7 @@ import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
 const PLANDROID_VERSION = '0.6.0';
-const BUILD_ID = '2026-09-24-SAVE-FIX-5';
+const BUILD_ID = '2026-09-24-SAVE-FIX-6';
 
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
@@ -108,7 +108,29 @@ export default function App() {
         <ul className="mt-4 space-y-1">
           {projects?.map((p) => (
             <li key={p.id} className="flex items-center justify-between gap-3 rounded bg-slate-900 px-3 py-2">
-              <button className="font-mono text-sm text-slate-300 hover:text-sky-400 text-left flex-1" onClick={() => setActiveProject(p.id)}>
+              <button className="font-mono text-sm text-slate-300 hover:text-sky-400 text-left flex-1" onClick={async () => {
+                // Resolve the saved page directly from IndexedDB before opening the workspace.
+                // This avoids the live-query/page-creation race that could open a new empty page
+                // even though another page in the same project contains the verified drawing.
+                const existingPages = await db.planPages.where({ projectId: p.id }).sortBy('order');
+                const objectCount = (page: PlanPage) => {
+                  if (!page.canvasJSON) return 0;
+                  try {
+                    const parsed = JSON.parse(page.canvasJSON) as { objects?: unknown[] };
+                    return parsed.objects?.length ?? 0;
+                  } catch {
+                    return 0;
+                  }
+                };
+                const preferred = [...existingPages].sort((a, b) => {
+                  const scoreA = objectCount(a) * 10 + (a.backgroundImage ? 1 : 0) + (a.sketchImage ? 1 : 0);
+                  const scoreB = objectCount(b) * 10 + (b.backgroundImage ? 1 : 0) + (b.sketchImage ? 1 : 0);
+                  return scoreB - scoreA || a.order - b.order;
+                })[0];
+
+                setActiveProject(p.id);
+                if (preferred) setActivePlanPage(preferred.id);
+              }}>
                 {p.name} — rev {p.revision}
               </button>
               <button className="text-xs text-red-400 hover:text-red-300 px-2 py-1" onClick={async()=>{if(window.confirm(`Delete "${p.name}"? This permanently deletes its saved plans and drawings.`)) await deleteProjectCascade(p.id);}}>Delete</button>
