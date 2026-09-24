@@ -163,19 +163,27 @@ export class CanvasEngine {
    * IndexedDB blobs, so object URLs must never be written into canvas JSON (they expire on reload). */
   serializeDrawingState(): string {
     const full = this.canvas.toObject([...SERIALIZED_PROPS]) as { objects?: Array<Record<string, unknown>>; [key: string]: unknown };
-    const objects = (full.objects ?? []).filter((obj) => obj.type?.toString().toLowerCase() !== 'image' && !(obj.plandroid && !obj.plandroidId));
+    // Background/sketch raster images are persisted separately as durable IndexedDB Blobs.
+    // Do not discard arbitrary PlanDroid objects here: some legitimate drawing objects may carry
+    // plandroid metadata without a plandroidId (for example labels/helpers created by older builds).
+    // Runtime previews already use excludeFromExport and Fabric omits them from toObject().
+    const objects = (full.objects ?? []).filter((obj) => obj.type?.toString().toLowerCase() !== 'image');
     return JSON.stringify({ ...full, objects });
   }
 
   loadFromJSON(json: string): Promise<void> {
     const parsed = JSON.parse(json) as { objects?: Array<Record<string, unknown>>; [key: string]: unknown };
-    // Backward-compatible cleanup for saves made before backgrounds were separated.
+    // Backward-compatible cleanup for saves made before backgrounds were separated. Only remove
+    // raster images with expired blob: URLs; preserve every non-image drawing object.
     if (Array.isArray(parsed.objects)) {
-      parsed.objects = parsed.objects.filter((obj) => {
-        return obj.type?.toString().toLowerCase() !== 'image' && !(obj.plandroid && !obj.plandroidId);
-      });
+      parsed.objects = parsed.objects.filter((obj) => obj.type?.toString().toLowerCase() !== 'image');
     }
+    const expectedObjectCount = parsed.objects?.length ?? 0;
     return this.canvas.loadFromJSON(parsed).then(() => {
+      const restoredObjectCount = this.canvas.getObjects().length;
+      if (restoredObjectCount !== expectedObjectCount) {
+        throw new Error(`Drawing restore incomplete: expected ${expectedObjectCount} objects but restored ${restoredObjectCount}.`);
+      }
       this.canvas.requestRenderAll();
       this.undoStack = [];
     });
