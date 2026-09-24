@@ -298,9 +298,9 @@ export default function CanvasWorkspace() {
     engine.canvas.on('object:modified', queueSave);
     engine.canvas.on('object:removed', queueSave);
     return () => {
-      // queueSave has already snapshotted every committed Fabric event; don't dispose until
-      // the queued IndexedDB writes have been allowed to complete.
-      disposed = true;
+      // Stop accepting new canvas events, but DO NOT invalidate snapshots already queued.
+      // The previous cleanup set disposed=true here, causing a queued autosave to return
+      // without writing when the user left the project immediately after an edit.
       engine.canvas.off('object:added', queueSave);
       engine.canvas.off('object:modified', queueSave);
       engine.canvas.off('object:removed', queueSave);
