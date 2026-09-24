@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { db } from './db';
@@ -8,7 +8,7 @@ import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
 const PLANDROID_VERSION = '0.6.0';
-const BUILD_ID = '2026-09-24-SAVE-FIX-2';
+const BUILD_ID = '2026-09-24-SAVE-FIX-3';
 
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
@@ -17,6 +17,7 @@ export default function App() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [suburb, setSuburb] = useState('');
+  const creatingPageForProjectRef = useRef<string | null>(null);
 
   const pagesForActiveProject = useLiveQuery(
     () =>
@@ -27,13 +28,41 @@ export default function App() {
   );
 
   // Every opened project needs at least one plan page to draw on.
+  // Prefer a page that actually contains saved work. Older builds could race page creation and
+  // leave an empty Level 1 beside the page that contains the drawing; always choosing [0] then
+  // made a correctly-saved project appear completely empty on reopen.
   useEffect(() => {
     if (!activeProjectId || !pagesForActiveProject) return;
     if (pagesForActiveProject.length > 0) {
-      if (!activePlanPageId) setActivePlanPage(pagesForActiveProject[0].id);
+      creatingPageForProjectRef.current = null;
+      if (!activePlanPageId) {
+        const objectCount = (page: PlanPage) => {
+          if (!page.canvasJSON) return 0;
+          try {
+            const parsed = JSON.parse(page.canvasJSON) as { objects?: unknown[] };
+            return parsed.objects?.length ?? 0;
+          } catch {
+            return 0;
+          }
+        };
+        const preferred = [...pagesForActiveProject].sort((a, b) => {
+          const scoreA = objectCount(a) * 10 + (a.backgroundImage ? 1 : 0) + (a.sketchImage ? 1 : 0);
+          const scoreB = objectCount(b) * 10 + (b.backgroundImage ? 1 : 0) + (b.sketchImage ? 1 : 0);
+          return scoreB - scoreA || a.order - b.order;
+        })[0];
+        setActivePlanPage(preferred.id);
+      }
       return;
     }
-    createPlanPage(activeProjectId, 'Level 1').then((page) => setActivePlanPage(page.id));
+
+    // Guard against duplicate page creation while Dexie's live query is catching up.
+    if (creatingPageForProjectRef.current === activeProjectId) return;
+    creatingPageForProjectRef.current = activeProjectId;
+    createPlanPage(activeProjectId, 'Level 1')
+      .then((page) => setActivePlanPage(page.id))
+      .finally(() => {
+        if (creatingPageForProjectRef.current === activeProjectId) creatingPageForProjectRef.current = null;
+      });
   }, [activeProjectId, pagesForActiveProject, activePlanPageId, setActivePlanPage]);
 
   if (activeProjectId && activePlanPageId) {
