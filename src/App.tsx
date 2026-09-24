@@ -8,7 +8,7 @@ import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
 const PLANDROID_VERSION = '0.6.0';
-const BUILD_ID = '2026-09-24-SAVE-FIX-3';
+const BUILD_ID = '2026-09-24-SAVE-FIX-4';
 
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
