@@ -8,7 +8,7 @@ import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
 const PLANDROID_VERSION = '0.6.0';
-const BUILD_ID = '2026-09-24-SAVE-FIX-6';
+const BUILD_ID = '2026-09-25-RECOVERY-DIAG-1';
 
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
@@ -17,6 +17,8 @@ export default function App() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [suburb, setSuburb] = useState('');
+  const [showRecovery, setShowRecovery] = useState(false);
+  const [recoveryReport, setRecoveryReport] = useState<string>('Not scanned yet.');
   const creatingPageForProjectRef = useRef<string | null>(null);
 
   const pagesForActiveProject = useLiveQuery(
@@ -65,6 +67,74 @@ export default function App() {
       });
   }, [activeProjectId, pagesForActiveProject, activePlanPageId, setActivePlanPage]);
 
+  async function runReadOnlyRecoveryScan() {
+    try {
+      const projectRows = await db.projects.toArray();
+      const pageRows = await db.planPages.toArray();
+      const lines: string[] = [];
+      lines.push('READ-ONLY RECOVERY SCAN');
+      lines.push(`Database: ${db.name} | version: ${db.verno}`);
+      lines.push(`Projects: ${projectRows.length} | Plan pages: ${pageRows.length}`);
+      lines.push('');
+
+      if (projectRows.length === 0) lines.push('No project records visible in this IndexedDB database.');
+      for (const project of projectRows) {
+        const pages = pageRows.filter((page) => page.projectId === project.id);
+        lines.push(`PROJECT ${project.name} | id=${project.id} | pages=${pages.length}`);
+        for (const page of pages) {
+          let objectCount = 0;
+          let jsonState = page.canvasJSON ? 'present' : 'none';
+          if (page.canvasJSON) {
+            try {
+              const parsed = JSON.parse(page.canvasJSON) as { objects?: unknown[] };
+              objectCount = parsed.objects?.length ?? 0;
+            } catch {
+              jsonState = 'INVALID JSON';
+            }
+          }
+          lines.push(
+            `  PAGE ${page.name} | id=${page.id} | objects=${objectCount} | canvas=${jsonState} | bg=${page.backgroundImage ? 'Y' : 'N'} | sketch=${page.sketchImage ? 'Y' : 'N'}`,
+          );
+        }
+      }
+
+      const orphanPages = pageRows.filter((page) => !projectRows.some((project) => project.id === page.projectId));
+      if (orphanPages.length) {
+        lines.push('');
+        lines.push(`ORPHAN PLAN PAGES: ${orphanPages.length}`);
+        for (const page of orphanPages) {
+          let objectCount = 0;
+          if (page.canvasJSON) {
+            try {
+              const parsed = JSON.parse(page.canvasJSON) as { objects?: unknown[] };
+              objectCount = parsed.objects?.length ?? 0;
+            } catch { /* report only */ }
+          }
+          lines.push(`  id=${page.id} | projectId=${page.projectId} | objects=${objectCount} | bg=${page.backgroundImage ? 'Y' : 'N'}`);
+        }
+      }
+
+      // Browser-level database names are diagnostic only. This does not open, upgrade,
+      // create, delete, or mutate any database.
+      const listDatabases = (indexedDB as IDBFactory & { databases?: () => Promise<Array<{ name?: string; version?: number }>> }).databases;
+      if (listDatabases) {
+        const databases = await listDatabases.call(indexedDB);
+        lines.push('');
+        lines.push('BROWSER INDEXEDDB DATABASES:');
+        databases.forEach((entry) => lines.push(`  ${entry.name ?? '(unnamed)'} v${entry.version ?? '?'}`));
+      } else {
+        lines.push('');
+        lines.push('Browser does not expose indexedDB.databases(); plandroid_web scan above is still valid.');
+      }
+
+      setRecoveryReport(lines.join('\n'));
+      setShowRecovery(true);
+    } catch (err) {
+      setRecoveryReport(`READ-ONLY SCAN FAILED\n${err instanceof Error ? err.message : String(err)}`);
+      setShowRecovery(true);
+    }
+  }
+
   if (activeProjectId && activePlanPageId) {
     return <CanvasWorkspace />;
   }
@@ -104,6 +174,22 @@ export default function App() {
         >
           + New Project
         </button>
+        <button
+          className="ml-2 bg-amber-700 hover:bg-amber-600 px-3 py-1.5 rounded text-sm"
+          onClick={runReadOnlyRecoveryScan}
+        >
+          Recovery Scan (read only)
+        </button>
+
+        {showRecovery && (
+          <div className="mt-4 max-w-5xl rounded border border-amber-700 bg-slate-950 p-4">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <strong className="text-amber-300 text-sm">IndexedDB recovery report — no changes made</strong>
+              <button className="text-xs bg-slate-700 px-2 py-1 rounded" onClick={() => setShowRecovery(false)}>Close</button>
+            </div>
+            <pre className="whitespace-pre-wrap break-all text-xs text-slate-200 select-text">{recoveryReport}</pre>
+          </div>
+        )}
 
         <ul className="mt-4 space-y-1">
           {projects?.map((p) => (
