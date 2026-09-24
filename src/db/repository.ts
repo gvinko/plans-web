@@ -47,7 +47,8 @@ export async function touchProject(projectId: string): Promise<void> {
 }
 
 export async function saveCanvasState(planPageId: string, canvasJSON: string): Promise<void> {
-  await db.planPages.update(planPageId, { canvasJSON });
+  const updated = await db.planPages.update(planPageId, { canvasJSON });
+  if (updated !== 1) throw new Error('Plan page no longer exists, so the drawing was not saved.');
 }
 
 export async function setPageScale(
