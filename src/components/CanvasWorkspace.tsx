@@ -233,10 +233,8 @@ export default function CanvasWorkspace() {
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !activePlanPageId) return;
-    let disposed = false;
-
     const saveSnapshot = async () => {
-      if (isHydratingRef.current || disposed) return;
+      if (isHydratingRef.current) return;
       const json = engine.serializeDrawingState();
       const parsed = JSON.parse(json) as { objects?: unknown[] };
       const previous = lastSavedJsonRef.current ? JSON.parse(lastSavedJsonRef.current) as { objects?: unknown[] } : null;
@@ -250,14 +248,12 @@ export default function CanvasWorkspace() {
       const verified = await db.planPages.get(activePlanPageId);
       if (!verified?.canvasJSON || verified.canvasJSON !== json) throw new Error('Saved drawing could not be verified.');
       lastSavedJsonRef.current = json;
-      if (!disposed) {
-        setLoadError(null);
-        setSaveStatus('saved');
-      }
+      setLoadError(null);
+      setSaveStatus('saved');
     };
 
     const queueSave = () => {
-      if (isHydratingRef.current || disposed) return;
+      if (isHydratingRef.current) return;
       // Mark dirty synchronously so the UI cannot continue showing a stale SAVE tick
       // while the new snapshot is waiting behind a previous IndexedDB write.
       setSaveStatus('unsaved');
@@ -265,7 +261,6 @@ export default function CanvasWorkspace() {
       saveQueueRef.current = saveQueueRef.current
         .catch(() => undefined)
         .then(async () => {
-          if (disposed) return;
           setSaveStatus('saving');
           await saveCanvasState(activePlanPageId, jsonAtChange);
           const verified = await db.planPages.get(activePlanPageId);
@@ -280,10 +275,8 @@ export default function CanvasWorkspace() {
           }
         })
         .catch((err) => {
-          if (!disposed) {
-            setSaveStatus('unsaved');
-            setLoadError(err instanceof Error ? `SAVE FAILED: ${err.message}` : 'SAVE FAILED');
-          }
+          setSaveStatus('unsaved');
+          setLoadError(err instanceof Error ? `SAVE FAILED: ${err.message}` : 'SAVE FAILED');
         });
     };
 
