@@ -34,6 +34,9 @@ export interface Project {
   createdAt: number;
   updatedAt: number;
   revision: string; // e.g. "A", "B", "1.2"
+  /** Canonical WorkBrain record link. Optional so existing projects remain valid. */
+  workBrainJobId?: string;
+  workBrainJobRef?: string;
 }
 
 export interface PlanPage {

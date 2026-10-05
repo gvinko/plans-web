@@ -2,7 +2,11 @@ import { nanoid } from 'nanoid';
 import { db } from './index';
 import type { Project, PlanPage } from './schema';
 
-export async function createProject(name: string, designer = ''): Promise<Project> {
+export async function createProject(
+  name: string,
+  designer = '',
+  workBrain?: { jobId?: string; jobRef?: string },
+): Promise<Project> {
   const now = Date.now();
   const project: Project = {
     id: nanoid(),
@@ -15,6 +19,8 @@ export async function createProject(name: string, designer = ''): Promise<Projec
     createdAt: now,
     updatedAt: now,
     revision: 'A',
+    workBrainJobId: workBrain?.jobId || undefined,
+    workBrainJobRef: workBrain?.jobRef || undefined,
   };
   await db.projects.add(project);
   return project;
