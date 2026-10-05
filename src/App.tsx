@@ -8,7 +8,17 @@ import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
 const PLANDROID_VERSION = '0.6.0';
-const BUILD_ID = '2026-09-25-RECOVERY-DIAG-1';
+const BUILD_ID = '2026-10-06-WORKBRAIN-HUB-1';
+
+const WORKBRAIN_CONTEXT = (() => {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    jobId: params.get('wbJobId') || '',
+    jobRef: params.get('wbJobRef') || '',
+    customer: params.get('wbCustomer') || '',
+    suburb: params.get('wbSuburb') || '',
+  };
+})();
 
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
@@ -18,6 +28,7 @@ export default function App() {
   const [customerName, setCustomerName] = useState('');
   const [suburb, setSuburb] = useState('');
   const [showRecovery, setShowRecovery] = useState(false);
+  const workBrainHandledRef = useRef(false);
   const [recoveryReport, setRecoveryReport] = useState<string>('Not scanned yet.');
   const creatingPageForProjectRef = useRef<string | null>(null);
 
@@ -28,6 +39,25 @@ export default function App() {
         : Promise.resolve<PlanPage[]>([]),
     [activeProjectId],
   );
+
+  // WorkBrain Hub hand-off. Existing linked projects open automatically.
+  // Unlinked WorkBrain jobs only prefill the project form; creation still
+  // requires an explicit click so the Hub cannot silently duplicate projects.
+  useEffect(() => {
+    if (!WORKBRAIN_CONTEXT.jobId || !projects || activeProjectId || workBrainHandledRef.current) return;
+    const linked = projects.find((project) =>
+      project.workBrainJobId === WORKBRAIN_CONTEXT.jobId ||
+      (WORKBRAIN_CONTEXT.jobRef && project.workBrainJobRef === WORKBRAIN_CONTEXT.jobRef)
+    );
+    workBrainHandledRef.current = true;
+    if (linked) {
+      setActiveProject(linked.id);
+      return;
+    }
+    setCustomerName(WORKBRAIN_CONTEXT.customer);
+    setSuburb(WORKBRAIN_CONTEXT.suburb);
+    setShowNewProject(true);
+  }, [projects, activeProjectId, setActiveProject]);
 
   // Every opened project needs at least one plan page to draw on.
   // Prefer a page that actually contains saved work. Older builds could race page creation and
@@ -162,7 +192,11 @@ export default function App() {
               <input autoFocus value={customerName} onChange={(e)=>setCustomerName(e.target.value)} placeholder="Customer name *" className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
               <input value={suburb} onChange={(e)=>setSuburb(e.target.value)} placeholder="Suburb *" className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
               <div className="flex gap-2">
-                <button disabled={!customerName.trim() || !suburb.trim()} onClick={async()=>{const p=await createProject(`${customerName.trim()} — ${suburb.trim()}`); setShowNewProject(false); setCustomerName(''); setSuburb(''); setActiveProject(p.id);}} className="bg-sky-600 disabled:opacity-40 px-3 py-1.5 rounded text-sm">Create Project</button>
+                <button disabled={!customerName.trim() || !suburb.trim()} onClick={async()=>{const p=await createProject(
+                  `${customerName.trim()} — ${suburb.trim()}`,
+                  '',
+                  { jobId: WORKBRAIN_CONTEXT.jobId, jobRef: WORKBRAIN_CONTEXT.jobRef },
+                ); setShowNewProject(false); setCustomerName(''); setSuburb(''); setActiveProject(p.id);}} className="bg-sky-600 disabled:opacity-40 px-3 py-1.5 rounded text-sm">Create Project</button>
                 <button onClick={()=>setShowNewProject(false)} className="bg-slate-700 px-3 py-1.5 rounded text-sm">Cancel</button>
               </div>
             </div>
@@ -217,7 +251,7 @@ export default function App() {
                 setActiveProject(p.id);
                 if (preferred) setActivePlanPage(preferred.id);
               }}>
-                {p.name} — rev {p.revision}
+                {p.name} — rev {p.revision}{p.workBrainJobRef ? ` · ${p.workBrainJobRef}` : ''}
               </button>
               <button className="text-xs text-red-400 hover:text-red-300 px-2 py-1" onClick={async()=>{if(window.confirm(`Delete "${p.name}"? This permanently deletes its saved plans and drawings.`)) await deleteProjectCascade(p.id);}}>Delete</button>
             </li>
