@@ -8,6 +8,12 @@ npm install
 npm run dev
 ```
 
+## Plan2Print Studio release
+
+Build the standalone Direct Upload package with `npm run package:plan2print`. Upload the generated `dist-plan2print` folder to the existing Cloudflare Pages Direct Upload project named `plan2print`.
+
+Before release, check a PNG/JPEG import, two-point calibration (the selected points clear after saving), trace/finish/close/undo, 1:100 verification within 0.25 mm, SVG download, STL slicing, and a Custom Design STL download. Confirm `https://plan2print.pages.dev/plan2print-studio` opens Plan2Print Studio rather than PlanDroid.
+
 ## Cloudflare Pages deploy settings
 - Build command: `npm run build`
 - Build output directory: `dist`

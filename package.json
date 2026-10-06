@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build --config vite.config.ts",
     "preview": "vite preview",
+    "package:plan2print": "npm run build && node scripts/package-plan2print.mjs",
     "lint": "eslint . --ext ts,tsx"
   },
   "dependencies": {

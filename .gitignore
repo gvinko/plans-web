@@ -9,3 +9,6 @@ dev-dist
 vite.config.js
 vite.config.d.ts
 .env*
+.worktrees/
+.superpowers/
+dist-plan2print/

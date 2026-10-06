@@ -45,6 +45,7 @@ export default defineConfig({
     format: 'es', // for the PDF-render / calc web workers added in later phases
   },
   build: {
+    rollupOptions: { input: { main: new URL('./index.html', import.meta.url).pathname, plan2print: new URL('./plan2print.html', import.meta.url).pathname } },
     target: 'es2020',
     sourcemap: true,
   },
