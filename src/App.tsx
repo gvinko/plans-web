@@ -7,8 +7,8 @@ import { createProject, createPlanPage, deleteProjectCascade } from './db/reposi
 import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
-const PLANDROID_VERSION = '0.6.0';
-const BUILD_ID = '2026-09-25-RECOVERY-DIAG-1';
+const PLANDROID_VERSION = '0.7.0';
+const BUILD_ID = '2026-10-06-PLAN2PRINT-1';
 
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
@@ -142,7 +142,7 @@ export default function App() {
   return (
     <div className="h-full flex flex-col">
       <header className="flex items-center justify-between px-4 py-2 border-b border-slate-700">
-        <h1 className="font-mono text-sm tracking-wide">PLANDROID WEB <span className="text-sky-400">v{PLANDROID_VERSION}</span> <span className="text-slate-500">Build {BUILD_ID}</span></h1>
+        <h1 className="font-mono text-sm tracking-wide">PLANS TO PRINT <span className="text-sky-400">v{PLANDROID_VERSION}</span> <span className="text-slate-500">Build {BUILD_ID}</span></h1>
         <div className="flex items-center gap-2">
           <a href="https://chatgpt.com/" target="_blank" rel="noreferrer" className="text-xs bg-emerald-700 hover:bg-emerald-600 px-2 py-1 rounded">Ask ChatGPT</a>
           <span className="text-xs text-slate-400">{needRefresh ? 'Update available' : offlineReady ? 'Up to date · offline ready' : 'Checking version…'}</span>
@@ -155,6 +155,16 @@ export default function App() {
       </header>
 
       <main className="flex-1 p-4">
+        <section className="mb-5 max-w-5xl rounded border border-emerald-700/70 bg-emerald-950/30 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-emerald-200">Plan2Print Studio</h2>
+              <p className="mt-1 max-w-2xl text-sm text-slate-300">Create printable custom parts, storage hooks, basic toys and image-based ideas. The calibrated workspace below remains the source of truth for accurate house models.</p>
+            </div>
+            <a href="/plan2print-studio.html" className="shrink-0 rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">Open 3D Print Studio</a>
+          </div>
+          <p className="mt-3 text-xs text-emerald-100/80">For a house model: import the plan, calibrate it from a known dimension, manually trace the walls, then verify the 1:100 output before printing.</p>
+        </section>
         {showNewProject && (
           <div className="mb-4 max-w-md rounded border border-slate-700 bg-slate-900 p-4">
             <h2 className="text-sm font-semibold mb-3">New Project</h2>
