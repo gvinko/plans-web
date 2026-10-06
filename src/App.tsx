@@ -15,8 +15,8 @@ export default function App() {
   const projects = useLiveQuery(() => db.projects.orderBy('updatedAt').reverse().toArray(), []);
   const { activeProjectId, activePlanPageId, setActiveProject, setActivePlanPage } = useAppStore();
   const [showNewProject, setShowNewProject] = useState(false);
-  const [customerName, setCustomerName] = useState('');
-  const [suburb, setSuburb] = useState('');
+  const [designName, setDesignName] = useState('');
+  const [designNotes, setDesignNotes] = useState('');
   const [showRecovery, setShowRecovery] = useState(false);
   const [recoveryReport, setRecoveryReport] = useState<string>('Not scanned yet.');
   const creatingPageForProjectRef = useRef<string | null>(null);
@@ -167,12 +167,12 @@ export default function App() {
         </section>
         {showNewProject && (
           <div className="mb-4 max-w-md rounded border border-slate-700 bg-slate-900 p-4">
-            <h2 className="text-sm font-semibold mb-3">New Project</h2>
+            <h2 className="text-sm font-semibold mb-3">New Design Project</h2>
             <div className="grid gap-2">
-              <input autoFocus value={customerName} onChange={(e)=>setCustomerName(e.target.value)} placeholder="Customer name *" className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
-              <input value={suburb} onChange={(e)=>setSuburb(e.target.value)} placeholder="Suburb *" className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+              <input autoFocus value={designName} onChange={(e)=>setDesignName(e.target.value)} placeholder="What are you designing? *" className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+              <textarea value={designNotes} onChange={(e)=>setDesignNotes(e.target.value)} placeholder="Design notes (optional)" rows={3} className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
               <div className="flex gap-2">
-                <button disabled={!customerName.trim() || !suburb.trim()} onClick={async()=>{const p=await createProject(`${customerName.trim()} — ${suburb.trim()}`); setShowNewProject(false); setCustomerName(''); setSuburb(''); setActiveProject(p.id);}} className="bg-sky-600 disabled:opacity-40 px-3 py-1.5 rounded text-sm">Create Project</button>
+                <button disabled={!designName.trim()} onClick={async()=>{const label = designNotes.trim() ? designName.trim() + ' — ' + designNotes.trim() : designName.trim(); const p=await createProject(label); setShowNewProject(false); setDesignName(''); setDesignNotes(''); setActiveProject(p.id);}} className="bg-sky-600 disabled:opacity-40 px-3 py-1.5 rounded text-sm">Create Design Project</button>
                 <button onClick={()=>setShowNewProject(false)} className="bg-slate-700 px-3 py-1.5 rounded text-sm">Cancel</button>
               </div>
             </div>
