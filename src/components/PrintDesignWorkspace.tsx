@@ -12,6 +12,8 @@ import { CanvasEngine, type CalibrationPoint } from '../lib/canvas/CanvasEngine'
 import { isSupportedFloorPlanFile, loadFloorPlanFile } from '../lib/floorplan/loadFloorPlanFile';
 import { BUILT_IN_PRINTER_PROFILES, type PrinterProfile } from '../lib/printers/profiles';
 import { createSplitPlan } from '../lib/printers/splitPlanner';
+import { createBoxMesh, createCylinderMesh } from '../lib/geometry/primitives';
+import { exportBinaryStl } from '../lib/stl/stl';
 import { loadCustomPrinterProfiles, saveCustomPrinterProfiles } from '../lib/printers/customProfiles';
 import { useAppStore } from '../store/appStore';
 import CalibrationModal from './CalibrationModal';
@@ -222,6 +224,29 @@ export default function PrintDesignWorkspace() {
     setTool('select');
     updateSelectionInfo();
     scheduleAutosave();
+  }
+
+  function exportSelectionToStl() {
+    if (!selection) return;
+    const type = selection.type.toLowerCase();
+    const name = (project?.name || 'plans-to-print-part').replace(/[^a-z0-9._-]+/gi, '-');
+    let mesh;
+    if (type.includes('rect')) {
+      mesh = createBoxMesh(selection.widthMm, selection.heightMm, modelDepthMm, name);
+    } else if (type.includes('circle')) {
+      mesh = createCylinderMesh(Math.min(selection.widthMm, selection.heightMm), modelDepthMm, 64, name);
+    } else {
+      setMessage('STL export currently supports rectangle and circle primitives. Text and arbitrary 2D paths are not converted yet.');
+      return;
+    }
+    const file = exportBinaryStl(mesh, `${name}.stl`);
+    const url = URL.createObjectURL(file);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = file.name;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setMessage(`Exported printable STL: ${file.name}`);
   }
 
   function updateSelectedObject(patch: Partial<SelectionInfo>) {
@@ -601,6 +626,15 @@ export default function PrintDesignWorkspace() {
                     <>Fits within the selected printer build volume.</>
                   )}
                 </div>
+                <button
+                  className="mt-2 w-full rounded bg-emerald-700 px-2 py-2 text-xs font-medium hover:bg-emerald-600"
+                  onClick={exportSelectionToStl}
+                >
+                  Export selected primitive as STL
+                </button>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Rectangle → solid box. Circle → solid cylinder. Export uses the exact width, height and model depth shown above.
+                </p>
               </div>
             )}
           </div>
