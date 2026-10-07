@@ -75,3 +75,96 @@ export function createCylinderMesh(
 
   return mesh(name, triangles);
 }
+
+
+export function createTubeMesh(
+  outerDiameterMm: number,
+  innerDiameterMm: number,
+  heightMm: number,
+  segments = 64,
+  name = 'tube',
+): StlMesh {
+  const outerRadius = Math.max(0.1, outerDiameterMm / 2);
+  const innerRadius = Math.max(0.05, Math.min(innerDiameterMm / 2, outerRadius - 0.05));
+  const z = Math.max(0.1, heightMm);
+  const count = Math.max(12, Math.min(256, Math.floor(segments)));
+  const triangles: StlTriangle[] = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const a0 = (index / count) * Math.PI * 2;
+    const a1 = ((index + 1) / count) * Math.PI * 2;
+
+    const ob0 = { x: Math.cos(a0) * outerRadius, y: Math.sin(a0) * outerRadius, z: 0 };
+    const ob1 = { x: Math.cos(a1) * outerRadius, y: Math.sin(a1) * outerRadius, z: 0 };
+    const ot0 = { x: ob0.x, y: ob0.y, z };
+    const ot1 = { x: ob1.x, y: ob1.y, z };
+
+    const ib0 = { x: Math.cos(a0) * innerRadius, y: Math.sin(a0) * innerRadius, z: 0 };
+    const ib1 = { x: Math.cos(a1) * innerRadius, y: Math.sin(a1) * innerRadius, z: 0 };
+    const it0 = { x: ib0.x, y: ib0.y, z };
+    const it1 = { x: ib1.x, y: ib1.y, z };
+
+    triangles.push(triangle(ob0, ob1, ot1));
+    triangles.push(triangle(ob0, ot1, ot0));
+
+    triangles.push(triangle(ib0, it1, ib1));
+    triangles.push(triangle(ib0, it0, it1));
+
+    triangles.push(triangle(ot0, ot1, it1));
+    triangles.push(triangle(ot0, it1, it0));
+
+    triangles.push(triangle(ob0, ib1, ob1));
+    triangles.push(triangle(ob0, ib0, ib1));
+  }
+
+  return mesh(name, triangles);
+}
+
+export function createRectangularFrameMesh(
+  outerWidthMm: number,
+  outerDepthMm: number,
+  innerWidthMm: number,
+  innerDepthMm: number,
+  heightMm: number,
+  name = 'rectangular-frame',
+): StlMesh {
+  const ow = Math.max(0.2, outerWidthMm);
+  const od = Math.max(0.2, outerDepthMm);
+  const iw = Math.max(0.1, Math.min(innerWidthMm, ow - 0.1));
+  const id = Math.max(0.1, Math.min(innerDepthMm, od - 0.1));
+  const z = Math.max(0.1, heightMm);
+
+  const outerBottom = [
+    { x: -ow / 2, y: -od / 2, z: 0 },
+    { x: ow / 2, y: -od / 2, z: 0 },
+    { x: ow / 2, y: od / 2, z: 0 },
+    { x: -ow / 2, y: od / 2, z: 0 },
+  ];
+  const outerTop = outerBottom.map((point) => ({ ...point, z }));
+  const innerBottom = [
+    { x: -iw / 2, y: -id / 2, z: 0 },
+    { x: iw / 2, y: -id / 2, z: 0 },
+    { x: iw / 2, y: id / 2, z: 0 },
+    { x: -iw / 2, y: id / 2, z: 0 },
+  ];
+  const innerTop = innerBottom.map((point) => ({ ...point, z }));
+
+  const triangles: StlTriangle[] = [];
+  for (let index = 0; index < 4; index += 1) {
+    const next = (index + 1) % 4;
+
+    triangles.push(triangle(outerBottom[index], outerBottom[next], outerTop[next]));
+    triangles.push(triangle(outerBottom[index], outerTop[next], outerTop[index]));
+
+    triangles.push(triangle(innerBottom[index], innerTop[next], innerBottom[next]));
+    triangles.push(triangle(innerBottom[index], innerTop[index], innerTop[next]));
+
+    triangles.push(triangle(outerTop[index], outerTop[next], innerTop[next]));
+    triangles.push(triangle(outerTop[index], innerTop[next], innerTop[index]));
+
+    triangles.push(triangle(outerBottom[index], innerBottom[next], outerBottom[next]));
+    triangles.push(triangle(outerBottom[index], innerBottom[index], innerBottom[next]));
+  }
+
+  return mesh(name, triangles);
+}
