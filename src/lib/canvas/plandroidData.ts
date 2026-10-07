@@ -1,6 +1,9 @@
 import type { FabricObject } from 'fabric';
 import type { PortDef } from '../catalog/types';
 
+export type DuctService = 'supply' | 'return' | 'outside-air' | 'exhaust' | 'toilet-exhaust' | 'transfer-air';
+export type CommercialObjectStatus = 'new' | 'existing-retain' | 'existing-relocate' | 'remove';
+
 export type PlandroidObjectKind = 'equipment' | 'fitting' | 'terminal' | 'duct_rigid' | 'duct_flex' | 'traced_room';
 
 export interface PlandroidData {
@@ -11,6 +14,10 @@ export interface PlandroidData {
   plandroidDepthMm?: number;
   plandroidDiameterMm?: number;
   plandroidLengthMm?: number;
+  /** Commercial service classification used by drawing filters and schedules. */
+  plandroidDuctService?: DuctService;
+  /** Lifecycle status for tender/alteration drawings. Defaults to new when omitted. */
+  plandroidCommercialStatus?: CommercialObjectStatus;
   plandroidSnappedTo?: { objId: string; portId: string };
   /** Denormalized from an imported catalog row at placement time, so the takeoff engine
    * can label/price this item without an async DB lookup while walking canvas objects. */
