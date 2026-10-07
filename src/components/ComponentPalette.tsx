@@ -2,12 +2,14 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { CATALOG } from '../lib/catalog/registry';
 import type { ComponentCategory } from '../lib/catalog/types';
+import type { ApplicationMode } from '../store/appStore';
 
 interface ComponentPaletteProps {
   pendingComponentId: string | null;
   onSelect: (componentId: string) => void;
   onCancel: () => void;
   section?: 'HVAC' | 'FITTINGS' | 'OUTLETS' | 'CONTROLS';
+  applicationMode?: ApplicationMode;
 }
 
 const CATEGORY_LABELS: Record<ComponentCategory, string> = {
@@ -16,9 +18,11 @@ const CATEGORY_LABELS: Record<ComponentCategory, string> = {
   terminal: 'Terminals',
 };
 
-export default function ComponentPalette({ pendingComponentId, onSelect, onCancel, section = 'HVAC' }: ComponentPaletteProps) {
+export default function ComponentPalette({ pendingComponentId, onSelect, onCancel, section = 'HVAC', applicationMode = 'domestic' }: ComponentPaletteProps) {
   const categories: ComponentCategory[] = section === 'FITTINGS' ? ['fitting'] : section === 'OUTLETS' ? ['terminal'] : ['equipment'];
   const visibleCatalog = CATALOG.filter((item) => {
+    const isCommercialOnly = item.id.startsWith('commercial-');
+    if (applicationMode === 'domestic' && isCommercialOnly) return false;
     if (section === 'FITTINGS') return item.category === 'fitting';
     if (section === 'OUTLETS') return item.category === 'terminal';
     if (section === 'CONTROLS') return item.id.startsWith('wall-') || item.id.startsWith('zone-motor-');
@@ -30,7 +34,7 @@ export default function ComponentPalette({ pendingComponentId, onSelect, onCance
   return (
     <aside className="w-56 shrink-0 border-l border-slate-700 bg-slate-900 flex flex-col overflow-y-auto">
       <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
-        <span className="text-xs font-mono text-slate-400">CATALOG</span>
+        <span className="text-xs font-mono text-slate-400">{applicationMode === 'commercial' ? 'COMMERCIAL CATALOG' : 'DOMESTIC CATALOG'}</span>
         {pendingComponentId && (
           <button className="text-xs text-red-400 hover:text-red-300" onClick={onCancel}>
             Cancel
@@ -38,7 +42,7 @@ export default function ComponentPalette({ pendingComponentId, onSelect, onCance
         )}
       </div>
 
-      {section === 'HVAC' && <div className="px-3 py-3 border-b border-slate-700">
+      {section === 'HVAC' && applicationMode === 'domestic' && <div className="px-3 py-3 border-b border-slate-700">
         <h3 className="text-[10px] uppercase tracking-wide text-sky-400 mb-2">Ducted Indoor Unit — choose brand</h3>
         <div className="grid grid-cols-2 gap-1">
           {['Daikin','Fujitsu','ActronAir','Mitsubishi Electric'].map((b)=><button key={b} onClick={()=>onSelect(`indoor-unit|Standard Ducted|${b}|Ducted|`)} className="text-left text-xs px-2 py-2 rounded bg-sky-900 hover:bg-sky-800">{b}</button>)}
