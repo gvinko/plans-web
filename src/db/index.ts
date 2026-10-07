@@ -13,7 +13,7 @@ import type {
   StlAsset,
 } from './schema';
 
-class PlandroidDB extends Dexie {
+class PlansToPrintDB extends Dexie {
   projects!: EntityTable<Project, 'id'>;
   planPages!: EntityTable<PlanPage, 'id'>;
   ductRuns!: EntityTable<DuctRun, 'id'>;
@@ -29,6 +29,7 @@ class PlandroidDB extends Dexie {
   stlAssets!: EntityTable<StlAsset, 'id'>;
 
   constructor() {
+    // Keep the legacy database name so existing local projects survive the product separation.
     super('plandroid_web');
 
     this.version(1).stores({
@@ -91,4 +92,4 @@ class PlandroidDB extends Dexie {
   }
 }
 
-export const db = new PlandroidDB();
+export const db = new PlansToPrintDB();
