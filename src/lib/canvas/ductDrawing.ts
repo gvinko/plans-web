@@ -116,8 +116,7 @@ export function attachDuctDrawing(
       const color = resolveRoundDuctColor(params.diameterMm, overrides, DEFAULT_FLEX_COLOR);
       const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
       applyCommercialMeta(path, params);
-      applyCommercialMeta(path, params);
-    setPlandroidId(path, nanoid());
+      setPlandroidId(path, nanoid());
       // Flex is intentionally editable after placement: drag it, stretch it from its
       // end/side handles, or snap either end to a compatible flex connection.
       path.set({
