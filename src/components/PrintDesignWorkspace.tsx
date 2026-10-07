@@ -11,6 +11,8 @@ import {
 import { CanvasEngine, type CalibrationPoint } from '../lib/canvas/CanvasEngine';
 import { isSupportedFloorPlanFile, loadFloorPlanFile } from '../lib/floorplan/loadFloorPlanFile';
 import { BUILT_IN_PRINTER_PROFILES, type PrinterProfile } from '../lib/printers/profiles';
+import { createSplitPlan } from '../lib/printers/splitPlanner';
+import { loadCustomPrinterProfiles, saveCustomPrinterProfiles } from '../lib/printers/customProfiles';
 import { useAppStore } from '../store/appStore';
 import CalibrationModal from './CalibrationModal';
 
@@ -49,7 +51,18 @@ export default function PrintDesignWorkspace() {
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
   const [pendingCalibration, setPendingCalibration] = useState<{ p1: CalibrationPoint; p2: CalibrationPoint } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [customPrinters, setCustomPrinters] = useState<PrinterProfile[]>(() => loadCustomPrinterProfiles());
   const [selectedPrinterId, setSelectedPrinterId] = useState(BUILT_IN_PRINTER_PROFILES[0].id);
+  const [modelDepthMm, setModelDepthMm] = useState(20);
+  const [showAddPrinter, setShowAddPrinter] = useState(false);
+  const [newPrinter, setNewPrinter] = useState({
+    name: '',
+    x: 220,
+    y: 220,
+    z: 250,
+    nozzle: 0.4,
+    clearance: 0.25,
+  });
 
   const project = useLiveQuery(
     () => (activeProjectId ? db.projects.get(activeProjectId) : undefined),
@@ -60,11 +73,16 @@ export default function PrintDesignWorkspace() {
     [activePlanPageId],
   );
 
+  const allPrinters = [...BUILT_IN_PRINTER_PROFILES, ...customPrinters];
   const selectedPrinter: PrinterProfile =
-    BUILT_IN_PRINTER_PROFILES.find((profile) => profile.id === selectedPrinterId) ??
+    allPrinters.find((profile) => profile.id === selectedPrinterId) ??
     BUILT_IN_PRINTER_PROFILES[0];
 
   const pxPerMm = page?.scale.pxPerMm ?? 1;
+  const selectedBounds = selection
+    ? { x: selection.widthMm, y: selection.heightMm, z: Math.max(0.1, modelDepthMm) }
+    : null;
+  const splitPlan = selectedBounds ? createSplitPlan(selectedBounds, selectedPrinter) : null;
 
   function updateSelectionInfo() {
     const engine = engineRef.current;
@@ -458,7 +476,7 @@ export default function PrintDesignWorkspace() {
               onChange={(event) => setSelectedPrinterId(event.target.value)}
               className="mt-2 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-xs"
             >
-              {BUILT_IN_PRINTER_PROFILES.map((profile) => (
+              {allPrinters.map((profile) => (
                 <option key={profile.id} value={profile.id}>{profile.name}</option>
               ))}
             </select>
@@ -469,12 +487,116 @@ export default function PrintDesignWorkspace() {
               <br />
               Fit clearance: {selectedPrinter.defaultFitClearanceMm} mm
             </div>
+            <button
+              className="mt-2 w-full rounded bg-slate-800 px-2 py-2 text-left text-xs hover:bg-slate-700"
+              onClick={() => setShowAddPrinter((value) => !value)}
+            >
+              + Add printer
+            </button>
+            {showAddPrinter && (
+              <div className="mt-2 grid grid-cols-2 gap-2 rounded border border-slate-700 bg-slate-950 p-2 text-[11px]">
+                <input
+                  className="col-span-2 rounded border border-slate-700 bg-slate-900 px-2 py-1.5"
+                  placeholder="Printer name"
+                  value={newPrinter.name}
+                  onChange={(event) => setNewPrinter({ ...newPrinter, name: event.target.value })}
+                />
+                {([
+                  ['x', 'X mm'],
+                  ['y', 'Y mm'],
+                  ['z', 'Z mm'],
+                  ['nozzle', 'Nozzle mm'],
+                  ['clearance', 'Clearance mm'],
+                ] as const).map(([key, label]) => (
+                  <label key={key}>
+                    <span className="mb-1 block text-[10px] text-slate-500">{label}</span>
+                    <input
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      value={newPrinter[key]}
+                      onChange={(event) => setNewPrinter({ ...newPrinter, [key]: Number(event.target.value) })}
+                      className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5"
+                    />
+                  </label>
+                ))}
+                <button
+                  className="col-span-2 rounded bg-sky-700 px-2 py-2 text-xs hover:bg-sky-600"
+                  onClick={() => {
+                    const name = newPrinter.name.trim();
+                    if (!name) {
+                      setMessage('Enter a printer name.');
+                      return;
+                    }
+                    const profile: PrinterProfile = {
+                      id: `custom-${Date.now()}`,
+                      name,
+                      manufacturer: 'Custom',
+                      buildVolumeMm: {
+                        x: Math.max(1, newPrinter.x),
+                        y: Math.max(1, newPrinter.y),
+                        z: Math.max(1, newPrinter.z),
+                      },
+                      nozzleDiameterMm: Math.max(0.1, newPrinter.nozzle),
+                      defaultFitClearanceMm: Math.max(0, newPrinter.clearance),
+                    };
+                    const next = [...customPrinters, profile];
+                    try {
+                      saveCustomPrinterProfiles(next);
+                      setCustomPrinters(next);
+                      setSelectedPrinterId(profile.id);
+                      setShowAddPrinter(false);
+                      setNewPrinter({ name: '', x: 220, y: 220, z: 250, nozzle: 0.4, clearance: 0.25 });
+                    } catch (error) {
+                      setMessage(error instanceof Error ? error.message : 'Could not save printer profile.');
+                    }
+                  }}
+                >
+                  Save printer
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 border-t border-slate-800 pt-4">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Print fit / split plan</div>
+            {!selection ? (
+              <p className="mt-2 text-xs text-slate-500">Select a design object to compare it with the printer build volume.</p>
+            ) : (
+              <div className="mt-2 text-xs">
+                <label>
+                  <span className="mb-1 block text-[10px] text-slate-500">Model depth / extrusion (mm)</span>
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={modelDepthMm}
+                    onChange={(event) => setModelDepthMm(Math.max(0.1, Number(event.target.value) || 0.1))}
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5"
+                  />
+                </label>
+                <div className={`mt-2 rounded p-2 text-[11px] ${splitPlan?.required ? 'bg-amber-950/60 text-amber-200' : 'bg-emerald-950/50 text-emerald-300'}`}>
+                  {splitPlan?.required ? (
+                    <>
+                      Oversized for {selectedPrinter.name}. Suggested split: {splitPlan.estimatedPartCount} parts.
+                      {splitPlan.axes.map((axis) => (
+                        <div key={axis.axis} className="mt-1">
+                          {axis.axis.toUpperCase()}: {axis.partCount} sections at about {axis.targetPartSizeMm.toFixed(1)} mm
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <>Fits within the selected printer build volume.</>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 border-t border-slate-800 pt-4">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">3D / STL</div>
             <p className="mt-2 text-xs text-slate-500">
-              Real 3D geometry, STL import/export and split/join tools are the next implementation layer. They are not presented as working until valid geometry processing is connected.
+              Real 3D geometry, STL import/export and physical split/join generation remain disabled until the geometry engine is connected and validated.
             </p>
           </div>
         </aside>
