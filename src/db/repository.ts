@@ -58,6 +58,12 @@ export async function setPageScale(
 ): Promise<number> {
   const [p1, p2] = referencePoints;
   const pxDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  if (!Number.isFinite(referenceLengthMm) || referenceLengthMm <= 0) {
+    throw new Error('Reference length must be a positive number of millimeters.');
+  }
+  if (!Number.isFinite(pxDist) || pxDist <= 0) {
+    throw new Error('Calibration points must be two distinct locations on the plan.');
+  }
   const pxPerMm = pxDist / referenceLengthMm;
   await db.planPages.update(planPageId, {
     scale: { pxPerMm, calibratedAt: Date.now(), referencePoints, referenceLengthMm },

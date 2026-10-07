@@ -69,6 +69,18 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
     markers.push(marker);
   }
 
+  /** Called whenever we observe the tool mode isn't ours anymore — clears any in-progress draft so
+   * switching away mid-trace (e.g. clicking "Rigid Duct" in the toolbar after only one or two clicks)
+   * can never leave stale points/markers that get reused if the user re-enters the wall tool later. */
+  function resetIfToolChanged(): string {
+    const mode = engine.getToolMode();
+    if (mode !== 'trace-wall' && points.length > 0) {
+      clearDraft();
+      canvas.requestRenderAll();
+    }
+    return mode;
+  }
+
   function resolveClickPoint(rawPointer: Vec2): { point: Vec2; shouldClose: boolean } {
     if (points.length === 0) return { point: rawPointer, shouldClose: false };
 
@@ -86,7 +98,7 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
   }
 
   function onMouseDown(opt: TPointerEventInfo<TPointerEvent>) {
-    if (engine.getToolMode() !== 'trace-wall') return;
+    if (resetIfToolChanged() !== 'trace-wall') return;
     const rawPointer = canvas.getPointer(opt.e);
     const { point, shouldClose } = resolveClickPoint(rawPointer);
 
@@ -109,7 +121,7 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
   }
 
   function onMouseMove(opt: TPointerEventInfo<TPointerEvent>) {
-    if (engine.getToolMode() !== 'trace-wall' || points.length === 0) return;
+    if (resetIfToolChanged() !== 'trace-wall' || points.length === 0) return;
     const rawPointer = canvas.getPointer(opt.e);
     const { point } = resolveClickPoint(rawPointer);
 
