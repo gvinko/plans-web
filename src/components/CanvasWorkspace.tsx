@@ -446,7 +446,15 @@ export default function CanvasWorkspace() {
 
   async function handleCalibrationConfirm(mm: number) {
     if (!pendingCalibration || !activePlanPageId || !engineRef.current) return;
-    await setPageScale(activePlanPageId, [pendingCalibration.p1, pendingCalibration.p2], mm);
+    try {
+      await setPageScale(activePlanPageId, [pendingCalibration.p1, pendingCalibration.p2], mm);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Could not set the scale from those points.');
+      engineRef.current.cancelCalibrationDraft();
+      setPendingCalibration(null);
+      handleToolChange('select');
+      return;
+    }
     engineRef.current.applyCalibrationLabel(mm);
     setPendingCalibration(null);
     handleToolChange('select');
@@ -464,7 +472,14 @@ export default function CanvasWorkspace() {
 
     if (!pxPerMm) {
       // No scale established yet — this wall's current (rough) pixel length now defines it.
-      await setPageScale(activePlanPageId, [wallEdgeSelection.p1, wallEdgeSelection.p2], mm);
+      try {
+        await setPageScale(activePlanPageId, [wallEdgeSelection.p1, wallEdgeSelection.p2], mm);
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : 'Could not set the scale from this wall.');
+        setWallEdgeSelection(null);
+        setWallPopoverScreen(null);
+        return;
+      }
     } else {
       const vertices = getTraceVertices(engine.canvas, wallEdgeSelection.objId);
       if (vertices) {
