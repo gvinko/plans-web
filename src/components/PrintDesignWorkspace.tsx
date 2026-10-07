@@ -19,6 +19,7 @@ import { useAppStore } from '../store/appStore';
 import CalibrationModal from './CalibrationModal';
 import StlStudio from './StlStudio';
 import PhotoReliefStudio from './PhotoReliefStudio';
+import WallArtStudio from './WallArtStudio';
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
 type ActiveTool = 'select' | 'pan' | 'calibrate';
@@ -64,6 +65,7 @@ export default function PrintDesignWorkspace() {
   const [showAddPrinter, setShowAddPrinter] = useState(false);
   const [showStlStudio, setShowStlStudio] = useState(false);
   const [showPhotoRelief, setShowPhotoRelief] = useState(false);
+  const [showWallArt, setShowWallArt] = useState(false);
   const [newPrinter, setNewPrinter] = useState({
     name: '',
     x: 220,
@@ -464,6 +466,12 @@ export default function PrintDesignWorkspace() {
             >
               Photo relief / lithophane
             </button>
+            <button
+              className="rounded bg-amber-900/80 px-2 py-2 text-left text-xs hover:bg-amber-800"
+              onClick={() => setShowWallArt(true)}
+            >
+              Wall art / light box
+            </button>
           </div>
 
           <div className="mb-2 mt-5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Reference</div>
@@ -721,6 +729,7 @@ export default function PrintDesignWorkspace() {
 
       {showStlStudio && <StlStudio projectId={activeProjectId} printer={selectedPrinter} onClose={() => setShowStlStudio(false)} />}
       {showPhotoRelief && <PhotoReliefStudio printer={selectedPrinter} onClose={() => setShowPhotoRelief(false)} />}
+      {showWallArt && <WallArtStudio printer={selectedPrinter} onClose={() => setShowWallArt(false)} />}
 
       {pendingCalibration && (
         <CalibrationModal
