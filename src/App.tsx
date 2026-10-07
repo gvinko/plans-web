@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { db } from './db';
 import type { PlanPage } from './db/schema';
-import { createProject, createPlanPage, deleteProjectCascade } from './db/repository';
+import { createProject, createPlanPage, deleteProjectCascade, duplicateProject, renameProject } from './db/repository';
 import { useAppStore } from './store/appStore';
 import PrintDesignWorkspace from './components/PrintDesignWorkspace';
 
@@ -258,16 +258,45 @@ export default function App() {
                       Revision {project.revision} · Updated {new Date(project.updatedAt).toLocaleString()}
                     </span>
                   </button>
-                  <button
-                    className="text-xs text-red-400 hover:text-red-300 px-2 py-1"
-                    onClick={async () => {
-                      if (window.confirm(`Delete "${project.name}"? This permanently deletes its saved designs.`)) {
-                        await deleteProjectCascade(project.id);
-                      }
-                    }}
-                  >
-                    Delete
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                      onClick={async () => {
+                        const next = window.prompt('Rename project', project.name)?.trim();
+                        if (!next || next === project.name) return;
+                        try {
+                          await renameProject(project.id, next);
+                        } catch (error) {
+                          window.alert(error instanceof Error ? error.message : 'Could not rename project.');
+                        }
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      className="rounded px-2 py-1 text-xs text-sky-400 hover:bg-slate-800 hover:text-sky-300"
+                      onClick={async () => {
+                        try {
+                          const copy = await duplicateProject(project.id);
+                          await openProject(copy.id);
+                        } catch (error) {
+                          window.alert(error instanceof Error ? error.message : 'Could not duplicate project.');
+                        }
+                      }}
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-950/40 hover:text-red-300"
+                      onClick={async () => {
+                        if (window.confirm(`Delete "${project.name}"? This permanently deletes its saved designs and STL files.`)) {
+                          await deleteProjectCascade(project.id);
+                        }
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
