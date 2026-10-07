@@ -168,3 +168,60 @@ export function createRectangularFrameMesh(
 
   return mesh(name, triangles);
 }
+
+
+export function createRecessedPanelMesh(
+  widthMm: number,
+  heightMm: number,
+  depthMm: number,
+  wallThicknessMm: number,
+  backThicknessMm: number,
+  name = 'wall-panel',
+): StlMesh {
+  const width = Math.max(10, widthMm);
+  const height = Math.max(10, heightMm);
+  const depth = Math.max(1, depthMm);
+  const wall = Math.max(0.8, Math.min(wallThicknessMm, Math.min(width, height) / 2 - 0.1));
+  const back = Math.max(0.6, Math.min(backThicknessMm, depth - 0.1));
+
+  const ow = width / 2;
+  const oh = height / 2;
+  const iw = ow - wall;
+  const ih = oh - wall;
+
+  const outerBottom = [
+    { x: -ow, y: -oh, z: 0 },
+    { x: ow, y: -oh, z: 0 },
+    { x: ow, y: oh, z: 0 },
+    { x: -ow, y: oh, z: 0 },
+  ];
+  const outerTop = outerBottom.map((point) => ({ ...point, z: depth }));
+  const innerTop = [
+    { x: -iw, y: -ih, z: depth },
+    { x: iw, y: -ih, z: depth },
+    { x: iw, y: ih, z: depth },
+    { x: -iw, y: ih, z: depth },
+  ];
+  const innerFloor = innerTop.map((point) => ({ ...point, z: back }));
+
+  const triangles: StlTriangle[] = [];
+  for (let index = 0; index < 4; index += 1) {
+    const next = (index + 1) % 4;
+    triangles.push(triangle(outerBottom[index], outerBottom[next], outerTop[next]));
+    triangles.push(triangle(outerBottom[index], outerTop[next], outerTop[index]));
+
+    triangles.push(triangle(outerTop[index], outerTop[next], innerTop[next]));
+    triangles.push(triangle(outerTop[index], innerTop[next], innerTop[index]));
+
+    triangles.push(triangle(innerTop[index], innerTop[next], innerFloor[next]));
+    triangles.push(triangle(innerTop[index], innerFloor[next], innerFloor[index]));
+  }
+
+  triangles.push(triangle(outerBottom[0], outerBottom[2], outerBottom[1]));
+  triangles.push(triangle(outerBottom[0], outerBottom[3], outerBottom[2]));
+
+  triangles.push(triangle(innerFloor[0], innerFloor[1], innerFloor[2]));
+  triangles.push(triangle(innerFloor[0], innerFloor[2], innerFloor[3]));
+
+  return mesh(name, triangles);
+}
