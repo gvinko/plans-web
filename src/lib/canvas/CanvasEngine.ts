@@ -46,6 +46,7 @@ export class CanvasEngine {
   private backgroundImageObj: FabricImage | null = null;
   private undoStack: Array<{ type: 'add' | 'delete'; objects: FabricObject[] }> = [];
   private clipboardObject: FabricObject | null = null;
+  private toolModeListeners: Set<(mode: ToolMode) => void> = new Set();
 
   constructor(el: HTMLCanvasElement, opts: CanvasEngineOptions) {
     this.opts = opts;
@@ -65,10 +66,19 @@ export class CanvasEngine {
     this.canvas.selection = mode === 'select';
     this.canvas.defaultCursor = mode === 'pan' ? 'grab' : mode === 'select' ? 'default' : 'crosshair';
     this.canvas.requestRenderAll();
+    this.toolModeListeners.forEach((listener) => listener(mode));
   }
 
   getToolMode(): ToolMode {
     return this.toolMode;
+  }
+
+  /** Notified synchronously by setToolMode, regardless of pointer position — lets tool
+   * controllers (e.g. wall tracing) discard in-progress draft state the instant the tool
+   * changes via toolbar click or keyboard shortcut, without waiting for a canvas pointer event. */
+  onToolModeChange(listener: (mode: ToolMode) => void): () => void {
+    this.toolModeListeners.add(listener);
+    return () => this.toolModeListeners.delete(listener);
   }
 
   resize(width: number, height: number): void {

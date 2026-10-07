@@ -69,18 +69,6 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
     markers.push(marker);
   }
 
-  /** Called whenever we observe the tool mode isn't ours anymore — clears any in-progress draft so
-   * switching away mid-trace (e.g. clicking "Rigid Duct" in the toolbar after only one or two clicks)
-   * can never leave stale points/markers that get reused if the user re-enters the wall tool later. */
-  function resetIfToolChanged(): string {
-    const mode = engine.getToolMode();
-    if (mode !== 'trace-wall' && points.length > 0) {
-      clearDraft();
-      canvas.requestRenderAll();
-    }
-    return mode;
-  }
-
   function resolveClickPoint(rawPointer: Vec2): { point: Vec2; shouldClose: boolean } {
     if (points.length === 0) return { point: rawPointer, shouldClose: false };
 
@@ -98,7 +86,7 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
   }
 
   function onMouseDown(opt: TPointerEventInfo<TPointerEvent>) {
-    if (resetIfToolChanged() !== 'trace-wall') return;
+    if (engine.getToolMode() !== 'trace-wall') return;
     const rawPointer = canvas.getPointer(opt.e);
     const { point, shouldClose } = resolveClickPoint(rawPointer);
 
@@ -121,7 +109,7 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
   }
 
   function onMouseMove(opt: TPointerEventInfo<TPointerEvent>) {
-    if (resetIfToolChanged() !== 'trace-wall' || points.length === 0) return;
+    if (engine.getToolMode() !== 'trace-wall' || points.length === 0) return;
     const rawPointer = canvas.getPointer(opt.e);
     const { point } = resolveClickPoint(rawPointer);
 
@@ -149,11 +137,23 @@ export function attachWallTracing(engine: CanvasEngine, getPxPerMm: () => number
   canvas.on('mouse:down', onMouseDown);
   canvas.on('mouse:move', onMouseMove);
   window.addEventListener('keydown', onKeyDown);
+  // Fires synchronously from CanvasEngine.setToolMode for both toolbar clicks and keyboard
+  // shortcuts, regardless of where the pointer is (including off-canvas). Discarding the
+  // draft here — rather than waiting for the next mouse:down/mouse:move on this tool — is
+  // what prevents a stale in-progress trace from being reused if the user switches back to
+  // the wall tool later.
+  const detachToolModeListener = engine.onToolModeChange((mode) => {
+    if (mode !== 'trace-wall' && points.length > 0) {
+      clearDraft();
+      canvas.requestRenderAll();
+    }
+  });
 
   return () => {
     canvas.off('mouse:down', onMouseDown);
     canvas.off('mouse:move', onMouseMove);
     window.removeEventListener('keydown', onKeyDown);
+    detachToolModeListener();
     clearDraft();
   };
 }
