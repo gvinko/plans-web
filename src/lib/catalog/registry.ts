@@ -22,7 +22,9 @@ const BTO_SIZES = [
   '16 / 14 / 14', '16 / 14 / 10', '14 / 14 / 12', '14 / 14 / 10',
   '14 / 12 / 12', '14 / 12 / 10', '14 / 10 / 10', '12 / 10 / 10',
   '12 / 10 / 08', '10 / 08 / 08', '14 / 10 / 10 / 10', '16 / 10 / 10 / 10',
-  // Commercial-mode library, seeded from the 32 Castlereagh Street tender drawing.
+];
+
+const COMMERCIAL_COMPONENTS: ComponentDef[] = [
   { id:'commercial-fcu', category:'equipment', label:'FCU — Fan Coil Unit', build:()=>buildCommercialSymbol('fcu') },
   { id:'commercial-supply-fan', category:'equipment', label:'SAF — Supply Air Fan', build:()=>buildCommercialSymbol('supply-fan') },
   { id:'commercial-exhaust-fan', category:'equipment', label:'EF — Exhaust Fan', build:()=>buildCommercialSymbol('exhaust-fan') },
@@ -32,7 +34,6 @@ const BTO_SIZES = [
   { id:'commercial-outside-air-louvre', category:'terminal', label:'OA — Outside Air Louvre', build:()=>buildCommercialSymbol('outside-air-louvre') },
   { id:'commercial-transfer-grille', category:'terminal', label:'TA — Transfer Air Grille', build:()=>buildCommercialSymbol('transfer-grille') },
   { id:'commercial-exhaust-grille', category:'terminal', label:'EA — Exhaust Grille', build:()=>buildCommercialSymbol('exhaust-grille') },
-
 ];
 
 const ZONE_MOTOR_SIZES = [
@@ -72,6 +73,7 @@ export const CATALOG: ComponentDef[] = [
   { id: 'wall-sensor', category: 'equipment', label: 'Wall Sensor — WS', build: () => buildWallControl('sensor') },
   { id: 'refrigerant-pipes', category: 'equipment', label: 'Refrigerant Pipes', build: () => buildPipeDrain('pipes') },
   { id: 'condensate-drain', category: 'equipment', label: 'Condensate Drain', build: () => buildPipeDrain('drain') },
+  ...COMMERCIAL_COMPONENTS,
   ...ZONE_MOTOR_SIZES.map(({ mm, inch }) => ({
     id: `zone-motor-${mm}`,
     category: 'equipment' as const,
