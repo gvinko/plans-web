@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
+import { createStlAsset, deleteStlAsset, updateStlAssetTransform } from '../db/repository';
+import type { StlAsset } from '../db/schema';
 import type { PrinterProfile } from '../lib/printers/profiles';
 import { createSplitPlan } from '../lib/printers/splitPlanner';
 import {
@@ -11,6 +15,7 @@ import {
 } from '../lib/stl/stl';
 
 interface StlStudioProps {
+  projectId: string;
   printer: PrinterProfile;
   onClose: () => void;
 }
@@ -40,10 +45,11 @@ function rotateForView(point: Vec3, pitchDeg: number, yawDeg: number): Vec3 {
   return { x, y, z };
 }
 
-export default function StlStudio({ printer, onClose }: StlStudioProps) {
+export default function StlStudio({ projectId, printer, onClose }: StlStudioProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
+  const saveTransformTimerRef = useRef<number | null>(null);
 
   const [mesh, setMesh] = useState<StlMesh | null>(null);
   const [transform, setTransform] = useState<MeshTransform>(DEFAULT_TRANSFORM);
@@ -51,6 +57,11 @@ export default function StlStudio({ printer, onClose }: StlStudioProps) {
   const [yaw, setYaw] = useState(35);
   const [status, setStatus] = useState('Import an STL to inspect and transform it.');
   const [loading, setLoading] = useState(false);
+  const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
+  const assets = useLiveQuery(
+    () => db.stlAssets.where({ projectId }).sortBy('updatedAt'),
+    [projectId],
+  );
 
   const transformed = useMemo(
     () => (mesh ? transformMesh(mesh, transform) : null),
@@ -160,11 +171,13 @@ export default function StlStudio({ printer, onClose }: StlStudioProps) {
     setStatus('Reading STL…');
     try {
       const parsed = await parseStlFile(file);
+      const asset = await createStlAsset(projectId, file);
+      setActiveAssetId(asset.id);
       setMesh(parsed);
       setTransform(DEFAULT_TRANSFORM);
       setPitch(-25);
       setYaw(35);
-      setStatus(`Loaded ${parsed.name} · ${parsed.triangles.length.toLocaleString()} triangles`);
+      setStatus(`Saved ${parsed.name} to this project · ${parsed.triangles.length.toLocaleString()} triangles`);
     } catch (error) {
       setMesh(null);
       setStatus(error instanceof Error ? error.message : 'Could not read this STL.');
@@ -172,6 +185,38 @@ export default function StlStudio({ printer, onClose }: StlStudioProps) {
       setLoading(false);
     }
   }
+
+  async function openAsset(asset: StlAsset) {
+    setLoading(true);
+    setStatus(`Opening ${asset.name}…`);
+    try {
+      const file = new File([asset.sourceFile], `${asset.name}.stl`, { type: 'model/stl' });
+      const parsed = await parseStlFile(file);
+      setActiveAssetId(asset.id);
+      setMesh(parsed);
+      setTransform(asset.transform);
+      setPitch(-25);
+      setYaw(35);
+      setStatus(`Opened ${asset.name} · saved in this project`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not reopen this STL.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!activeAssetId || !mesh) return;
+    if (saveTransformTimerRef.current) window.clearTimeout(saveTransformTimerRef.current);
+    saveTransformTimerRef.current = window.setTimeout(() => {
+      void updateStlAssetTransform(activeAssetId, transform)
+        .then(() => setStatus(`Saved edits for ${mesh.name}`))
+        .catch((error) => setStatus(error instanceof Error ? error.message : 'Could not save STL edits.'));
+    }, 650);
+    return () => {
+      if (saveTransformTimerRef.current) window.clearTimeout(saveTransformTimerRef.current);
+    };
+  }, [activeAssetId, mesh, transform]);
 
   function setView(name: 'top' | 'front' | 'side' | 'iso') {
     if (name === 'top') {
@@ -286,6 +331,37 @@ export default function StlStudio({ printer, onClose }: StlStudioProps) {
 
         <aside className="w-full overflow-y-auto border-t border-slate-800 bg-slate-900/80 p-3 lg:w-80 lg:border-l lg:border-t-0">
           <div className="rounded bg-slate-950 p-2 text-xs text-slate-400">{status}</div>
+
+          <div className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Project STL files</div>
+          <div className="mt-2 grid gap-1">
+            {(assets ?? []).length === 0 && <p className="text-[11px] text-slate-500">No saved STL files yet.</p>}
+            {[...(assets ?? [])].reverse().map((asset) => (
+              <div key={asset.id} className={`flex items-center gap-1 rounded border p-1 ${activeAssetId === asset.id ? 'border-sky-700 bg-sky-950/30' : 'border-slate-800 bg-slate-950'}`}>
+                <button
+                  className="min-w-0 flex-1 truncate px-1 py-1 text-left text-xs hover:text-sky-300"
+                  onClick={() => void openAsset(asset)}
+                >
+                  {asset.name}
+                </button>
+                <button
+                  className="px-1.5 py-1 text-[10px] text-red-400 hover:text-red-300"
+                  onClick={() => {
+                    if (!window.confirm(`Delete saved STL "${asset.name}" from this project?`)) return;
+                    void deleteStlAsset(asset.id).then(() => {
+                      if (activeAssetId === asset.id) {
+                        setActiveAssetId(null);
+                        setMesh(null);
+                        setTransform(DEFAULT_TRANSFORM);
+                        setStatus('STL removed from project.');
+                      }
+                    });
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
 
           {transformed && (
             <>
