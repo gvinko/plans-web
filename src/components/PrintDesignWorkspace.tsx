@@ -15,6 +15,7 @@ import { createSplitPlan } from '../lib/printers/splitPlanner';
 import { loadCustomPrinterProfiles, saveCustomPrinterProfiles } from '../lib/printers/customProfiles';
 import { useAppStore } from '../store/appStore';
 import CalibrationModal from './CalibrationModal';
+import StlStudio from './StlStudio';
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
 type ActiveTool = 'select' | 'pan' | 'calibrate';
@@ -55,6 +56,7 @@ export default function PrintDesignWorkspace() {
   const [selectedPrinterId, setSelectedPrinterId] = useState(BUILT_IN_PRINTER_PROFILES[0].id);
   const [modelDepthMm, setModelDepthMm] = useState(20);
   const [showAddPrinter, setShowAddPrinter] = useState(false);
+  const [showStlStudio, setShowStlStudio] = useState(false);
   const [newPrinter, setNewPrinter] = useState({
     name: '',
     x: 220,
@@ -400,6 +402,16 @@ export default function PrintDesignWorkspace() {
             <button className="rounded bg-slate-800 px-2 py-2 text-left text-xs hover:bg-slate-700" onClick={addText}>Text</button>
           </div>
 
+          <div className="mb-2 mt-5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">3D / STL</div>
+          <div className="grid gap-1">
+            <button
+              className="rounded bg-violet-800 px-2 py-2 text-left text-xs hover:bg-violet-700"
+              onClick={() => setShowStlStudio(true)}
+            >
+              Open STL Studio
+            </button>
+          </div>
+
           <div className="mb-2 mt-5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Reference</div>
           <div className="grid gap-1">
             <input
@@ -601,6 +613,8 @@ export default function PrintDesignWorkspace() {
           </div>
         </aside>
       </div>
+
+      {showStlStudio && <StlStudio printer={selectedPrinter} onClose={() => setShowStlStudio(false)} />}
 
       {pendingCalibration && (
         <CalibrationModal
