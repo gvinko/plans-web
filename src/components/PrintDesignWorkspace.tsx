@@ -614,7 +614,7 @@ export default function PrintDesignWorkspace() {
         </aside>
       </div>
 
-      {showStlStudio && <StlStudio printer={selectedPrinter} onClose={() => setShowStlStudio(false)} />}
+      {showStlStudio && <StlStudio projectId={activeProjectId} printer={selectedPrinter} onClose={() => setShowStlStudio(false)} />}
 
       {pendingCalibration && (
         <CalibrationModal
