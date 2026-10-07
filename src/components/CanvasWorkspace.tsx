@@ -650,6 +650,7 @@ export default function CanvasWorkspace() {
         <SystemSchedulePanel
           projectId={activeProjectId}
           getCanvas={() => engineRef.current?.canvas ?? null}
+          applicationMode={applicationMode}
           onClose={() => setShowSchedule(false)}
         />
       )}
