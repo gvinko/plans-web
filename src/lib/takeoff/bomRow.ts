@@ -9,6 +9,8 @@ export interface BomRow {
   sizeMm: PortSize | null;
   quantity: number;
   unitLabel: 'm' | 'ea';
+  fabricationPiecesMm?: number[];
+  fabricationPieceCount?: number;
   unitCost: number;
   marginPercent: number;
 }
