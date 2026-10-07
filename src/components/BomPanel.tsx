@@ -48,7 +48,7 @@ export default function BomPanel({ projectId, activePlanPageId, getLiveCanvasJso
         return {
           costItemId: item?.id ?? line.key, key: line.key, category: line.category,
           itemLabel: line.itemLabel, sizeMm: line.sizeMm, quantity: line.quantity,
-          unitLabel: line.unitLabel, unitCost: item?.unitCost ?? 0,
+          unitLabel: line.unitLabel, fabricationPiecesMm: line.fabricationPiecesMm, fabricationPieceCount: line.fabricationPieceCount, unitCost: item?.unitCost ?? 0,
           marginPercent: item?.marginPercent ?? DEFAULT_MARGIN_PERCENT,
         };
       }));
