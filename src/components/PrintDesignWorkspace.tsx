@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Circle, Rect, Textbox, type FabricObject } from 'fabric';
+import { Circle, Rect, Textbox } from 'fabric';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import {
@@ -404,7 +404,7 @@ export default function PrintDesignWorkspace() {
             <button className="rounded bg-slate-800 px-2 py-2 text-xs hover:bg-slate-700" onClick={() => { engineRef.current?.undo(); scheduleAutosave(); }}>Undo</button>
             <button className="rounded bg-slate-800 px-2 py-2 text-xs hover:bg-slate-700" onClick={() => void engineRef.current?.duplicateSelection().then(scheduleAutosave)}>Duplicate</button>
             <button className="rounded bg-red-950/60 px-2 py-2 text-xs text-red-300 hover:bg-red-900" onClick={() => { engineRef.current?.deleteSelection(); scheduleAutosave(); }}>Delete</button>
-            <button className="rounded bg-slate-800 px-2 py-2 text-xs hover:bg-slate-700" onClick={() => engineRef.current?.setSelectionLocked(true)}>Lock</button>
+            <button className="rounded bg-slate-800 px-2 py-2 text-xs hover:bg-slate-700" onClick={() => { engineRef.current?.setSelectionLocked(true); scheduleAutosave(); }}>Lock</button>
           </div>
         </aside>
 
