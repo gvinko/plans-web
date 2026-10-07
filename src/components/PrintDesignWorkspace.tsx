@@ -12,7 +12,7 @@ import { CanvasEngine, type CalibrationPoint } from '../lib/canvas/CanvasEngine'
 import { isSupportedFloorPlanFile, loadFloorPlanFile } from '../lib/floorplan/loadFloorPlanFile';
 import { BUILT_IN_PRINTER_PROFILES, type PrinterProfile } from '../lib/printers/profiles';
 import { createSplitPlan } from '../lib/printers/splitPlanner';
-import { createBoxMesh, createCylinderMesh } from '../lib/geometry/primitives';
+import { createBoxMesh, createCylinderMesh, createRectangularFrameMesh, createTubeMesh } from '../lib/geometry/primitives';
 import { exportBinaryStl } from '../lib/stl/stl';
 import { loadCustomPrinterProfiles, saveCustomPrinterProfiles } from '../lib/printers/customProfiles';
 import { useAppStore } from '../store/appStore';
@@ -58,6 +58,9 @@ export default function PrintDesignWorkspace() {
   const [customPrinters, setCustomPrinters] = useState<PrinterProfile[]>(() => loadCustomPrinterProfiles());
   const [selectedPrinterId, setSelectedPrinterId] = useState(BUILT_IN_PRINTER_PROFILES[0].id);
   const [modelDepthMm, setModelDepthMm] = useState(20);
+  const [rectCutoutWidthMm, setRectCutoutWidthMm] = useState(0);
+  const [rectCutoutHeightMm, setRectCutoutHeightMm] = useState(0);
+  const [circleHoleDiameterMm, setCircleHoleDiameterMm] = useState(0);
   const [showAddPrinter, setShowAddPrinter] = useState(false);
   const [showStlStudio, setShowStlStudio] = useState(false);
   const [showPhotoRelief, setShowPhotoRelief] = useState(false);
@@ -234,9 +237,27 @@ export default function PrintDesignWorkspace() {
     const name = (project?.name || 'plans-to-print-part').replace(/[^a-z0-9._-]+/gi, '-');
     let mesh;
     if (type.includes('rect')) {
-      mesh = createBoxMesh(selection.widthMm, selection.heightMm, modelDepthMm, name);
+      const hasCutout =
+        rectCutoutWidthMm > 0 &&
+        rectCutoutHeightMm > 0 &&
+        rectCutoutWidthMm < selection.widthMm &&
+        rectCutoutHeightMm < selection.heightMm;
+      mesh = hasCutout
+        ? createRectangularFrameMesh(
+            selection.widthMm,
+            selection.heightMm,
+            rectCutoutWidthMm,
+            rectCutoutHeightMm,
+            modelDepthMm,
+            name,
+          )
+        : createBoxMesh(selection.widthMm, selection.heightMm, modelDepthMm, name);
     } else if (type.includes('circle')) {
-      mesh = createCylinderMesh(Math.min(selection.widthMm, selection.heightMm), modelDepthMm, 64, name);
+      const diameter = Math.min(selection.widthMm, selection.heightMm);
+      mesh =
+        circleHoleDiameterMm > 0 && circleHoleDiameterMm < diameter
+          ? createTubeMesh(diameter, circleHoleDiameterMm, modelDepthMm, 64, name)
+          : createCylinderMesh(diameter, modelDepthMm, 64, name);
     } else {
       setMessage('STL export currently supports rectangle and circle primitives. Text and arbitrary 2D paths are not converted yet.');
       return;
@@ -634,6 +655,48 @@ export default function PrintDesignWorkspace() {
                     <>Fits within the selected printer build volume.</>
                   )}
                 </div>
+                {selection.type.toLowerCase().includes('rect') && (
+                  <div className="mt-3 rounded border border-slate-800 bg-slate-950 p-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Optional centre cutout</div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <label className="text-[10px] text-slate-500">
+                        Width mm
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={rectCutoutWidthMm}
+                          onChange={(event) => setRectCutoutWidthMm(Math.max(0, Number(event.target.value) || 0))}
+                          className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100"
+                        />
+                      </label>
+                      <label className="text-[10px] text-slate-500">
+                        Height mm
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={rectCutoutHeightMm}
+                          onChange={(event) => setRectCutoutHeightMm(Math.max(0, Number(event.target.value) || 0))}
+                          className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+                {selection.type.toLowerCase().includes('circle') && (
+                  <label className="mt-3 block text-[10px] text-slate-500">
+                    Optional centre hole diameter mm
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={circleHoleDiameterMm}
+                      onChange={(event) => setCircleHoleDiameterMm(Math.max(0, Number(event.target.value) || 0))}
+                      className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
+                    />
+                  </label>
+                )}
                 <button
                   className="mt-2 w-full rounded bg-emerald-700 px-2 py-2 text-xs font-medium hover:bg-emerald-600"
                   onClick={exportSelectionToStl}
@@ -641,7 +704,7 @@ export default function PrintDesignWorkspace() {
                   Export selected primitive as STL
                 </button>
                 <p className="mt-1 text-[10px] text-slate-500">
-                  Rectangle → solid box. Circle → solid cylinder. Export uses the exact width, height and model depth shown above.
+                  Rectangle → solid box or rectangular frame. Circle → solid cylinder or tube. Export uses the exact dimensions shown above.
                 </p>
               </div>
             )}
