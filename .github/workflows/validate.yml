@@ -1,4 +1,4 @@
-name: Validate PlanDroid
+name: Validate Plans to Print
 
 on:
   push:
