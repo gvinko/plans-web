@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import { db } from './index';
-import type { Project, PlanPage } from './schema';
+import type { Project, PlanPage, StlAsset } from './schema';
 
 export async function createProject(name: string, designer = ''): Promise<Project> {
   const now = Date.now();
@@ -113,7 +113,7 @@ export async function setSketchOpacity(planPageId: string, opacity: number): Pro
 export async function deleteProjectCascade(projectId: string): Promise<void> {
   await db.transaction(
     'rw',
-    [db.projects, db.planPages, db.ductRuns, db.fittings, db.terminals, db.equipment, db.costItems, db.zones],
+    [db.projects, db.planPages, db.ductRuns, db.fittings, db.terminals, db.equipment, db.costItems, db.zones, db.stlAssets],
     async () => {
       const pages = await db.planPages.where({ projectId }).toArray();
       const pageIds = pages.map((p) => p.id);
@@ -123,8 +123,50 @@ export async function deleteProjectCascade(projectId: string): Promise<void> {
       await db.equipment.where('planPageId').anyOf(pageIds).delete();
       await db.costItems.where({ projectId }).delete();
       await db.zones.where({ projectId }).delete();
+      await db.stlAssets.where({ projectId }).delete();
       await db.planPages.where({ projectId }).delete();
       await db.projects.delete(projectId);
     },
   );
+}
+
+
+export async function createStlAsset(projectId: string, file: File): Promise<StlAsset> {
+  const now = Date.now();
+  const asset: StlAsset = {
+    id: nanoid(),
+    projectId,
+    name: file.name.replace(/\.stl$/i, '') || 'Imported STL',
+    sourceFile: file,
+    transform: {
+      scaleX: 1,
+      scaleY: 1,
+      scaleZ: 1,
+      rotateXDeg: 0,
+      rotateYDeg: 0,
+      rotateZDeg: 0,
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.stlAssets.add(asset);
+  await touchProject(projectId);
+  return asset;
+}
+
+export async function updateStlAssetTransform(
+  id: string,
+  transform: StlAsset['transform'],
+): Promise<void> {
+  const asset = await db.stlAssets.get(id);
+  if (!asset) throw new Error('The STL asset no longer exists.');
+  const updated = await db.stlAssets.update(id, { transform, updatedAt: Date.now() });
+  if (updated !== 1) throw new Error('Could not save STL transform.');
+  await touchProject(asset.projectId);
+}
+
+export async function deleteStlAsset(id: string): Promise<void> {
+  const asset = await db.stlAssets.get(id);
+  await db.stlAssets.delete(id);
+  if (asset) await touchProject(asset.projectId);
 }
