@@ -3,18 +3,24 @@ import { Circle, type FabricObject, type TPointerEventInfo, type TPointerEvent }
 import type { CanvasEngine } from './CanvasEngine';
 import type { Vec2 } from './geometry';
 import { buildRigidDuctObject, buildFlexDuctObject } from './ductGeometry';
-import { setPlandroidId } from './plandroidData';
+import { getPlandroidData, setPlandroidData, setPlandroidId, type CommercialObjectStatus, type DuctService } from './plandroidData';
 import { findNearestPortToPoint } from './ports';
 import type { PortKind } from '../catalog/types';
 import { resolveRoundDuctColor, resolveRectDuctColor, DEFAULT_SUPPLY_COLOR, DEFAULT_RETURN_COLOR, DEFAULT_FLEX_COLOR } from './ductColors';
 
-export type DuctFunction = 'supply' | 'return';
+export type DuctFunction = DuctService;
 
 export interface DuctToolParams {
   widthMm: number;
   depthMm: number;
   diameterMm: number;
   ductFunction: DuctFunction;
+  commercialStatus: CommercialObjectStatus;
+}
+
+function applyCommercialMeta(obj: FabricObject, params: DuctToolParams) {
+  const data = getPlandroidData(obj);
+  if (data) setPlandroidData(obj, { ...data, plandroidDuctService: params.ductFunction, plandroidCommercialStatus: params.commercialStatus });
 }
 
 const CLICK_SNAP_RADIUS_SCREEN_PX = 15;
@@ -100,6 +106,7 @@ export function attachDuctDrawing(
       const functionFallback = params.ductFunction === 'return' ? DEFAULT_RETURN_COLOR : DEFAULT_SUPPLY_COLOR;
       const color = resolveRectDuctColor(params.widthMm, params.depthMm, overrides, functionFallback);
       const { rect, label } = buildRigidDuctObject(startPoint, point, params.widthMm, params.depthMm, pxPerMm, color);
+      applyCommercialMeta(rect, params);
       setPlandroidId(rect, nanoid());
       const jointA = buildJointMarker(startPoint, color);
       const jointB = buildJointMarker(point, color);
@@ -108,7 +115,9 @@ export function attachDuctDrawing(
     } else {
       const color = resolveRoundDuctColor(params.diameterMm, overrides, DEFAULT_FLEX_COLOR);
       const path = buildFlexDuctObject(startPoint, point, params.diameterMm, pxPerMm, color);
-      setPlandroidId(path, nanoid());
+      applyCommercialMeta(path, params);
+      applyCommercialMeta(path, params);
+    setPlandroidId(path, nanoid());
       // Flex is intentionally editable after placement: drag it, stretch it from its
       // end/side handles, or snap either end to a compatible flex connection.
       path.set({
