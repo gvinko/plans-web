@@ -39,7 +39,7 @@ import CompanySettingsDialog from './CompanySettingsDialog';
 import ExcelImporterDialog from './ExcelImporterDialog';
 import ExportDialog from './ExportDialog';
 
-const DEFAULT_DUCT_PARAMS: DuctToolParams = { widthMm: 400, depthMm: 250, diameterMm: 200, ductFunction: 'supply' };
+const DEFAULT_DUCT_PARAMS: DuctToolParams = { widthMm: 400, depthMm: 250, diameterMm: 200, ductFunction: 'supply', commercialStatus: 'new' };
 
 
 export default function CanvasWorkspace() {
@@ -567,7 +567,9 @@ export default function CanvasWorkspace() {
               depthMm={ductParams.depthMm}
               diameterMm={ductParams.diameterMm}
               ductFunction={ductParams.ductFunction}
-              onChange={setDuctParams}
+              commercialStatus={ductParams.commercialStatus}
+              applicationMode={applicationMode}
+              onChange={(patch)=>setDuctParams((prev)=>({...prev,...patch}))}
             />
           )}
 
