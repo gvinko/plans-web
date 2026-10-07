@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { Canvas, FabricObject } from 'fabric';
 import { db } from '../db';
-import { getPlandroidData, getPlandroidId, setPlandroidData } from '../lib/canvas/plandroidData';
+import { getPlandroidData, getPlandroidId, setPlandroidData, type CommercialObjectStatus } from '../lib/canvas/plandroidData';
+import type { ApplicationMode } from '../store/appStore';
 import { CATALOG } from '../lib/catalog/registry';
 
 interface ScheduleRow {
@@ -12,12 +13,14 @@ interface ScheduleRow {
   airflowLs: number | null;
   zoneId: string | null;
   notes: string;
+  status: CommercialObjectStatus;
 }
 
 interface SystemSchedulePanelProps {
   projectId: string;
   getCanvas: () => Canvas | null;
   onClose: () => void;
+  applicationMode: ApplicationMode;
 }
 
 function cleanComponentName(id?: string): string {
@@ -29,11 +32,11 @@ function cleanComponentName(id?: string): string {
   return id.replace(/-/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
-function readRows(canvas: Canvas): ScheduleRow[] {
+function readRows(canvas: Canvas, applicationMode: ApplicationMode): ScheduleRow[] {
   const rows: ScheduleRow[] = [];
   for (const obj of canvas.getObjects()) {
     const data = getPlandroidData(obj);
-    if (!data || (data.plandroidKind !== 'equipment' && data.plandroidKind !== 'terminal')) continue;
+    if (!data || (data.plandroidKind !== 'equipment' && data.plandroidKind !== 'terminal' && !(applicationMode === 'commercial' && data.plandroidKind === 'fitting'))) continue;
     const objId = getPlandroidId(obj);
     if (!objId) continue;
     const builtIn = CATALOG.find((c) => c.id === data.plandroidComponentId);
@@ -44,26 +47,27 @@ function readRows(canvas: Canvas): ScheduleRow[] {
       airflowLs: data.plandroidAirflowLs ?? null,
       zoneId: data.plandroidZoneId ?? null,
       notes: data.plandroidScheduleNotes ?? '',
+      status: data.plandroidCommercialStatus ?? 'new',
     });
   }
   return rows.sort((a, b) => a.tag.localeCompare(b.tag));
 }
 
-export default function SystemSchedulePanel({ projectId, getCanvas, onClose }: SystemSchedulePanelProps) {
+export default function SystemSchedulePanel({ projectId, getCanvas, onClose, applicationMode }: SystemSchedulePanelProps) {
   const zones = useLiveQuery(() => db.zones.where({ projectId }).toArray(), [projectId]);
   const [rows, setRows] = useState<ScheduleRow[]>([]);
 
   const refresh = useCallback(() => {
     const canvas = getCanvas();
-    if (canvas) setRows(readRows(canvas));
-  }, [getCanvas]);
+    if (canvas) setRows(readRows(canvas, applicationMode));
+  }, [getCanvas, applicationMode]);
 
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function updateField(objId: string, patch: Partial<Pick<ScheduleRow, 'tag' | 'airflowLs' | 'zoneId' | 'notes'>>) {
+  function updateField(objId: string, patch: Partial<Pick<ScheduleRow, 'tag' | 'airflowLs' | 'zoneId' | 'notes' | 'status'>>) {
     const canvas = getCanvas();
     if (!canvas) return;
     const obj = canvas.getObjects().find((o) => getPlandroidId(o) === objId);
@@ -77,6 +81,7 @@ export default function SystemSchedulePanel({ projectId, getCanvas, onClose }: S
       plandroidAirflowLs: patch.airflowLs !== undefined ? patch.airflowLs ?? undefined : data.plandroidAirflowLs,
       plandroidZoneId: patch.zoneId !== undefined ? patch.zoneId ?? undefined : data.plandroidZoneId,
       plandroidScheduleNotes: patch.notes ?? data.plandroidScheduleNotes,
+      plandroidCommercialStatus: patch.status ?? data.plandroidCommercialStatus,
     });
     // Editing custom data doesn't fire Fabric's own change events, so autosave needs a manual nudge.
     canvas.fire('object:modified', { target: obj as FabricObject });
@@ -109,6 +114,7 @@ export default function SystemSchedulePanel({ projectId, getCanvas, onClose }: S
                   <th className="py-1.5 pr-2">Item</th>
                   <th className="py-1.5 pr-2 text-right">Airflow (L/s)</th>
                   <th className="py-1.5 pr-2">Zone</th>
+                  {applicationMode === 'commercial' && <th className="py-1.5 pr-2">Status</th>}
                   <th className="py-1.5 pr-2">Notes</th>
                 </tr>
               </thead>
@@ -147,6 +153,7 @@ export default function SystemSchedulePanel({ projectId, getCanvas, onClose }: S
                         ))}
                       </select>
                     </td>
+                    {applicationMode === 'commercial' && <td className="py-1.5 pr-2"><select value={row.status} onChange={(e)=>updateField(row.objId,{status:e.target.value as CommercialObjectStatus})} className="bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5"><option value="new">New</option><option value="existing-retain">Existing — Retain</option><option value="existing-relocate">Existing — Relocate</option><option value="remove">Remove</option></select></td>}
                     <td className="py-1.5 pr-2">
                       <input
                         value={row.notes}
