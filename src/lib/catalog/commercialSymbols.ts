@@ -10,7 +10,7 @@ function baseBox(label: string, accent: string, ports: PortDef[], componentId: s
   const body = new Rect({ left:0, top:0, width:w, height:h, originX:'center', originY:'center', fill:'#0f172a', stroke:accent, strokeWidth:1.5, rx:2, ry:2 });
   const text = new FabricText(label, { left:0, top:0, fontSize:9, fontWeight:'bold', fill:'#e2e8f0', originX:'center', originY:'center' });
   const group = new Group([footprint, body, text], { originX:'center', originY:'center' });
-  setPlandroidData(group, { plandroidKind:kind, plandroidComponentId:componentId, plandroidPorts:ports });
+  setPlandroidData(group, { plandroidKind:kind, plandroidComponentId:componentId, plandroidPorts:ports, plandroidCommercialStatus:'new' });
   return group;
 }
 
