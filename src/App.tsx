@@ -88,10 +88,11 @@ export default function App() {
     try {
       const projectRows = await db.projects.toArray();
       const pageRows = await db.planPages.toArray();
+      const stlRows = await db.stlAssets.toArray();
       const lines: string[] = [
         'READ-ONLY RECOVERY SCAN',
         `Database: ${db.name} | version: ${db.verno}`,
-        `Projects: ${projectRows.length} | Design pages: ${pageRows.length}`,
+        `Projects: ${projectRows.length} | Design pages: ${pageRows.length} | STL assets: ${stlRows.length}`,
         '',
       ];
 
@@ -99,7 +100,8 @@ export default function App() {
 
       for (const project of projectRows) {
         const pages = pageRows.filter((page) => page.projectId === project.id);
-        lines.push(`PROJECT ${project.name} | id=${project.id} | pages=${pages.length}`);
+        const stls = stlRows.filter((asset) => asset.projectId === project.id);
+        lines.push(`PROJECT ${project.name} | id=${project.id} | pages=${pages.length} | stl=${stls.length}`);
         for (const page of pages) {
           let jsonState = page.canvasJSON ? 'present' : 'none';
           if (page.canvasJSON) {
@@ -112,6 +114,9 @@ export default function App() {
           lines.push(
             `  DESIGN ${page.name} | id=${page.id} | objects=${savedObjectCount(page)} | canvas=${jsonState} | background=${page.backgroundImage ? 'Y' : 'N'} | sketch=${page.sketchImage ? 'Y' : 'N'}`,
           );
+        }
+        for (const asset of stls) {
+          lines.push(`  STL ${asset.name} | id=${asset.id} | updated=${new Date(asset.updatedAt).toISOString()}`);
         }
       }
 
@@ -132,6 +137,7 @@ export default function App() {
       if (listDatabases) {
         const databases = await listDatabases.call(indexedDB);
         lines.push('', 'BROWSER INDEXEDDB DATABASES:');
+        lines.push('  Note: the storage database intentionally keeps the legacy plandroid_web name so older local projects are not lost.');
         databases.forEach((entry) => lines.push(`  ${entry.name ?? '(unnamed)'} v${entry.version ?? '?'}`));
       }
 
