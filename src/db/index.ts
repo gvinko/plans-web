@@ -10,6 +10,7 @@ import type {
   ImportedCatalogItem,
   Zone,
   AppSettings,
+  StlAsset,
 } from './schema';
 
 class PlandroidDB extends Dexie {
@@ -25,6 +26,7 @@ class PlandroidDB extends Dexie {
   fittingsCatalog!: EntityTable<ImportedCatalogItem, 'id'>;
   zones!: EntityTable<Zone, 'id'>;
   appSettings!: EntityTable<AppSettings, 'id'>;
+  stlAssets!: EntityTable<StlAsset, 'id'>;
 
   constructor() {
     super('plandroid_web');
@@ -68,6 +70,23 @@ class PlandroidDB extends Dexie {
       fittingsCatalog: 'id, category, itemName',
       zones: 'id, projectId',
       appSettings: 'id',
+    });
+
+    // v4: Plans to Print STL assets. Every prior store is retained so existing local data is not destroyed.
+    this.version(4).stores({
+      projects: 'id, name, updatedAt',
+      planPages: 'id, projectId, order',
+      ductRuns: 'id, planPageId, zoneName',
+      fittings: 'id, planPageId, type',
+      terminals: 'id, planPageId, zoneName',
+      equipment: 'id, planPageId, kind',
+      costItems: 'id, projectId, category',
+      equipmentCatalog: 'id, category, itemName',
+      ductworkCatalog: 'id, category, itemName',
+      fittingsCatalog: 'id, category, itemName',
+      zones: 'id, projectId',
+      appSettings: 'id',
+      stlAssets: 'id, projectId, updatedAt',
     });
   }
 }
