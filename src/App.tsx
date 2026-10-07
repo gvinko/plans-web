@@ -8,7 +8,7 @@ import { useAppStore } from './store/appStore';
 import CanvasWorkspace from './components/CanvasWorkspace';
 
 const PLANDROID_VERSION = '0.7.0';
-const BUILD_ID = '2026-10-06-PLAN2PRINT-1';
+const BUILD_ID = '2026-10-07-PLAN-WORKSPACE-2';
 
 export default function App() {
   const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW();
@@ -35,6 +35,10 @@ export default function App() {
   // made a correctly-saved project appear completely empty on reopen.
   useEffect(() => {
     if (!activeProjectId || !pagesForActiveProject) return;
+    // Opening a project resolves its saved page directly from IndexedDB below.
+    // The live query can still contain the previous project's empty result here.
+    // Never create a replacement page when a saved page has already been selected.
+    if (activePlanPageId) return;
     if (pagesForActiveProject.length > 0) {
       creatingPageForProjectRef.current = null;
       if (!activePlanPageId) {
