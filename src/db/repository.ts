@@ -170,3 +170,63 @@ export async function deleteStlAsset(id: string): Promise<void> {
   await db.stlAssets.delete(id);
   if (asset) await touchProject(asset.projectId);
 }
+
+
+export async function renameProject(projectId: string, name: string): Promise<void> {
+  const nextName = name.trim();
+  if (!nextName) throw new Error('Project name cannot be empty.');
+  const updated = await db.projects.update(projectId, { name: nextName, updatedAt: Date.now() });
+  if (updated !== 1) throw new Error('Project no longer exists.');
+}
+
+export async function duplicateProject(projectId: string): Promise<Project> {
+  const source = await db.projects.get(projectId);
+  if (!source) throw new Error('Project no longer exists.');
+
+  const now = Date.now();
+  const copy: Project = {
+    ...source,
+    id: nanoid(),
+    name: `${source.name} — Copy`,
+    createdAt: now,
+    updatedAt: now,
+    revision: 'A',
+    ductColorOverrides: { ...source.ductColorOverrides },
+  };
+
+  await db.transaction('rw', [db.projects, db.planPages, db.stlAssets], async () => {
+    await db.projects.add(copy);
+
+    const pages = await db.planPages.where({ projectId }).sortBy('order');
+    for (const page of pages) {
+      await db.planPages.add({
+        ...page,
+        id: nanoid(),
+        projectId: copy.id,
+        scale: {
+          ...page.scale,
+          referencePoints: page.scale.referencePoints
+            ? [
+                { ...page.scale.referencePoints[0] },
+                { ...page.scale.referencePoints[1] },
+              ]
+            : null,
+        },
+      });
+    }
+
+    const assets = await db.stlAssets.where({ projectId }).toArray();
+    for (const asset of assets) {
+      await db.stlAssets.add({
+        ...asset,
+        id: nanoid(),
+        projectId: copy.id,
+        transform: { ...asset.transform },
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  });
+
+  return copy;
+}
