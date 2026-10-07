@@ -18,6 +18,7 @@ import { loadCustomPrinterProfiles, saveCustomPrinterProfiles } from '../lib/pri
 import { useAppStore } from '../store/appStore';
 import CalibrationModal from './CalibrationModal';
 import StlStudio from './StlStudio';
+import PhotoReliefStudio from './PhotoReliefStudio';
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
 type ActiveTool = 'select' | 'pan' | 'calibrate';
@@ -59,6 +60,7 @@ export default function PrintDesignWorkspace() {
   const [modelDepthMm, setModelDepthMm] = useState(20);
   const [showAddPrinter, setShowAddPrinter] = useState(false);
   const [showStlStudio, setShowStlStudio] = useState(false);
+  const [showPhotoRelief, setShowPhotoRelief] = useState(false);
   const [newPrinter, setNewPrinter] = useState({
     name: '',
     x: 220,
@@ -435,6 +437,12 @@ export default function PrintDesignWorkspace() {
             >
               Open STL Studio
             </button>
+            <button
+              className="rounded bg-fuchsia-900/80 px-2 py-2 text-left text-xs hover:bg-fuchsia-800"
+              onClick={() => setShowPhotoRelief(true)}
+            >
+              Photo relief / lithophane
+            </button>
           </div>
 
           <div className="mb-2 mt-5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Reference</div>
@@ -649,6 +657,7 @@ export default function PrintDesignWorkspace() {
       </div>
 
       {showStlStudio && <StlStudio projectId={activeProjectId} printer={selectedPrinter} onClose={() => setShowStlStudio(false)} />}
+      {showPhotoRelief && <PhotoReliefStudio printer={selectedPrinter} onClose={() => setShowPhotoRelief(false)} />}
 
       {pendingCalibration && (
         <CalibrationModal
