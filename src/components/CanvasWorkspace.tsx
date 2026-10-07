@@ -43,7 +43,7 @@ const DEFAULT_DUCT_PARAMS: DuctToolParams = { widthMm: 400, depthMm: 250, diamet
 
 
 export default function CanvasWorkspace() {
-  const { activeProjectId, activePlanPageId, activeTool, setActiveTool, setActiveProject } = useAppStore();
+  const { activeProjectId, activePlanPageId, activeTool, setActiveTool, setActiveProject, applicationMode, setApplicationMode } = useAppStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasElRef = useRef<HTMLCanvasElement>(null);
@@ -495,7 +495,7 @@ export default function CanvasWorkspace() {
               className={`text-xs font-semibold px-3 py-1.5 rounded shrink-0 ${activeRibbon===tab?'bg-sky-600':'bg-slate-800 hover:bg-slate-700'}`}>{tab}</button>
           ))}
           <div className="flex-1" />
-          <span className="text-xs font-mono text-slate-400 shrink-0">{zoomPct}%</span>
+          <div className="flex items-center gap-1 shrink-0"><button onClick={()=>setApplicationMode('domestic')} className={`text-[10px] px-2 py-1 rounded ${applicationMode==='domestic'?'bg-sky-700':'bg-slate-800'}`}>Domestic</button><button onClick={()=>setApplicationMode('commercial')} className={`text-[10px] px-2 py-1 rounded ${applicationMode==='commercial'?'bg-amber-700':'bg-slate-800'}`}>Commercial</button></div><span className="text-xs font-mono text-slate-400 shrink-0">{zoomPct}%</span>
         </div>
         <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-800 overflow-x-auto">
           <button onClick={() => handleToolChange('select')} className="text-xs px-2.5 py-1 rounded bg-slate-800 shrink-0">Select</button>
@@ -626,6 +626,7 @@ export default function CanvasWorkspace() {
             onSelect={handleSelectComponent}
             onCancel={() => handleToolChange('select')}
             section={activeRibbon === 'FITTINGS' || activeRibbon === 'OUTLETS' || activeRibbon === 'CONTROLS' ? activeRibbon : 'HVAC'}
+            applicationMode={applicationMode}
           />
         )}
       </div>
