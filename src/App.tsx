@@ -5,7 +5,7 @@ import { db } from './db';
 import type { PlanPage } from './db/schema';
 import { createProject, createPlanPage, deleteProjectCascade } from './db/repository';
 import { useAppStore } from './store/appStore';
-import CanvasWorkspace from './components/CanvasWorkspace';
+import PrintDesignWorkspace from './components/PrintDesignWorkspace';
 
 const APP_VERSION = '0.8.0';
 const BUILD_ID = '2026-10-08-PLANS-TO-PRINT-REBUILD-1';
@@ -144,7 +144,7 @@ export default function App() {
   }
 
   if (activeProjectId && activePlanPageId) {
-    return <CanvasWorkspace />;
+    return <PrintDesignWorkspace />;
   }
 
   return (
