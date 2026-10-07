@@ -14,6 +14,9 @@ export interface TakeoffLine {
   /** Meters for duct rows, item count for component rows. */
   quantity: number;
   unitLabel: 'm' | 'ea';
+  /** Commercial sheet-metal fabrication breakdown, capped at 2400 mm per straight piece. */
+  fabricationPiecesMm?: number[];
+  fabricationPieceCount?: number;
   /** Only set for rows backed by an imported catalog price (built-in catalog items default via CostItem instead). */
   defaultUnitCost?: number;
 }
@@ -21,6 +24,18 @@ export interface TakeoffLine {
 /** Shape of a plain (deserialized) Fabric object entry — only the field we attached ourselves matters here. */
 export interface PlandroidRecordLike {
   plandroid?: PlandroidData;
+}
+
+export const MAX_SHEET_METAL_PIECE_MM = 2400;
+
+/** Split one straight sheet-metal run into fabricable lengths. Runs are never merged across bends/segments. */
+export function splitSheetMetalRun(lengthMm: number, maxPieceMm = MAX_SHEET_METAL_PIECE_MM): number[] {
+  if (!Number.isFinite(lengthMm) || lengthMm <= 0 || !Number.isFinite(maxPieceMm) || maxPieceMm <= 0) return [];
+  const pieces: number[] = [];
+  let remaining = lengthMm;
+  while (remaining > maxPieceMm) { pieces.push(maxPieceMm); remaining -= maxPieceMm; }
+  if (remaining > 0.01) pieces.push(Math.round(remaining * 10) / 10);
+  return pieces;
 }
 
 const IMPORTED_CATEGORY_TO_TAKEOFF: Record<string, TakeoffCategory> = {
@@ -31,6 +46,7 @@ const IMPORTED_CATEGORY_TO_TAKEOFF: Record<string, TakeoffCategory> = {
 
 export function computeTakeoff(records: PlandroidRecordLike[]): TakeoffLine[] {
   const rigidMmBySize = new Map<string, number>();
+  const rigidPiecesBySize = new Map<string, number[]>();
   const flexMmByDiameter = new Map<number, number>();
   const componentCounts = new Map<
     string,
@@ -44,6 +60,7 @@ export function computeTakeoff(records: PlandroidRecordLike[]): TakeoffLine[] {
     if (d.plandroidKind === 'duct_rigid' && d.plandroidWidthMm && d.plandroidDepthMm && d.plandroidLengthMm) {
       const key = `${d.plandroidWidthMm}x${d.plandroidDepthMm}`;
       rigidMmBySize.set(key, (rigidMmBySize.get(key) ?? 0) + d.plandroidLengthMm);
+      rigidPiecesBySize.set(key, [...(rigidPiecesBySize.get(key) ?? []), ...splitSheetMetalRun(d.plandroidLengthMm)]);
       continue;
     }
     if (d.plandroidKind === 'duct_flex' && d.plandroidDiameterMm && d.plandroidLengthMm) {
@@ -72,6 +89,8 @@ export function computeTakeoff(records: PlandroidRecordLike[]): TakeoffLine[] {
       sizeMm: { width, depth },
       quantity: totalMm / 1000,
       unitLabel: 'm',
+      fabricationPiecesMm: rigidPiecesBySize.get(sizeKey) ?? [],
+      fabricationPieceCount: (rigidPiecesBySize.get(sizeKey) ?? []).length,
     });
   }
 
