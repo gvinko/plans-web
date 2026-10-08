@@ -17,7 +17,7 @@ Implemented:
   - pan/zoom
   - rectangle, circle and text tools
   - exact width, height, X, Y and rotation editing
-  - undo, duplicate, delete and lock
+  - undo/redo of add and delete actions, duplicate, delete, lock and unlock
   - explicit Save now
   - guarded autosave that blocks accidental blank overwrites
 - Plan/photo/PDF reference import.
@@ -30,6 +30,7 @@ Implemented:
 - Model-vs-printer build-volume checks.
 - Deterministic oversized-model split planning.
 - Guarded, physical STL slicing for watertight meshes with a single convex contour at each cut. Capped and manifold-validated parts can be downloaded separately, with assembly-position JSON metadata.
+- Single-download ZIP export of all split STL pieces, their assembly offsets and a print-preparation guide. ZIPs are generated offline; the safe package limit is 64 MB.
 - Printable primitive STL generation:
   - solid box
   - solid cylinder
@@ -100,10 +101,11 @@ Production validation:
 
 ```bash
 npm run test:geometry
+npm run test:zip
 npm run build
 ```
 
-The geometry regression checks cover watertight capping, 1/2/3-axis splits, printer-bed fit, rejection of open or disconnected meshes, and no-split models.
+The geometry regression checks cover watertight capping, 1/2/3-axis splits, printer-bed fit, rejection of open or disconnected meshes, and no-split models. ZIP tests check checksums, local headers, central directory offsets, archive payload integrity, and filename guards.
 
 ## Cloudflare Pages
 
@@ -127,7 +129,7 @@ These capabilities are intentionally **not** presented as finished:
 - General boolean CSG for arbitrary imported STL geometry.
 - Full solid modelling / constraint solving.
 - Arbitrary text/path extrusion to 3D solids.
-- Production-grade redo/history across every edit type.
+- Transform/edit history across every modification type (basic add/delete undo/redo is present).
 - Final device/browser acceptance testing, and slicer/physical-print verification of new split parts.
 
 Dimensional split planning exists now; actual mesh cutting/join creation must not be represented as complete until the resulting solids are validated for printability.
