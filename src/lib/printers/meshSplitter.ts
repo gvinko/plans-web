@@ -261,8 +261,11 @@ export function splitMeshForPrinter(mesh: StlMesh, printer: PrinterProfile): Pri
         const plane = candidates.find((value) =>
           value > remainder.bounds.min[axis] + eps &&
           value < remainder.bounds.max[axis] - eps &&
-          piece.bounds.max[axis] - value <= printer.buildVolumeMm[axis] - 2 &&
-          value - piece.bounds.min[axis] <= printer.buildVolumeMm[axis] - 2 &&
+          // The current left section must fit; the right remainder is allowed to
+          // exceed one bed length because subsequent cuts will subdivide it.
+          value - remainder.bounds.min[axis] <= printer.buildVolumeMm[axis] - 4 + eps &&
+          remainder.bounds.max[axis] - value <=
+            (instruction.partCount - i) * (printer.buildVolumeMm[axis] - 4) + eps &&
           !remainder.triangles.some((face) =>
             [face.a, face.b, face.c].some((point) => Math.abs(point[axis] - value) < eps)));
         if (plane === undefined) {
