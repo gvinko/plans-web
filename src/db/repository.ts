@@ -117,10 +117,13 @@ export async function deleteProjectCascade(projectId: string): Promise<void> {
     async () => {
       const pages = await db.planPages.where({ projectId }).toArray();
       const pageIds = pages.map((p) => p.id);
-      await db.ductRuns.where('planPageId').anyOf(pageIds).delete();
-      await db.fittings.where('planPageId').anyOf(pageIds).delete();
-      await db.terminals.where('planPageId').anyOf(pageIds).delete();
-      await db.equipment.where('planPageId').anyOf(pageIds).delete();
+      // A newly created project may not have a page yet. Avoid anyOf([]) in that case.
+      if (pageIds.length > 0) {
+        await db.ductRuns.where('planPageId').anyOf(pageIds).delete();
+        await db.fittings.where('planPageId').anyOf(pageIds).delete();
+        await db.terminals.where('planPageId').anyOf(pageIds).delete();
+        await db.equipment.where('planPageId').anyOf(pageIds).delete();
+      }
       await db.costItems.where({ projectId }).delete();
       await db.zones.where({ projectId }).delete();
       await db.stlAssets.where({ projectId }).delete();
