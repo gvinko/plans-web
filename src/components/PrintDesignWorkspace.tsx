@@ -51,7 +51,7 @@ export default function PrintDesignWorkspace() {
   const saveTimerRef = useRef<number | null>(null);
 
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saving');
   const [zoomPct, setZoomPct] = useState(100);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
   const [pendingCalibration, setPendingCalibration] = useState<{ p1: CalibrationPoint; p2: CalibrationPoint } | null>(null);
@@ -117,12 +117,21 @@ export default function PrintDesignWorkspace() {
 
   async function persistCanvas(force = false): Promise<boolean> {
     const engine = engineRef.current;
-    if (!engine || !activePlanPageId || hydratingRef.current) return false;
+    if (!engine || !activePlanPageId || hydratingRef.current) {
+      setSaveStatus('error');
+      setMessage('Design is still restoring or failed to restore. Saving is blocked to protect existing work.');
+      return false;
+    }
     try {
       const json = engine.serializeDrawingState();
       if (!force && json === lastSavedJsonRef.current) {
-        setSaveStatus('saved');
-        return true;
+        const existing = await db.planPages.get(activePlanPageId);
+        if (existing?.canvasJSON === json) {
+          setSaveStatus('saved');
+          return true;
+        }
+        // First save of an empty design, or a detected stale database write:
+        // persist and read back instead of declaring 'Saved' prematurely.
       }
       // Guard against a transient blank canvas replacing known saved work during restore.
       const previousHadObjects = (() => {
@@ -148,6 +157,10 @@ export default function PrintDesignWorkspace() {
       setSaveStatus('saving');
       await saveCanvasState(activePlanPageId, json);
       if (activeProjectId) await touchProject(activeProjectId);
+      const verified = await db.planPages.get(activePlanPageId);
+      if (verified?.canvasJSON !== json) {
+        throw new Error('Save verification failed: stored drawing does not match the current design.');
+      }
       lastSavedJsonRef.current = json;
       setSaveStatus('saved');
       return true;
@@ -383,8 +396,9 @@ export default function PrintDesignWorkspace() {
       }
 
       hydratingRef.current = false;
+      const restoredCount = engine.canvas.getObjects().filter((obj) => obj.type !== 'image').length;
       setSaveStatus('saved');
-      setMessage(null);
+      setMessage(restoredCount > 0 ? 'Restored ' + restoredCount + ' saved drawing object(s).' : null);
     })().catch((error) => {
       console.error(error);
       // Failed restoration must never re-enable autosave: a blank canvas could destroy the saved design.
