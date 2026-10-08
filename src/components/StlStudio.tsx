@@ -576,7 +576,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
                         onClick={() => void downloadPartPackage()}
                         className="w-full rounded bg-sky-700 px-2 py-2 text-xs font-semibold hover:bg-sky-600 disabled:opacity-50"
                       >
-                        Download all ${splitParts.length} parts (.zip)
+                        Download all {splitParts.length} parts (.zip)
                       </button>
                       <button
                         type="button"
