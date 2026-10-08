@@ -90,6 +90,9 @@ export default function PrintDesignWorkspace() {
     BUILT_IN_PRINTER_PROFILES[0];
 
   const pxPerMm = page?.scale.pxPerMm ?? 1;
+  // Fabric listeners are mounted once; read the current calibration, not their initial render.
+  const pxPerMmRef = useRef(pxPerMm);
+  pxPerMmRef.current = pxPerMm;
   const selectedBounds = selection
     ? { x: selection.widthMm, y: selection.heightMm, z: Math.max(0.1, modelDepthMm) }
     : null;
@@ -103,17 +106,21 @@ export default function PrintDesignWorkspace() {
       setSelection(null);
       return;
     }
+    const scale = pxPerMmRef.current;
     const widthPx = Math.abs((object.width ?? 0) * (object.scaleX ?? 1));
     const heightPx = Math.abs((object.height ?? 0) * (object.scaleY ?? 1));
     setSelection({
-      widthMm: widthPx / pxPerMm,
-      heightMm: heightPx / pxPerMm,
-      xMm: (object.left ?? 0) / pxPerMm,
-      yMm: (object.top ?? 0) / pxPerMm,
+      widthMm: widthPx / scale,
+      heightMm: heightPx / scale,
+      xMm: (object.left ?? 0) / scale,
+      yMm: (object.top ?? 0) / scale,
       angleDeg: object.angle ?? 0,
       type: object.type ?? 'object',
     });
   }
+
+  // Recalculate the selection readout immediately after reference calibration changes.
+  useEffect(() => { updateSelectionInfo(); }, [pxPerMm]);
 
   async function persistCanvas(force = false): Promise<boolean> {
     const engine = engineRef.current;
