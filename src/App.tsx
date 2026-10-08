@@ -37,6 +37,9 @@ export default function App() {
   const [showRecovery, setShowRecovery] = useState(false);
   const [recoveryReport, setRecoveryReport] = useState<string>('Not scanned yet.');
   const creatingPageForProjectRef = useRef<string | null>(null);
+  const creatingProjectRef = useRef(false);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [pendingDeletion, setPendingDeletion] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -81,11 +84,21 @@ export default function App() {
 
   async function createNewProject() {
     const name = projectName.trim();
-    if (!name) return;
-    const project = await createProject(name);
-    setProjectName('');
-    setShowNewProject(false);
-    setActiveProject(project.id);
+    if (!name || creatingProjectRef.current) return;
+    creatingProjectRef.current = true;
+    setCreatingProject(true);
+    setCreateError(null);
+    try {
+      const project = await createProject(name);
+      setProjectName('');
+      setShowNewProject(false);
+      setActiveProject(project.id);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Could not create this project.');
+    } finally {
+      creatingProjectRef.current = false;
+      setCreatingProject(false);
+    }
   }
 
   async function runReadOnlyRecoveryScan() {
@@ -217,19 +230,20 @@ export default function App() {
                   value={projectName}
                   onChange={(event) => setProjectName(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter') void createNewProject();
+                    if (event.key === 'Enter' && !event.repeat) void createNewProject();
                     if (event.key === 'Escape') setShowNewProject(false);
                   }}
                   placeholder="e.g. Wall light, bracket, enclosure, custom part"
                   className="mt-2 w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm outline-none focus:border-sky-500"
                 />
+                {createError && <p role="alert" className="mt-2 text-xs text-red-400">{createError}</p>}
                 <div className="mt-3 flex gap-2">
                   <button
-                    disabled={!projectName.trim()}
+                    disabled={!projectName.trim() || creatingProject}
                     onClick={() => void createNewProject()}
                     className="bg-sky-600 hover:bg-sky-500 disabled:opacity-40 px-3 py-2 rounded-md text-sm"
                   >
-                    Create project
+                    {creatingProject ? 'Creating…' : 'Create project'}
                   </button>
                   <button onClick={() => setShowNewProject(false)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-md text-sm">
                     Cancel
