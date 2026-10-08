@@ -29,7 +29,7 @@ function loadTypescript(filename) {
   return module.exports;
 }
 
-const { computeMeshBounds } = loadTypescript('src/lib/stl/stl.ts');
+const { computeMeshBounds, exportBinaryStl, parseStlFile } = loadTypescript('src/lib/stl/stl.ts');
 const { cutWatertightMesh, splitMeshForPrinter, validateWatertightMesh } =
   loadTypescript('src/lib/printers/meshSplitter.ts');
 const printer = {
@@ -127,4 +127,20 @@ test('disconnected sections are rejected rather than silently capped', () => {
 test('cut at model boundary is rejected', () => {
   assert.throws(() => cutWatertightMesh(cube(300, 50, 30), 'x', 0), /inside/);
 });
+try {
+  const result = splitMeshForPrinter(cube(300, 300, 25), printer);
+  for (const part of result.parts) {
+    const file = exportBinaryStl(part.mesh, part.mesh.name + '.stl');
+    assert.ok(file.size > 84);
+    assert.ok(file.name.endsWith('.stl'));
+    const restored = await parseStlFile(file);
+    assert.equal(restored.triangles.length, part.mesh.triangles.length);
+    validateWatertightMesh(restored);
+  }
+  successes += 1;
+  console.log('PASS real binary STL part export/import round-trip');
+} catch (error) {
+  process.exitCode = 1;
+  console.error('FAIL real binary STL part export/import round-trip', error);
+}
 console.log(successes + ' geometry regression tests passed');
