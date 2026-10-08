@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx",
-    "test:geometry": "node scripts/mesh-split-tests.mjs"
+    "test:geometry": "node scripts/mesh-split-tests.mjs",
+    "test:zip": "node scripts/zip-export-tests.mjs"
   },
   "dependencies": {
     "dexie": "^4.0.10",
