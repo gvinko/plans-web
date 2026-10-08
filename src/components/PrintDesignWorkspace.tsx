@@ -115,14 +115,14 @@ export default function PrintDesignWorkspace() {
     });
   }
 
-  async function persistCanvas(force = false) {
+  async function persistCanvas(force = false): Promise<boolean> {
     const engine = engineRef.current;
-    if (!engine || !activePlanPageId || hydratingRef.current) return;
+    if (!engine || !activePlanPageId || hydratingRef.current) return false;
     try {
       const json = engine.serializeDrawingState();
       if (!force && json === lastSavedJsonRef.current) {
         setSaveStatus('saved');
-        return;
+        return true;
       }
       // Guard against a transient blank canvas replacing known saved work during restore.
       const previousHadObjects = (() => {
@@ -142,7 +142,7 @@ export default function PrintDesignWorkspace() {
       if (!force && previousHadObjects && nextObjectCount === 0) {
         setSaveStatus('unsaved');
         setMessage('Autosave blocked a blank overwrite. Use Save now if clearing the design was intentional.');
-        return;
+        return false;
       }
 
       setSaveStatus('saving');
@@ -150,10 +150,12 @@ export default function PrintDesignWorkspace() {
       if (activeProjectId) await touchProject(activeProjectId);
       lastSavedJsonRef.current = json;
       setSaveStatus('saved');
+      return true;
     } catch (error) {
       console.error(error);
       setSaveStatus('error');
       setMessage(error instanceof Error ? error.message : 'Could not save this design.');
+      return false;
     }
   }
 
@@ -385,9 +387,10 @@ export default function PrintDesignWorkspace() {
       setMessage(null);
     })().catch((error) => {
       console.error(error);
-      hydratingRef.current = false;
+      // Failed restoration must never re-enable autosave: a blank canvas could destroy the saved design.
+      hydratingRef.current = true;
       setSaveStatus('error');
-      setMessage(error instanceof Error ? error.message : 'Could not restore this design.');
+      setMessage(error instanceof Error ? error.message : 'Could not restore this design. Reload to retry; saving is blocked.');
     });
 
     return () => {
@@ -415,7 +418,11 @@ export default function PrintDesignWorkspace() {
           <button
             className="rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
             onClick={() => {
-              void persistCanvas(false).finally(() => {
+              void persistCanvas(false).then((saved) => {
+                if (!saved) {
+                  setMessage('Could not safely save this project. Resolve the save/restore error before leaving.');
+                  return;
+                }
                 setActivePlanPage(null);
                 setActiveProject(null);
               });
