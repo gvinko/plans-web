@@ -492,13 +492,30 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
               <button
                 className="mt-2 w-full rounded bg-slate-800 px-2 py-1.5 text-xs hover:bg-slate-700"
                 onClick={() => {
-                  const longest = Math.max(mesh?.bounds.size.x ?? 1, mesh?.bounds.size.y ?? 1, mesh?.bounds.size.z ?? 1);
-                  const target = Math.min(printer.buildVolumeMm.x, printer.buildVolumeMm.y, printer.buildVolumeMm.z) * 0.9;
-                  const factor = target / Math.max(longest, 0.001);
-                  setTransform({ ...transform, scaleX: factor, scaleY: factor, scaleZ: factor });
+                  if (!transformed) return;
+                  // Respect each X/Y/Z travel limit and the model's CURRENT rotation and scale.
+                  // Uniform fit should not unexpectedly enlarge smaller printable models.
+                  const factor = Math.min(
+                    1,
+                    ...(['x', 'y', 'z'] as const).map((axis) =>
+                      (printer.buildVolumeMm[axis] - 4) / Math.max(0.001, transformed.bounds.size[axis])),
+                  );
+                  if (factor >= 1) {
+                    setStatus('Model already fits the printer with a 2 mm safety margin on each side.');
+                  } else if (factor > 0 && Number.isFinite(factor)) {
+                    setTransform({
+                      ...transform,
+                      scaleX: transform.scaleX * factor,
+                      scaleY: transform.scaleY * factor,
+                      scaleZ: transform.scaleZ * factor,
+                    });
+                    setStatus('Scaled all axes uniformly to fit the selected printer.');
+                  } else {
+                    setStatus('Selected printer has invalid build-volume dimensions.');
+                  }
                 }}
               >
-                Fit uniformly to {printer.name}
+                Scale down to fit {printer.name}
               </button>
 
               <div className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Model rotation</div>
