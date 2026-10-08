@@ -5,6 +5,7 @@ import { createStlAsset, deleteStlAsset, updateStlAssetTransform } from '../db/r
 import type { StlAsset } from '../db/schema';
 import type { PrinterProfile } from '../lib/printers/profiles';
 import { createSplitPlan } from '../lib/printers/splitPlanner';
+import { splitMeshForPrinter, type PrintablePart } from '../lib/printers/meshSplitter';
 import {
   exportBinaryStl,
   parseStlFile,
@@ -58,6 +59,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
   const [status, setStatus] = useState('Import an STL to inspect and transform it.');
   const [loading, setLoading] = useState(false);
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
+  const [splitParts, setSplitParts] = useState<PrintablePart[]>([]);
   const assets = useLiveQuery(
     () => db.stlAssets.where({ projectId }).sortBy('updatedAt'),
     [projectId],
@@ -67,6 +69,10 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     () => (mesh ? transformMesh(mesh, transform) : null),
     [mesh, transform],
   );
+  useEffect(() => {
+    setSplitParts([]);
+  }, [mesh, transform, printer]);
+
   const splitPlan = transformed
     ? createSplitPlan(
         {
@@ -252,16 +258,65 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     dragRef.current = null;
   }
 
-  function exportModel() {
-    if (!transformed) return;
-    const file = exportBinaryStl(transformed, `${transformed.name}-edited.stl`);
+  function download(file: Blob, filename: string) {
     const url = URL.createObjectURL(file);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = file.name;
+    anchor.download = filename;
+    document.body.append(anchor);
     anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  function exportModel() {
+    if (!transformed) return;
+    const file = exportBinaryStl(transformed, `${transformed.name}-edited.stl`);
+    download(file, file.name);
     setStatus(`Exported ${file.name}`);
+  }
+
+  async function generatePrintableParts() {
+    if (!transformed || !splitPlan?.required) return;
+    setLoading(true);
+    setSplitParts([]);
+    setStatus('Generating separate closed STL solids…');
+    // Allow the status to render before the CPU-intensive geometry operation.
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    try {
+      const result = splitMeshForPrinter(transformed, printer);
+      setSplitParts(result.parts);
+      setStatus(`${result.parts.length} printable parts created and topology-checked. Download each STL below.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not safely split this STL.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function downloadPart(part: PrintablePart) {
+    const file = exportBinaryStl(part.mesh, part.mesh.name + '.stl');
+    download(file, file.name);
+    setStatus(`Exported ${file.name}. Part has no assembly connectors yet.`);
+  }
+
+  function exportAssemblyManifest() {
+    if (!transformed || splitParts.length === 0) return;
+    const manifest = {
+      model: transformed.name,
+      units: 'mm',
+      printer: printer.name,
+      warning: 'Alignment pins, connectors and clips are NOT included. Validate and orient each part in your slicer.',
+      parts: splitParts.map((part) => ({
+        filename: part.mesh.name + '.stl',
+        number: part.partNumber,
+        sizeMm: part.mesh.bounds.size,
+        assemblyOffsetMm: part.assemblyOffsetMm,
+      })),
+    };
+    const file = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+    download(file, transformed.name.replace(/[^a-z0-9._-]+/gi, '-') + '-assembly.json');
+    setStatus('Exported assembly offsets. Joinery has not been generated.');
   }
 
   return (
@@ -434,8 +489,57 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
                 )}
               </div>
 
-              <p className="mt-4 text-[11px] text-slate-500">
-                Split planning is dimensional at this stage. Physical mesh cutting and join generation stay disabled until those geometry operations are validated.
+              {splitPlan?.required && (
+                <div className="mt-3 rounded border border-slate-700 bg-slate-950 p-2">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => void generatePrintableParts()}
+                    className="w-full rounded bg-violet-700 px-2 py-2 text-xs font-semibold hover:bg-violet-600 disabled:opacity-50"
+                  >
+                    {loading ? 'Checking mesh and cutting…' : 'Generate actual split STL parts'}
+                  </button>
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Safe mode: closed, consistently oriented STL meshes with one convex contour per cut.
+                    Up to 12 parts and 60,000 source triangles. Unsupported shapes are rejected without export.
+                    Printed parts do not include locating pins, clips, or sockets yet.
+                  </p>
+                  {splitParts.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      <div className="text-xs font-medium text-emerald-300">
+                        {splitParts.length} closed parts ready for individual download
+                      </div>
+                      {splitParts.map((part) => (
+                        <div key={part.partNumber} className="flex items-center justify-between gap-2 rounded border border-slate-800 p-2">
+                          <div className="min-w-0 text-[11px] text-slate-300">
+                            Part {part.partNumber}
+                            <div className="text-slate-500">
+                              {part.mesh.bounds.size.x.toFixed(1)} × {part.mesh.bounds.size.y.toFixed(1)} × {part.mesh.bounds.size.z.toFixed(1)} mm
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => downloadPart(part)}
+                            className="shrink-0 rounded bg-emerald-800 px-2 py-1.5 text-xs hover:bg-emerald-700"
+                          >
+                            Download STL
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={exportAssemblyManifest}
+                        className="w-full rounded bg-slate-800 px-2 py-2 text-xs hover:bg-slate-700"
+                      >
+                        Download assembly offsets (.json)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              <p className="mt-3 text-[11px] text-slate-500">
+                Always inspect sliced layers and print-bed fit before printing. Multi-contour, concave,
+                open or damaged STLs need a more advanced cutter; no partial STL downloads are exposed if validation fails.
               </p>
             </>
           )}
