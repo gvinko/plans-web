@@ -88,6 +88,24 @@ test('one-axis split exports two bed-fitting meshes', () => {
     validateWatertightMesh(part.mesh);
   });
 });
+test('three pieces along one axis all fit and reconstruct the full model span', () => {
+  const source = cube(600, 80, 30);
+  const result = splitMeshForPrinter(source, printer);
+  assert.equal(result.parts.length, 3);
+  const ordered = [...result.parts].sort((a, b) => a.assemblyOffsetMm.x - b.assemblyOffsetMm.x);
+  assert.ok(Math.abs(ordered[0].assemblyOffsetMm.x) < 0.01);
+  ordered.forEach((part, i) => {
+    const span = part.mesh.bounds.size.x;
+    assert.ok(span <= printer.buildVolumeMm.x - 4 + 0.01, 'part ' + i + ' too wide');
+    validateWatertightMesh(part.mesh);
+    if (i > 0) {
+      const previous = ordered[i - 1];
+      assert.ok(Math.abs(part.assemblyOffsetMm.x - previous.assemblyOffsetMm.x - previous.mesh.bounds.size.x) < 0.01);
+    }
+  });
+  const last = ordered.at(-1);
+  assert.ok(Math.abs(last.assemblyOffsetMm.x + last.mesh.bounds.size.x - 600) < 0.01);
+});
 test('two-axis split exports four bed-fitting meshes', () => {
   const result = splitMeshForPrinter(cube(300, 300, 25), printer);
   assert.equal(result.parts.length, 4);
