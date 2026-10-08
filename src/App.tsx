@@ -311,15 +311,15 @@ export default function App() {
           <section className="mt-4 grid gap-3 md:grid-cols-3">
             <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
               <h3 className="text-sm font-semibold">2D CAD</h3>
-              <p className="mt-1 text-xs text-slate-400">Dimensioned drawing, plan/photo import and calibration are being retained and refactored.</p>
+              <p className="mt-1 text-xs text-slate-400">Draw rectangles, circles and text with millimetre dimensions, plan/photo calibration and save/recovery.</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
               <h3 className="text-sm font-semibold">3D + STL</h3>
-              <p className="mt-1 text-xs text-slate-400">3D preview, STL import/editing and printable-solid workflows are the next rebuild stage.</p>
+              <p className="mt-1 text-xs text-slate-400">Import, rotate, resize and export STLs; create photo reliefs, printable solids and light-box panels.</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
               <h3 className="text-sm font-semibold">Printer aware</h3>
-              <p className="mt-1 text-xs text-slate-400">Ender 3 family profiles and oversized-model splitting are being added as core product features.</p>
+              <p className="mt-1 text-xs text-slate-400">Ender 3, V2 and Pro profiles, build-volume checks, and guarded STL cutting into individual parts.</p>
             </div>
           </section>
         </div>
