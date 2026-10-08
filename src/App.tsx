@@ -37,6 +37,10 @@ export default function App() {
   const [showRecovery, setShowRecovery] = useState(false);
   const [recoveryReport, setRecoveryReport] = useState<string>('Not scanned yet.');
   const creatingPageForProjectRef = useRef<string | null>(null);
+  const [pendingDeletion, setPendingDeletion] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const pageSummaries = useLiveQuery(() => db.planPages.toArray(), []);
 
   const pagesForActiveProject = useLiveQuery(
     () =>
@@ -261,7 +265,9 @@ export default function App() {
                   >
                     <span className="block truncate text-sm font-medium">{project.name}</span>
                     <span className="block text-xs text-slate-500">
-                      Revision {project.revision} · Updated {new Date(project.updatedAt).toLocaleString()}
+                      Revision {project.revision} · Updated {new Date(project.updatedAt).toLocaleString()} ·
+                      {' '}{(pageSummaries ?? []).filter((page) => page.projectId === project.id)
+                        .reduce((total, page) => total + savedObjectCount(page), 0)} saved drawing object(s)
                     </span>
                   </button>
                   <div className="flex shrink-0 items-center gap-1">
@@ -294,10 +300,9 @@ export default function App() {
                     </button>
                     <button
                       className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-950/40 hover:text-red-300"
-                      onClick={async () => {
-                        if (window.confirm(`Delete "${project.name}"? This permanently deletes its saved designs and STL files.`)) {
-                          await deleteProjectCascade(project.id);
-                        }
+                      onClick={() => {
+                        setDeleteError(null);
+                        setPendingDeletion({ id: project.id, name: project.name });
                       }}
                     >
                       Delete
@@ -307,6 +312,54 @@ export default function App() {
               ))}
             </div>
           </section>
+
+          {pendingDeletion && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Confirm project deletion"
+              className="mt-4 rounded-lg border border-red-800 bg-red-950/30 p-4"
+            >
+              <h3 className="font-semibold text-red-200">Permanently delete project?</h3>
+              <p className="mt-2 text-sm text-slate-200">
+                Delete “{pendingDeletion.name}” and every saved design and STL asset belonging to it?
+                This cannot be undone.
+              </p>
+              {deleteError && <p role="alert" className="mt-2 text-sm text-red-300">{deleteError}</p>}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => { setPendingDeletion(null); setDeleteError(null); }}
+                  className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600 disabled:opacity-50"
+                >
+                  Cancel — keep project
+                </button>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={async () => {
+                    if (!pendingDeletion) return;
+                    setDeleting(true);
+                    setDeleteError(null);
+                    try {
+                      await deleteProjectCascade(pendingDeletion.id);
+                      const stillExists = await db.projects.get(pendingDeletion.id);
+                      if (stillExists) throw new Error('Deletion verification failed. Project is still present.');
+                      setPendingDeletion(null);
+                    } catch (error) {
+                      setDeleteError(error instanceof Error ? error.message : 'Could not delete this project.');
+                    } finally {
+                      setDeleting(false);
+                    }
+                  }}
+                  className="rounded bg-red-700 px-3 py-2 text-sm font-semibold hover:bg-red-600 disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting…' : 'Yes, permanently delete'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <section className="mt-4 grid gap-3 md:grid-cols-3">
             <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
