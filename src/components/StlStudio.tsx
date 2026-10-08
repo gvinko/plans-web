@@ -52,6 +52,9 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const saveTransformTimerRef = useRef<number | null>(null);
+  const pendingTransformRef = useRef<{ assetId: string; value: MeshTransform } | null>(null);
+  // All writes are serialized to prevent stale edits overwriting newer ones.
+  const transformWritesRef = useRef<Promise<void>>(Promise.resolve());
 
   const [mesh, setMesh] = useState<StlMesh | null>(null);
   const [transform, setTransform] = useState<MeshTransform>(DEFAULT_TRANSFORM);
@@ -61,6 +64,8 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
   const [loading, setLoading] = useState(false);
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
   const [splitParts, setSplitParts] = useState<PrintablePart[]>([]);
+  const activeAssetIdRef = useRef(activeAssetId);
+  activeAssetIdRef.current = activeAssetId;
   const assets = useLiveQuery(
     () => db.stlAssets.where({ projectId }).sortBy('updatedAt'),
     [projectId],
@@ -177,6 +182,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     setLoading(true);
     setStatus('Reading STL…');
     try {
+      await flushPendingTransform();
       const parsed = await parseStlFile(file);
       const asset = await createStlAsset(projectId, file);
       setActiveAssetId(asset.id);
@@ -186,7 +192,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
       setYaw(35);
       setStatus(`Saved ${parsed.name} to this project · ${parsed.triangles.length.toLocaleString()} triangles`);
     } catch (error) {
-      setMesh(null);
+      // Preserve the previous mesh if the save or import fails.
       setStatus(error instanceof Error ? error.message : 'Could not read this STL.');
     } finally {
       setLoading(false);
@@ -197,6 +203,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     setLoading(true);
     setStatus(`Opening ${asset.name}…`);
     try {
+      await flushPendingTransform();
       const file = new File([asset.sourceFile], `${asset.name}.stl`, { type: 'model/stl' });
       const parsed = await parseStlFile(file);
       setActiveAssetId(asset.id);
@@ -212,18 +219,57 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     }
   }
 
+  async function flushPendingTransform(): Promise<void> {
+    if (saveTransformTimerRef.current !== null) {
+      window.clearTimeout(saveTransformTimerRef.current);
+      saveTransformTimerRef.current = null;
+    }
+    const pending = pendingTransformRef.current;
+    if (!pending) {
+      await transformWritesRef.current;
+      return;
+    }
+    pendingTransformRef.current = null;
+    const nextWrite = transformWritesRef.current
+      .catch(() => undefined)
+      .then(() => updateStlAssetTransform(pending.assetId, pending.value));
+    transformWritesRef.current = nextWrite;
+    await nextWrite;
+  }
+
   useEffect(() => {
     if (!activeAssetId || !mesh) return;
-    if (saveTransformTimerRef.current) window.clearTimeout(saveTransformTimerRef.current);
+    const assetId = activeAssetId;
+    const name = mesh.name;
+    pendingTransformRef.current = { assetId, value: { ...transform } };
+    if (saveTransformTimerRef.current !== null) window.clearTimeout(saveTransformTimerRef.current);
     saveTransformTimerRef.current = window.setTimeout(() => {
-      void updateStlAssetTransform(activeAssetId, transform)
-        .then(() => setStatus(`Saved edits for ${mesh.name}`))
+      void flushPendingTransform()
+        .then(() => {
+          if (activeAssetIdRef.current === assetId) setStatus(`Saved edits for ${name}`);
+        })
         .catch((error) => setStatus(error instanceof Error ? error.message : 'Could not save STL edits.'));
     }, 650);
     return () => {
-      if (saveTransformTimerRef.current) window.clearTimeout(saveTransformTimerRef.current);
+      if (saveTransformTimerRef.current !== null) window.clearTimeout(saveTransformTimerRef.current);
+      saveTransformTimerRef.current = null;
     };
   }, [activeAssetId, mesh, transform]);
+
+  useEffect(() => () => {
+    // Last-resort unmount flush; the Close button waits for persistence.
+    void flushPendingTransform().catch((error) => console.error('STL transform save failed on unmount', error));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function closeStudio() {
+    try {
+      await flushPendingTransform();
+      onClose();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'STL edits were not saved. Keep the studio open and retry.');
+    }
+  }
 
   function setView(name: 'top' | 'front' | 'side' | 'iso') {
     if (name === 'top') {
@@ -396,7 +442,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
           >
             Export edited STL
           </button>
-          <button onClick={onClose} className="rounded bg-slate-800 px-3 py-1.5 text-xs hover:bg-slate-700">
+          <button onClick={() => void closeStudio()} className="rounded bg-slate-800 px-3 py-1.5 text-xs hover:bg-slate-700">
             Close
           </button>
         </div>
@@ -446,14 +492,20 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
                   className="px-1.5 py-1 text-[10px] text-red-400 hover:text-red-300"
                   onClick={() => {
                     if (!window.confirm(`Delete saved STL "${asset.name}" from this project?`)) return;
-                    void deleteStlAsset(asset.id).then(() => {
-                      if (activeAssetId === asset.id) {
-                        setActiveAssetId(null);
-                        setMesh(null);
-                        setTransform(DEFAULT_TRANSFORM);
-                        setStatus('STL removed from project.');
+                    void (async () => {
+                      try {
+                        if (activeAssetId === asset.id) await flushPendingTransform();
+                        await deleteStlAsset(asset.id);
+                        if (activeAssetId === asset.id) {
+                          setActiveAssetId(null);
+                          setMesh(null);
+                          setTransform(DEFAULT_TRANSFORM);
+                          setStatus('STL removed from project.');
+                        }
+                      } catch (error) {
+                        setStatus(error instanceof Error ? error.message : 'Could not delete this STL.');
                       }
-                    });
+                    })();
                   }}
                 >
                   Delete
