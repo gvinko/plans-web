@@ -76,6 +76,8 @@ await assert.rejects(createStoredZip([
   { name: '../abc.txt', data: 'one' },
   { name: 'abc.txt', data: 'two' },
 ]), /Duplicate ZIP filename/);
-await assert.rejects(createStoredZip([{ name: '.....', data: 'x' }]), /./); // dot-only filenames sanitized safely
+const dotOnlyZip = new Uint8Array(await (await createStoredZip([{ name: '.....', data: 'x' }])).arrayBuffer());
+const dotNameSize = new DataView(dotOnlyZip.buffer).getUint16(26, true);
+assert.equal(decoder.decode(dotOnlyZip.subarray(30, 30 + dotNameSize)), 'file');
 
 console.log('PASS ZIP32 headers, CRC, filenames, payload, directory, and invalid-input guards');
