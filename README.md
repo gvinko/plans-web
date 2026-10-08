@@ -29,6 +29,7 @@ Implemented:
 - Custom printer profiles.
 - Model-vs-printer build-volume checks.
 - Deterministic oversized-model split planning.
+- Guarded, physical STL slicing for watertight meshes with a single convex contour at each cut. Capped and manifold-validated parts can be downloaded separately, with assembly-position JSON metadata.
 - Printable primitive STL generation:
   - solid box
   - solid cylinder
@@ -70,6 +71,7 @@ Plans to Print treats local project data as durable user work.
 - IndexedDB v4 adds project STL asset persistence without dropping existing stores.
 - Canvas restore completes before autosave is allowed.
 - Autosave refuses to replace known non-empty work with a transient blank canvas.
+- Failed canvas restore keeps saving disabled and failed saves keep the user in the workspace rather than navigating away.
 - File-import, restore and save failures surface an actionable error.
 - Destructive project/STL deletion requires confirmation.
 
@@ -97,8 +99,11 @@ npm run dev
 Production validation:
 
 ```bash
+npm run test:geometry
 npm run build
 ```
+
+The geometry regression checks cover watertight capping, 1/2/3-axis splits, printer-bed fit, rejection of open or disconnected meshes, and no-split models.
 
 ## Cloudflare Pages
 
@@ -117,13 +122,13 @@ Production is not updated from the rebuild branch until the preview has passed u
 
 These capabilities are intentionally **not** presented as finished:
 
-- Physical arbitrary-mesh cutting into multiple STL parts.
+- Unrestricted arbitrary-mesh cutting (concave boundaries, cut surfaces with holes, and multiple disconnected section loops). This release deliberately fails closed on unsupported shapes; it does not export invalid partial STLs.
 - Generated alignment pins, sockets, dovetails, clips, tabs/slots and keys.
 - General boolean CSG for arbitrary imported STL geometry.
 - Full solid modelling / constraint solving.
 - Arbitrary text/path extrusion to 3D solids.
 - Production-grade redo/history across every edit type.
-- Final device/browser acceptance testing.
+- Final device/browser acceptance testing, and slicer/physical-print verification of new split parts.
 
 Dimensional split planning exists now; actual mesh cutting/join creation must not be represented as complete until the resulting solids are validated for printability.
 
