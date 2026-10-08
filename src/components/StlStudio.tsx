@@ -6,6 +6,7 @@ import type { StlAsset } from '../db/schema';
 import type { PrinterProfile } from '../lib/printers/profiles';
 import { createSplitPlan } from '../lib/printers/splitPlanner';
 import { splitMeshForPrinter, type PrintablePart } from '../lib/printers/meshSplitter';
+import { createStoredZip } from '../lib/export/zip';
 import {
   exportBinaryStl,
   parseStlFile,
@@ -300,9 +301,9 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     setStatus(`Exported ${file.name}. Part has no assembly connectors yet.`);
   }
 
-  function exportAssemblyManifest() {
-    if (!transformed || splitParts.length === 0) return;
-    const manifest = {
+  function assemblyManifest() {
+    if (!transformed) throw new Error('No model is loaded.');
+    return {
       model: transformed.name,
       units: 'mm',
       printer: printer.name,
@@ -314,9 +315,52 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
         assemblyOffsetMm: part.assemblyOffsetMm,
       })),
     };
-    const file = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+  }
+
+  function exportAssemblyManifest() {
+    if (!transformed || splitParts.length === 0) return;
+    const json = JSON.stringify(assemblyManifest(), null, 2);
+    const file = new Blob([json], { type: 'application/json' });
     download(file, transformed.name.replace(/[^a-z0-9._-]+/gi, '-') + '-assembly.json');
     setStatus('Exported assembly offsets. Joinery has not been generated.');
+  }
+
+  async function downloadPartPackage() {
+    if (!transformed || splitParts.length === 0 || loading) return;
+    setLoading(true);
+    setStatus('Packaging STLs and assembly guide into one ZIP…');
+    try {
+      const manifest = assemblyManifest();
+      const parts = splitParts.map((part) => {
+        const file = exportBinaryStl(part.mesh, part.mesh.name + '.stl');
+        return { name: file.name, data: file };
+      });
+      const guide = [
+        'PLANS TO PRINT - SPLIT STL PACKAGE',
+        'Model: ' + transformed.name,
+        'Printer: ' + printer.name,
+        'Units: millimetres',
+        '',
+        'Each part STL uses a local origin at its bounding-box minimum.',
+        'Open assembly.json for each part position in the original assembly.',
+        'Import each STL into your slicer and check bed fit, layer preview and orientation.',
+        'THIS PACKAGE DOES NOT CONTAIN PINS, SOCKETS, CLIPS OR OTHER CONNECTORS.',
+        'Unsupported/complex cut geometries are blocked earlier, not silently exported.',
+        '',
+      ].join('\n');
+      const archive = await createStoredZip([
+        ...parts,
+        { name: 'assembly.json', data: JSON.stringify(manifest, null, 2) },
+        { name: 'READ-ME.txt', data: guide },
+      ]);
+      const filename = transformed.name.replace(/[^a-z0-9._-]+/gi, '-') + '-split-parts.zip';
+      download(archive, filename);
+      setStatus('Downloaded ' + splitParts.length + ' STL parts, the assembly manifest and instructions as one ZIP.');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not make the ZIP package.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -526,6 +570,14 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
                           </button>
                         </div>
                       ))}
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void downloadPartPackage()}
+                        className="w-full rounded bg-sky-700 px-2 py-2 text-xs font-semibold hover:bg-sky-600 disabled:opacity-50"
+                      >
+                        Download all ${splitParts.length} parts (.zip)
+                      </button>
                       <button
                         type="button"
                         onClick={exportAssemblyManifest}
