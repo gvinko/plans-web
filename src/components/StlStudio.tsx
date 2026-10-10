@@ -378,9 +378,13 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
 
   function exportModel() {
     if (!transformed) return;
-    const file = exportBinaryStl(transformed, `${transformed.name}-edited.stl`);
-    download(file, file.name);
-    setStatus(`Exported ${file.name}`);
+    try {
+      const file = exportBinaryStl(transformed, `${transformed.name}-edited.stl`);
+      download(file, file.name);
+      setStatus(`Exported ${file.name}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not safely export this STL.');
+    }
   }
 
   async function generatePrintableParts() {
@@ -388,10 +392,13 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     setLoading(true);
     setSplitParts([]);
     setStatus('Generating separate closed STL solids…');
-    // Allow the status to render before the CPU-intensive geometry operation.
+    // Ignore split results if the current model/printer changes during the animation frame.
+    const sourceKey = geometryKeyRef.current;
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
     try {
+      if (geometryKeyRef.current !== sourceKey) return;
       const result = splitMeshForPrinter(transformed, printer);
+      if (geometryKeyRef.current !== sourceKey) return;
       setSplitParts(result.parts);
       setStatus(`${result.parts.length} printable parts created and topology-checked. Download each STL below.`);
     } catch (error) {
@@ -402,9 +409,13 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
   }
 
   function downloadPart(part: PrintablePart) {
-    const file = exportBinaryStl(part.mesh, part.mesh.name + '.stl');
-    download(file, file.name);
-    setStatus(`Exported ${file.name}. Part has no assembly connectors yet.`);
+    try {
+      const file = exportBinaryStl(part.mesh, part.mesh.name + '.stl');
+      download(file, file.name);
+      setStatus(`Exported ${file.name}. Part has no assembly connectors yet.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not safely export this part.');
+    }
   }
 
   function assemblyManifest() {
@@ -496,7 +507,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
             Import STL
           </button>
           <button
-            disabled={!transformed}
+            disabled={!transformed || loading}
             onClick={exportModel}
             className="rounded bg-emerald-700 px-3 py-1.5 text-xs hover:bg-emerald-600 disabled:opacity-40"
           >
@@ -543,13 +554,15 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
             {[...(assets ?? [])].reverse().map((asset) => (
               <div key={asset.id} className={`flex items-center gap-1 rounded border p-1 ${activeAssetId === asset.id ? 'border-sky-700 bg-sky-950/30' : 'border-slate-800 bg-slate-950'}`}>
                 <button
-                  className="min-w-0 flex-1 truncate px-1 py-1 text-left text-xs hover:text-sky-300"
+                  className="min-w-0 flex-1 truncate px-1 py-1 text-left text-xs hover:text-sky-300 disabled:opacity-50"
+                  disabled={loading}
                   onClick={() => void openAsset(asset)}
                 >
                   {asset.name}
                 </button>
                 <button
-                  className="px-1.5 py-1 text-[10px] text-red-400 hover:text-red-300"
+                  className="px-1.5 py-1 text-[10px] text-red-400 hover:text-red-300 disabled:opacity-50"
+                  disabled={loading}
                   onClick={() => {
                     if (!window.confirm(`Delete saved STL "${asset.name}" from this project?`)) return;
                     void (async () => {
@@ -583,26 +596,19 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
                 Z {transformed.bounds.size.z.toFixed(2)} mm
               </div>
 
-              <div className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Scale</div>
+              <div className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Scale (original model axes)</div>
               <div className="mt-2 grid grid-cols-3 gap-2">
                 {(['scaleX', 'scaleY', 'scaleZ'] as const).map((key, index) => (
                   <label key={key} className="text-[10px] text-slate-500">
                     {['X', 'Y', 'Z'][index]}
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="0.05"
-                      value={transform[key]}
-                      onChange={(event) =>
-                        setTransform({ ...transform, [key]: Math.max(0.01, Number(event.target.value) || 0.01) })
-                      }
-                      className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
-                    />
+                    <TransformNumberInput value={transform[key]} min={0.01} disabled={loading}
+                      onCommit={(value) => changeTransform(key, value)} />
                   </label>
                 ))}
               </div>
               <button
-                className="mt-2 w-full rounded bg-slate-800 px-2 py-1.5 text-xs hover:bg-slate-700"
+                disabled={loading}
+                className="mt-2 w-full rounded bg-slate-800 px-2 py-1.5 text-xs hover:bg-slate-700 disabled:opacity-50"
                 onClick={() => {
                   if (!transformed) return;
                   // Respect each X/Y/Z travel limit and the model's CURRENT rotation and scale.
@@ -635,13 +641,8 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
                 {(['rotateXDeg', 'rotateYDeg', 'rotateZDeg'] as const).map((key, index) => (
                   <label key={key} className="text-[10px] text-slate-500">
                     {['X°', 'Y°', 'Z°'][index]}
-                    <input
-                      type="number"
-                      step="1"
-                      value={transform[key]}
-                      onChange={(event) => setTransform({ ...transform, [key]: Number(event.target.value) || 0 })}
-                      className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
-                    />
+                    <TransformNumberInput value={transform[key]} disabled={loading}
+                      onCommit={(value) => changeTransform(key, value)} />
                   </label>
                 ))}
               </div>
