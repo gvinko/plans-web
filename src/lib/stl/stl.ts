@@ -32,6 +32,25 @@ export interface MeshTransform {
   rotateZDeg: number;
 }
 
+// Imported STL data is untrusted. Limits keep corrupted files from exhausting the browser.
+export const MAX_STL_FILE_BYTES = 100 * 1024 * 1024;
+export const MAX_STL_TRIANGLES = 2_000_000;
+const MAX_COORDINATE_MM = 10_000_000;
+
+function assertFiniteVector(v: Vec3, label: string): void {
+  if (![v.x, v.y, v.z].every((value) => Number.isFinite(value) && Math.abs(value) <= MAX_COORDINATE_MM)) {
+    throw new Error(label + ' contains invalid or implausibly large coordinates.');
+  }
+}
+
+export function isValidMeshTransform(value: MeshTransform): boolean {
+  if (!value) return false;
+  return (['scaleX', 'scaleY', 'scaleZ'] as const).every((axis) =>
+    Number.isFinite(value[axis]) && value[axis] > 0 && value[axis] <= 1_000_000)
+    && (['rotateXDeg', 'rotateYDeg', 'rotateZDeg'] as const).every((axis) =>
+      Number.isFinite(value[axis]) && Math.abs(value[axis]) <= 1_000_000);
+}
+
 function emptyBounds(): MeshBounds {
   return {
     min: { x: 0, y: 0, z: 0 },
@@ -48,6 +67,7 @@ export function computeMeshBounds(triangles: StlTriangle[]): MeshBounds {
 
   for (const triangle of triangles) {
     for (const vertex of [triangle.a, triangle.b, triangle.c]) {
+      assertFiniteVector(vertex, 'STL mesh');
       min.x = Math.min(min.x, vertex.x);
       min.y = Math.min(min.y, vertex.y);
       min.z = Math.min(min.z, vertex.z);
@@ -73,7 +93,7 @@ function parseBinaryStl(buffer: ArrayBuffer, name: string): StlMesh {
   const view = new DataView(buffer);
   const count = view.getUint32(80, true);
   const expectedLength = 84 + count * 50;
-  if (count === 0 || expectedLength > buffer.byteLength) {
+  if (count === 0 || count > MAX_STL_TRIANGLES || expectedLength > buffer.byteLength) {
     throw new Error('Binary STL triangle table is invalid or truncated.');
   }
 
@@ -86,6 +106,7 @@ function parseBinaryStl(buffer: ArrayBuffer, name: string): StlMesh {
       z: view.getFloat32(offset + 8, true),
     };
     offset += 12;
+    assertFiniteVector(value, 'Binary STL');
     return value;
   };
 
@@ -111,6 +132,8 @@ function parseAsciiStl(text: string, name: string): StlMesh {
     if (![vertex.x, vertex.y, vertex.z].every(Number.isFinite)) {
       throw new Error('ASCII STL contains an invalid vertex.');
     }
+    if (vertices.length >= MAX_STL_TRIANGLES * 3) throw new Error('STL exceeds the triangle limit.');
+    assertFiniteVector(vertex, 'ASCII STL');
     vertices.push(vertex);
   }
 
@@ -130,6 +153,7 @@ function parseAsciiStl(text: string, name: string): StlMesh {
 }
 
 export async function parseStlFile(file: File): Promise<StlMesh> {
+  if (file.size > MAX_STL_FILE_BYTES) throw new Error('STL is larger than the 100 MB import limit.');
   const buffer = await file.arrayBuffer();
   const name = file.name.replace(/\.stl$/i, '') || 'Imported STL';
 
@@ -137,6 +161,7 @@ export async function parseStlFile(file: File): Promise<StlMesh> {
     const view = new DataView(buffer);
     const count = view.getUint32(80, true);
     const expectedLength = 84 + count * 50;
+    if (count > MAX_STL_TRIANGLES) throw new Error('STL exceeds the 2 million triangle limit.');
     if (count > 0 && expectedLength === buffer.byteLength) {
       return parseBinaryStl(buffer, name);
     }
@@ -180,6 +205,7 @@ function rotatePoint(point: Vec3, transform: MeshTransform): Vec3 {
 }
 
 export function transformMesh(mesh: StlMesh, transform: MeshTransform): StlMesh {
+  if (!isValidMeshTransform(transform)) throw new Error('STL transform contains invalid scale or rotation values.');
   const triangles = mesh.triangles.map((triangle) => {
     const a = rotatePoint(triangle.a, transform);
     const b = rotatePoint(triangle.b, transform);
@@ -210,6 +236,15 @@ function calculateNormal(a: Vec3, b: Vec3, c: Vec3): Vec3 {
 }
 
 export function exportBinaryStl(mesh: StlMesh, filename = mesh.name): File {
+  if (mesh.triangles.length === 0 || mesh.triangles.length > MAX_STL_TRIANGLES) {
+    throw new Error('STL has an invalid number of triangles for export.');
+  }
+  // Always verify actual vertices (not just potentially stale cached bounds).
+  const bounds = computeMeshBounds(mesh.triangles);
+  for (const value of Object.values(bounds.size)) {
+    if (!Number.isFinite(value)) throw new Error('Cannot export an STL with invalid mesh bounds.');
+  }
+  for (const face of mesh.triangles) assertFiniteVector(face.normal, 'STL normal');
   const buffer = new ArrayBuffer(84 + mesh.triangles.length * 50);
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
