@@ -123,7 +123,10 @@ function sectionsToLoop(segments: Array<[Vec3, Vec3]>, eps: number): Vec3[] {
   for (const [a, b] of segments) {
     const ka = key(a, eps);
     const kb = key(b, eps);
-    if (ka === kb) throw new Error('Cut generated a collapsed boundary segment.');
+    // Thin triangle slivers can yield two intersections quantised to the same
+    // contour point. They contribute zero contour length; drop those edges,
+    // then require a complete degree-two loop and watertight output below.
+    if (ka === kb) continue;
     if (!nodes.has(ka)) nodes.set(ka, { p: vec(a), edges: new Set() });
     if (!nodes.has(kb)) nodes.set(kb, { p: vec(b), edges: new Set() });
     const na = nodes.get(ka)!;
