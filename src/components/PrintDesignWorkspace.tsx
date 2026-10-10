@@ -14,7 +14,7 @@ import { BUILT_IN_PRINTER_PROFILES, type PrinterProfile } from '../lib/printers/
 import { createSplitPlan } from '../lib/printers/splitPlanner';
 import { createBoxMesh, createCylinderMesh, createRectangularFrameMesh, createTubeMesh } from '../lib/geometry/primitives';
 import { exportBinaryStl } from '../lib/stl/stl';
-import { loadCustomPrinterProfiles, saveCustomPrinterProfiles } from '../lib/printers/customProfiles';
+import { loadCustomPrinterProfiles, saveCustomPrinterProfiles, loadSelectedPrinterId, saveSelectedPrinterId } from '../lib/printers/customProfiles';
 import { useAppStore } from '../store/appStore';
 import CalibrationModal from './CalibrationModal';
 import StlStudio from './StlStudio';
@@ -57,7 +57,7 @@ export default function PrintDesignWorkspace() {
   const [pendingCalibration, setPendingCalibration] = useState<{ p1: CalibrationPoint; p2: CalibrationPoint } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [customPrinters, setCustomPrinters] = useState<PrinterProfile[]>(() => loadCustomPrinterProfiles());
-  const [selectedPrinterId, setSelectedPrinterId] = useState(BUILT_IN_PRINTER_PROFILES[0].id);
+  const [selectedPrinterId, setSelectedPrinterId] = useState(() => loadSelectedPrinterId([...BUILT_IN_PRINTER_PROFILES, ...customPrinters]));
   const [modelDepthMm, setModelDepthMm] = useState(20);
   const [rectCutoutWidthMm, setRectCutoutWidthMm] = useState(0);
   const [rectCutoutHeightMm, setRectCutoutHeightMm] = useState(0);
@@ -83,6 +83,13 @@ export default function PrintDesignWorkspace() {
     () => (activePlanPageId ? db.planPages.get(activePlanPageId) : undefined),
     [activePlanPageId],
   );
+
+  useEffect(() => { saveSelectedPrinterId(selectedPrinterId); }, [selectedPrinterId]);
+  useEffect(() => {
+    if (![...BUILT_IN_PRINTER_PROFILES, ...customPrinters].some((profile) => profile.id === selectedPrinterId)) {
+      setSelectedPrinterId(BUILT_IN_PRINTER_PROFILES[0].id);
+    }
+  }, [customPrinters, selectedPrinterId]);
 
   const allPrinters = [...BUILT_IN_PRINTER_PROFILES, ...customPrinters];
   const selectedPrinter: PrinterProfile =
@@ -589,7 +596,7 @@ export default function PrintDesignWorkspace() {
               <br />
               Nozzle: {selectedPrinter.nozzleDiameterMm} mm
               <br />
-              Fit clearance: {selectedPrinter.defaultFitClearanceMm} mm
+              Join clearance (future connectors): {selectedPrinter.defaultFitClearanceMm} mm — not applied to plain split parts
             </div>
             <button
               className="mt-2 w-full rounded bg-slate-800 px-2 py-2 text-left text-xs hover:bg-slate-700"
@@ -632,7 +639,11 @@ export default function PrintDesignWorkspace() {
                       setMessage('Enter a printer name.');
                       return;
                     }
-                    const profile: PrinterProfile = {
+                    if (![newPrinter.x, newPrinter.y, newPrinter.z, newPrinter.nozzle].every((value) => Number.isFinite(value) && value > 0) || !Number.isFinite(newPrinter.clearance) || newPrinter.clearance < 0) {
+                       setMessage('Enter valid positive printer dimensions and nozzle size.');
+                       return;
+                     }
+                     const profile: PrinterProfile = {
                       id: `custom-${Date.now()}`,
                       name,
                       manufacturer: 'Custom',
@@ -751,7 +762,7 @@ export default function PrintDesignWorkspace() {
           <div className="mt-6 border-t border-slate-800 pt-4">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">3D / STL</div>
             <p className="mt-2 text-xs text-slate-500">
-              Real 3D geometry, STL import/export and physical split/join generation remain disabled until the geometry engine is connected and validated.
+              STL Studio supports STL import/export and capped-solid splitting for supported meshes. Pins, sockets and dovetails are not yet generated.
             </p>
           </div>
         </aside>
