@@ -192,15 +192,20 @@ function cap(loop: Vec3[], axis: Axis, outwardPositive: boolean, eps: number): S
   // A boundary fan avoids creating the exact-centre cap vertex that obstructs a
   // later orthogonal split. If any triangles collapse due to collinear contour
   // vertices, retain every boundary segment using a deliberately off-centre fan.
-  try {
-    const anchored: StlTriangle[] = [];
-    for (let i = 1; i + 1 < loop.length; i++) {
-      const a = loop[0], b = loop[i], c = loop[i + 1];
-      anchored.push(forward ? triangle(a, b, c) : triangle(a, c, b));
+  // Boundary fans are useful on densely tessellated curved contours. On a
+  // low-segment polygon they can put diagonals through later orthogonal cut
+  // planes; use the off-centre interior fan for those cross sections instead.
+  if (loop.length > 20) {
+    try {
+      const anchored: StlTriangle[] = [];
+      for (let i = 1; i + 1 < loop.length; i++) {
+        const a = loop[0], b = loop[i], c = loop[i + 1];
+        anchored.push(forward ? triangle(a, b, c) : triangle(a, c, b));
+      }
+      return anchored;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('zero-area')) throw error;
     }
-    return anchored;
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('zero-area')) throw error;
   }
   const centroid = loop.reduce(
     (total, p) => ({ x: total.x + p.x / loop.length, y: total.y + p.y / loop.length, z: total.z + p.z / loop.length }),
