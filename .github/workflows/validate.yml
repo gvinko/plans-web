@@ -2,9 +2,9 @@ name: Validate Plans to Print
 
 on:
   push:
-    branches: [main]
+    branches: [main, plans-to-print-rebuild]
   pull_request:
-    branches: [main]
+    branches: [main, plans-to-print-rebuild]
   workflow_dispatch:
 
 jobs:
@@ -20,3 +20,5 @@ jobs:
       - run: npm run test:geometry
       - run: npm run test:zip
       - run: npm run build
+      - name: Check Plans to Print PWA manifest
+        run: node -e "const m=JSON.parse(require('node:fs').readFileSync('dist/manifest.webmanifest','utf8')); if(m.name!=='Plans to Print — 2D/3D Print Design Studio'){console.error('Wrong PWA manifest name:', m.name);process.exit(1)}"
