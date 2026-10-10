@@ -5,6 +5,7 @@ import { createStlAsset, deleteStlAsset, updateStlAssetTransform } from '../db/r
 import type { StlAsset } from '../db/schema';
 import type { PrinterProfile } from '../lib/printers/profiles';
 import { createSplitPlan } from '../lib/printers/splitPlanner';
+import { stlSplitSourceKey } from '../lib/printers/splitSourceKey';
 import { splitMeshForPrinter, type PrintablePart } from '../lib/printers/meshSplitter';
 import { createStoredZip } from '../lib/export/zip';
 import {
@@ -95,7 +96,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
   const [splitParts, setSplitParts] = useState<PrintablePart[]>([]);
   const activeAssetIdRef = useRef(activeAssetId);
   activeAssetIdRef.current = activeAssetId;
-  const geometryKey = JSON.stringify([activeAssetId, transform, printer.id, printer.buildVolumeMm]);
+  const geometryKey = stlSplitSourceKey(activeAssetId, transform, printer);
   const geometryKeyRef = useRef(geometryKey);
   geometryKeyRef.current = geometryKey;
   const assets = useLiveQuery(
