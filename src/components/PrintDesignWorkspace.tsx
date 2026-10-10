@@ -63,6 +63,7 @@ export default function PrintDesignWorkspace() {
   const [rectCutoutHeightMm, setRectCutoutHeightMm] = useState(0);
   const [circleHoleDiameterMm, setCircleHoleDiameterMm] = useState(0);
   const [showAddPrinter, setShowAddPrinter] = useState(false);
+  const [editingPrinterId, setEditingPrinterId] = useState<string | null>(null);
   const [showStlStudio, setShowStlStudio] = useState(false);
   const [showPhotoRelief, setShowPhotoRelief] = useState(false);
   const [showWallArt, setShowWallArt] = useState(false);
@@ -598,12 +599,45 @@ export default function PrintDesignWorkspace() {
               <br />
               Join clearance (future connectors): {selectedPrinter.defaultFitClearanceMm} mm — not applied to plain split parts
             </div>
-            <button
-              className="mt-2 w-full rounded bg-slate-800 px-2 py-2 text-left text-xs hover:bg-slate-700"
-              onClick={() => setShowAddPrinter((value) => !value)}
-            >
-              + Add printer
-            </button>
+            <div className="mt-2 flex flex-wrap gap-1">
+              <button className="rounded bg-slate-800 px-2 py-2 text-xs hover:bg-slate-700"
+                onClick={() => {
+                  setEditingPrinterId(null);
+                  setNewPrinter({ name: '', x: 220, y: 220, z: 250, nozzle: 0.4, clearance: 0.25 });
+                  setShowAddPrinter(true);
+                }}>+ Add printer</button>
+              {selectedPrinterId.startsWith('custom-') && (
+                <>
+                  <button className="rounded bg-slate-800 px-2 py-2 text-xs hover:bg-slate-700"
+                    onClick={() => {
+                      setEditingPrinterId(selectedPrinterId);
+                      setNewPrinter({
+                        name: selectedPrinter.name,
+                        x: selectedPrinter.buildVolumeMm.x,
+                        y: selectedPrinter.buildVolumeMm.y,
+                        z: selectedPrinter.buildVolumeMm.z,
+                        nozzle: selectedPrinter.nozzleDiameterMm,
+                        clearance: selectedPrinter.defaultFitClearanceMm,
+                      });
+                      setShowAddPrinter(true);
+                    }}>Edit</button>
+                  <button className="rounded bg-red-950 px-2 py-2 text-xs text-red-200 hover:bg-red-900"
+                    onClick={() => {
+                      if (!window.confirm(`Delete printer "${selectedPrinter.name}"?`)) return;
+                      const next = customPrinters.filter((profile) => profile.id !== selectedPrinterId);
+                      try {
+                        saveCustomPrinterProfiles(next);
+                        setCustomPrinters(next);
+                        setSelectedPrinterId(BUILT_IN_PRINTER_PROFILES[0].id);
+                        setShowAddPrinter(false);
+                        setEditingPrinterId(null);
+                      } catch (error) {
+                        setMessage(error instanceof Error ? error.message : 'Could not delete printer profile.');
+                      }
+                    }}>Delete</button>
+                </>
+              )}
+            </div>
             {showAddPrinter && (
               <div className="mt-2 grid grid-cols-2 gap-2 rounded border border-slate-700 bg-slate-950 p-2 text-[11px]">
                 <input
@@ -644,7 +678,7 @@ export default function PrintDesignWorkspace() {
                        return;
                      }
                      const profile: PrinterProfile = {
-                      id: `custom-${Date.now()}`,
+                      id: editingPrinterId ?? `custom-${Date.now()}`,
                       name,
                       manufacturer: 'Custom',
                       buildVolumeMm: {
@@ -655,19 +689,22 @@ export default function PrintDesignWorkspace() {
                       nozzleDiameterMm: Math.max(0.1, newPrinter.nozzle),
                       defaultFitClearanceMm: Math.max(0, newPrinter.clearance),
                     };
-                    const next = [...customPrinters, profile];
+                    const next = editingPrinterId
+                       ? customPrinters.map((saved) => saved.id === editingPrinterId ? profile : saved)
+                       : [...customPrinters, profile];
                     try {
                       saveCustomPrinterProfiles(next);
                       setCustomPrinters(next);
                       setSelectedPrinterId(profile.id);
                       setShowAddPrinter(false);
+                       setEditingPrinterId(null);
                       setNewPrinter({ name: '', x: 220, y: 220, z: 250, nozzle: 0.4, clearance: 0.25 });
                     } catch (error) {
                       setMessage(error instanceof Error ? error.message : 'Could not save printer profile.');
                     }
                   }}
                 >
-                  Save printer
+                  {editingPrinterId ? 'Update printer' : 'Save printer'}
                 </button>
               </div>
             )}
