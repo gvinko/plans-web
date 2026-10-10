@@ -45,6 +45,7 @@ export class CanvasEngine {
   private sketchImageObj: FabricImage | null = null;
   private backgroundImageObj: FabricImage | null = null;
   private undoStack: Array<{ type: 'add' | 'delete'; objects: FabricObject[] }> = [];
+  private redoStack: Array<{ type: 'add' | 'delete'; objects: FabricObject[] }> = [];
   private clipboardObject: FabricObject | null = null;
 
   constructor(el: HTMLCanvasElement, opts: CanvasEngineOptions) {
@@ -186,6 +187,7 @@ export class CanvasEngine {
       }
       this.canvas.requestRenderAll();
       this.undoStack = [];
+      this.redoStack = [];
     });
   }
 
@@ -197,6 +199,7 @@ export class CanvasEngine {
     const real = objects.filter(Boolean);
     if (real.length === 0) return;
     this.undoStack.push({ type: 'add', objects: real });
+    this.redoStack = [];
     if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
   }
 
@@ -205,6 +208,7 @@ export class CanvasEngine {
     const active = [...this.canvas.getActiveObjects()];
     if (!active.length) return;
     this.undoStack.push({ type: 'delete', objects: active });
+    this.redoStack = [];
     if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
     active.forEach((o) => this.canvas.remove(o));
     this.canvas.discardActiveObject();
@@ -217,9 +221,26 @@ export class CanvasEngine {
     if (action) {
       if (action.type === 'add') action.objects.forEach((o) => this.canvas.remove(o));
       else action.objects.forEach((o) => this.canvas.add(o));
+      this.redoStack.push(action);
       this.canvas.discardActiveObject();
       this.canvas.requestRenderAll();
     }
+  }
+
+  /** Redo the last undone add/delete operation; transform history is not supported yet. */
+  redo(): void {
+    const action = this.redoStack.pop();
+    if (!action) return;
+    if (action.type === 'add') action.objects.forEach((o) => this.canvas.add(o));
+    else action.objects.forEach((o) => this.canvas.remove(o));
+    this.undoStack.push(action);
+    if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift();
+    this.canvas.discardActiveObject();
+    this.canvas.requestRenderAll();
+  }
+
+  canRedo(): boolean {
+    return this.redoStack.length > 0;
   }
 
   canUndo(): boolean {
@@ -432,7 +453,14 @@ export class CanvasEngine {
     }
 
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-      this.undo();
+      if (e.shiftKey) this.redo();
+      else this.undo();
+      e.preventDefault();
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      this.redo();
       e.preventDefault();
       return;
     }

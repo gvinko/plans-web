@@ -62,11 +62,13 @@ export function buildDuctedIndoorUnit(type: 'Standard Ducted' | 'Slimline' | 'Bu
   return group;
 }
 
-export function buildFanCoilUnit(_style: IconStyle = DEFAULT_STYLE): Group {
+export function buildFanCoilUnit(style: IconStyle = DEFAULT_STYLE): Group {
+  void style;
   return buildDuctedIndoorUnit('Standard Ducted', 'Generic', 'FCU');
 }
 
-export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, _style: IconStyle = DEFAULT_STYLE): Group {
+export function buildPlenum(kind: 'supply' | 'return', branchCount = 3, style: IconStyle = DEFAULT_STYLE): Group {
+  void style;
   const stroke = '#334155';
   const fill = '#f8fafc';
 

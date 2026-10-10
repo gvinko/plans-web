@@ -129,7 +129,7 @@ export interface CostItem {
   isManualOverride: boolean;
 }
 
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 /**
  * Phase 5, Feature 1 — rows imported from a user-supplied Excel/CSV price book.
@@ -170,4 +170,23 @@ export interface AppSettings {
   logoImage: Blob | null;
   logoWidthPx: number;
   logoHeightPx: number;
+}
+
+
+/** Plans to Print STL asset persisted against a project. Raw STL bytes are kept so edits can be reopened offline. */
+export interface StlAsset {
+  id: string;
+  projectId: string;
+  name: string;
+  sourceFile: Blob;
+  transform: {
+    scaleX: number;
+    scaleY: number;
+    scaleZ: number;
+    rotateXDeg: number;
+    rotateYDeg: number;
+    rotateZDeg: number;
+  };
+  createdAt: number;
+  updatedAt: number;
 }

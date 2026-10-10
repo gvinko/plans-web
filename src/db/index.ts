@@ -10,9 +10,10 @@ import type {
   ImportedCatalogItem,
   Zone,
   AppSettings,
+  StlAsset,
 } from './schema';
 
-class PlandroidDB extends Dexie {
+class PlansToPrintDB extends Dexie {
   projects!: EntityTable<Project, 'id'>;
   planPages!: EntityTable<PlanPage, 'id'>;
   ductRuns!: EntityTable<DuctRun, 'id'>;
@@ -25,8 +26,10 @@ class PlandroidDB extends Dexie {
   fittingsCatalog!: EntityTable<ImportedCatalogItem, 'id'>;
   zones!: EntityTable<Zone, 'id'>;
   appSettings!: EntityTable<AppSettings, 'id'>;
+  stlAssets!: EntityTable<StlAsset, 'id'>;
 
   constructor() {
+    // Keep the legacy database name so existing local projects survive the product separation.
     super('plandroid_web');
 
     this.version(1).stores({
@@ -69,7 +72,24 @@ class PlandroidDB extends Dexie {
       zones: 'id, projectId',
       appSettings: 'id',
     });
+
+    // v4: Plans to Print STL assets. Every prior store is retained so existing local data is not destroyed.
+    this.version(4).stores({
+      projects: 'id, name, updatedAt',
+      planPages: 'id, projectId, order',
+      ductRuns: 'id, planPageId, zoneName',
+      fittings: 'id, planPageId, type',
+      terminals: 'id, planPageId, zoneName',
+      equipment: 'id, planPageId, kind',
+      costItems: 'id, projectId, category',
+      equipmentCatalog: 'id, category, itemName',
+      ductworkCatalog: 'id, category, itemName',
+      fittingsCatalog: 'id, category, itemName',
+      zones: 'id, projectId',
+      appSettings: 'id',
+      stlAssets: 'id, projectId, updatedAt',
+    });
   }
 }
 
-export const db = new PlandroidDB();
+export const db = new PlansToPrintDB();

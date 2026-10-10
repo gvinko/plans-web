@@ -14,9 +14,9 @@ export default defineConfig({
       devOptions: { enabled: false },
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
-        name: 'Plandroid Web — HVAC Duct Design & Takeoff',
-        short_name: 'Plandroid',
-        description: 'Offline-first HVAC duct design, takeoff, and quoting tool',
+        name: 'Plans to Print — 2D/3D Print Design Studio',
+        short_name: 'Plans to Print',
+        description: 'Offline-first 2D/3D design studio for creating printable parts',
         start_url: '.',
         display: 'standalone',
         background_color: '#0f172a',

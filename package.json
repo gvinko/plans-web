@@ -1,32 +1,39 @@
 {
-  "name": "plandroid-web",
+  "name": "plans-to-print",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx"
+    "lint": "eslint . --ext ts,tsx",
+    "test:geometry": "node scripts/mesh-split-tests.mjs",
+    "test:zip": "node scripts/zip-export-tests.mjs"
   },
   "dependencies": {
     "dexie": "^4.0.10",
     "dexie-react-hooks": "^1.1.7",
     "fabric": "^6.5.1",
     "jspdf": "^2.5.2",
+    "nanoid": "^5.0.9",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.7.76",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zustand": "^5.0.1",
-    "nanoid": "^5.0.9",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zustand": "^5.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.26",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",

@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
 import { db } from './index';
-import type { Project, PlanPage } from './schema';
+import type { Project, PlanPage, StlAsset } from './schema';
+import { isValidMeshTransform, MAX_STL_FILE_BYTES } from '../lib/stl/stl';
 
 export async function createProject(name: string, designer = ''): Promise<Project> {
   const now = Date.now();
@@ -113,18 +114,126 @@ export async function setSketchOpacity(planPageId: string, opacity: number): Pro
 export async function deleteProjectCascade(projectId: string): Promise<void> {
   await db.transaction(
     'rw',
-    [db.projects, db.planPages, db.ductRuns, db.fittings, db.terminals, db.equipment, db.costItems, db.zones],
+    [db.projects, db.planPages, db.ductRuns, db.fittings, db.terminals, db.equipment, db.costItems, db.zones, db.stlAssets],
     async () => {
       const pages = await db.planPages.where({ projectId }).toArray();
       const pageIds = pages.map((p) => p.id);
-      await db.ductRuns.where('planPageId').anyOf(pageIds).delete();
-      await db.fittings.where('planPageId').anyOf(pageIds).delete();
-      await db.terminals.where('planPageId').anyOf(pageIds).delete();
-      await db.equipment.where('planPageId').anyOf(pageIds).delete();
+      // A newly created project may not have a page yet. Avoid anyOf([]) in that case.
+      if (pageIds.length > 0) {
+        await db.ductRuns.where('planPageId').anyOf(pageIds).delete();
+        await db.fittings.where('planPageId').anyOf(pageIds).delete();
+        await db.terminals.where('planPageId').anyOf(pageIds).delete();
+        await db.equipment.where('planPageId').anyOf(pageIds).delete();
+      }
       await db.costItems.where({ projectId }).delete();
       await db.zones.where({ projectId }).delete();
+      await db.stlAssets.where({ projectId }).delete();
       await db.planPages.where({ projectId }).delete();
       await db.projects.delete(projectId);
     },
   );
+}
+
+
+export async function createStlAsset(projectId: string, file: File): Promise<StlAsset> {
+  if (file.size > MAX_STL_FILE_BYTES) throw new Error('STL exceeds the 100 MB storage limit.');
+  const now = Date.now();
+  const asset: StlAsset = {
+    id: nanoid(),
+    projectId,
+    name: file.name.replace(/\.stl$/i, '') || 'Imported STL',
+    sourceFile: file,
+    transform: {
+      scaleX: 1,
+      scaleY: 1,
+      scaleZ: 1,
+      rotateXDeg: 0,
+      rotateYDeg: 0,
+      rotateZDeg: 0,
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.stlAssets.add(asset);
+  await touchProject(projectId);
+  return asset;
+}
+
+export async function updateStlAssetTransform(
+  id: string,
+  transform: StlAsset['transform'],
+): Promise<void> {
+  if (!isValidMeshTransform(transform)) throw new Error('Invalid STL scale or rotation: edits not saved.');
+  const asset = await db.stlAssets.get(id);
+  if (!asset) throw new Error('The STL asset no longer exists.');
+  if (Object.keys(transform).every((key) => transform[key as keyof typeof transform] === asset.transform[key as keyof typeof transform])) return;
+  const updated = await db.stlAssets.update(id, { transform, updatedAt: Date.now() });
+  if (updated !== 1) throw new Error('Could not save STL transform.');
+  await touchProject(asset.projectId);
+}
+
+export async function deleteStlAsset(id: string): Promise<void> {
+  const asset = await db.stlAssets.get(id);
+  await db.stlAssets.delete(id);
+  if (asset) await touchProject(asset.projectId);
+}
+
+
+export async function renameProject(projectId: string, name: string): Promise<void> {
+  const nextName = name.trim();
+  if (!nextName) throw new Error('Project name cannot be empty.');
+  const updated = await db.projects.update(projectId, { name: nextName, updatedAt: Date.now() });
+  if (updated !== 1) throw new Error('Project no longer exists.');
+}
+
+export async function duplicateProject(projectId: string): Promise<Project> {
+  const source = await db.projects.get(projectId);
+  if (!source) throw new Error('Project no longer exists.');
+
+  const now = Date.now();
+  const copy: Project = {
+    ...source,
+    id: nanoid(),
+    name: `${source.name} — Copy`,
+    createdAt: now,
+    updatedAt: now,
+    revision: 'A',
+    ductColorOverrides: { ...source.ductColorOverrides },
+  };
+
+  await db.transaction('rw', [db.projects, db.planPages, db.stlAssets], async () => {
+    await db.projects.add(copy);
+
+    const pages = await db.planPages.where({ projectId }).sortBy('order');
+    for (const page of pages) {
+      await db.planPages.add({
+        ...page,
+        id: nanoid(),
+        projectId: copy.id,
+        scale: {
+          ...page.scale,
+          referencePoints: page.scale.referencePoints
+            ? [
+                { ...page.scale.referencePoints[0] },
+                { ...page.scale.referencePoints[1] },
+              ]
+            : null,
+        },
+      });
+    }
+
+    const assets = await db.stlAssets.where({ projectId }).toArray();
+    for (const asset of assets) {
+      await db.stlAssets.add({
+        ...asset,
+        id: nanoid(),
+        projectId: copy.id,
+        transform: { ...asset.transform },
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  });
+
+  return copy;
 }
