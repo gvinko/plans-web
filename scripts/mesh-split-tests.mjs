@@ -32,6 +32,8 @@ function loadTypescript(filename) {
 const { computeMeshBounds, exportBinaryStl, parseStlFile, transformMesh, isValidMeshTransform, MAX_STL_FILE_BYTES } = loadTypescript('src/lib/stl/stl.ts');
 const { cutWatertightMesh, splitMeshForPrinter, validateWatertightMesh } =
   loadTypescript('src/lib/printers/meshSplitter.ts');
+const { stlSplitSourceKey } = loadTypescript('src/lib/printers/splitSourceKey.ts');
+const { isValidProfile, saveSelectedPrinterId, loadSelectedPrinterId } = loadTypescript('src/lib/printers/customProfiles.ts');
 const printer = {
   id: 'test-ender-3',
   name: 'Ender 3',
@@ -87,6 +89,33 @@ function test(name, action) {
   }
 }
 
+test('split-source key invalidates changed transform or printer', () => {
+  const saved = { scaleX: 1, scaleY: 1, scaleZ: 1, rotateXDeg: 0, rotateYDeg: 0, rotateZDeg: 0 };
+  const first = stlSplitSourceKey('asset-1', saved, printer);
+  assert.equal(first, stlSplitSourceKey('asset-1', { ...saved }, { ...printer }));
+  assert.notEqual(first, stlSplitSourceKey('asset-1', { ...saved, rotateZDeg: 30 }, printer));
+  assert.notEqual(first, stlSplitSourceKey('asset-2', saved, printer));
+  assert.notEqual(first, stlSplitSourceKey('asset-1', saved, { ...printer, buildVolumeMm: { ...printer.buildVolumeMm, x: 200 } }));
+});
+test('custom printer dimensions must be positive finite values', () => {
+  assert.equal(isValidProfile(printer), true);
+  assert.equal(isValidProfile({ ...printer, buildVolumeMm: { ...printer.buildVolumeMm, x: -10 } }), false);
+  assert.equal(isValidProfile({ ...printer, buildVolumeMm: { ...printer.buildVolumeMm, x: NaN } }), false);
+  assert.equal(isValidProfile({ ...printer, nozzleDiameterMm: 0 }), false);
+});
+test('selected printer survives reopen and safely falls back when deleted', () => {
+  const original = globalThis.localStorage;
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  try {
+    saveSelectedPrinterId('custom-printer');
+    assert.equal(loadSelectedPrinterId([printer, { ...printer, id: 'custom-printer' }]), 'custom-printer');
+    assert.equal(loadSelectedPrinterId([printer]), printer.id);
+  } finally {
+    if (original === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = original;
+  }
+});
 test('input cube is watertight', () => validateWatertightMesh(cube(300, 100, 25)));
 test('inside-out solid reports meaningful error', () => {
   const bad = cube(300, 100, 25);
