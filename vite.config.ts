@@ -31,7 +31,7 @@ export default defineConfig({
       workbox: {
         // App shell + all built assets precached. No network calls ever attempted —
         // this is a pure cache-first offline app, not a stale-while-revalidate one.
-        globPatterns: ['**/*.{js,mjs,css,html,svg,png,ico,woff2}'],
+        globPatterns: ['**/*.{js,mjs,wasm,css,html,svg,png,ico,woff2}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
