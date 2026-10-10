@@ -125,14 +125,24 @@ Production is not updated from the rebuild branch until the preview has passed u
 These capabilities are intentionally **not** presented as finished:
 
 - Unrestricted arbitrary-mesh cutting (concave boundaries, cut surfaces with holes, and multiple disconnected section loops). This release deliberately fails closed on unsupported shapes; it does not export invalid partial STLs.
-- Generated alignment pins, sockets, dovetails, clips, tabs/slots and keys.
-- General boolean CSG for arbitrary imported STL geometry.
+- Removable clip-fit joins. The joining panel keeps this mode unavailable until it can export and validate the separate clip geometry.
+- General boolean CSG beyond the guarded split-boundary join workflow.
 - Full solid modelling / constraint solving.
 - Arbitrary text/path extrusion to 3D solids.
 - Transform/edit history across every modification type (basic add/delete undo/redo is present).
 - Final device/browser acceptance testing, and slicer/physical-print verification of new split parts.
 
-Dimensional split planning exists now; actual mesh cutting/join creation must not be represented as complete until the resulting solids are validated for printability.
+Dimensional split planning and guarded mesh cutting are implemented. On supported closed meshes, the app validates generated split solids and can add complementary dovetail-plus-pin or pins-only geometry. Every output still needs slicer and physical-fit validation on the target printer.
+
+## Release acceptance checklist
+
+Before publishing the rebuild branch, validate one oversized closed STL in the browser and slicer:
+
+1. Select the correct printer profile, import the STL, and create the split parts.
+2. Generate a dovetail-plus-pin plan, download the ZIP, and confirm the manifest records the joining mode and clearance.
+3. Reopen the saved STL and confirm the joining geometry is restored; change the clearance and confirm it must be regenerated before export.
+4. Repeat with Pins only, then inspect all exported parts in a slicer for bed fit, layers and wall integrity.
+5. Print one mating boundary on the target printer before relying on the join for a full-size model.
 
 ## Product direction
 
