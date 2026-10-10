@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
 import { db } from './index';
 import type { Project, PlanPage, StlAsset } from './schema';
+import { isValidMeshTransform, MAX_STL_FILE_BYTES } from '../lib/stl/stl';
 
 export async function createProject(name: string, designer = ''): Promise<Project> {
   const now = Date.now();
@@ -135,6 +136,7 @@ export async function deleteProjectCascade(projectId: string): Promise<void> {
 
 
 export async function createStlAsset(projectId: string, file: File): Promise<StlAsset> {
+  if (file.size > MAX_STL_FILE_BYTES) throw new Error('STL exceeds the 100 MB storage limit.');
   const now = Date.now();
   const asset: StlAsset = {
     id: nanoid(),
@@ -161,8 +163,10 @@ export async function updateStlAssetTransform(
   id: string,
   transform: StlAsset['transform'],
 ): Promise<void> {
+  if (!isValidMeshTransform(transform)) throw new Error('Invalid STL scale or rotation: edits not saved.');
   const asset = await db.stlAssets.get(id);
   if (!asset) throw new Error('The STL asset no longer exists.');
+  if (Object.keys(transform).every((key) => transform[key as keyof typeof transform] === asset.transform[key as keyof typeof transform])) return;
   const updated = await db.stlAssets.update(id, { transform, updatedAt: Date.now() });
   if (updated !== 1) throw new Error('Could not save STL transform.');
   await touchProject(asset.projectId);
