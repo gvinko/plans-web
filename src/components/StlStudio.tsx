@@ -9,6 +9,7 @@ import { splitMeshForPrinter, type PrintablePart } from '../lib/printers/meshSpl
 import { createStoredZip } from '../lib/export/zip';
 import {
   exportBinaryStl,
+  isValidMeshTransform,
   parseStlFile,
   transformMesh,
   type MeshTransform,
@@ -30,6 +31,33 @@ const DEFAULT_TRANSFORM: MeshTransform = {
   rotateYDeg: 0,
   rotateZDeg: 0,
 };
+
+interface TransformNumberInputProps {
+  value: number;
+  min?: number;
+  disabled?: boolean;
+  onCommit: (value: number) => void;
+}
+function TransformNumberInput({ value, min, disabled, onCommit }: TransformNumberInputProps) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const trimmed = draft.trim();
+    const parsed = Number(trimmed);
+    if (trimmed && Number.isFinite(parsed) && Math.abs(parsed) <= 1_000_000 && (min === undefined || parsed >= min)) {
+      onCommit(parsed);
+    } else {
+      setDraft(String(value));
+    }
+  };
+  return <input
+    type="text" inputMode="decimal" disabled={disabled} value={draft}
+    onChange={(event) => setDraft(event.target.value)}
+    onBlur={commit}
+    onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 disabled:opacity-50"
+  />;
+}
 
 function rotateForView(point: Vec3, pitchDeg: number, yawDeg: number): Vec3 {
   let { x, y, z } = point;
@@ -55,6 +83,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
   const pendingTransformRef = useRef<{ assetId: string; value: MeshTransform } | null>(null);
   // All writes are serialized to prevent stale edits overwriting newer ones.
   const transformWritesRef = useRef<Promise<void>>(Promise.resolve());
+  const outstandingWritesRef = useRef(0);
 
   const [mesh, setMesh] = useState<StlMesh | null>(null);
   const [transform, setTransform] = useState<MeshTransform>(DEFAULT_TRANSFORM);
@@ -66,6 +95,9 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
   const [splitParts, setSplitParts] = useState<PrintablePart[]>([]);
   const activeAssetIdRef = useRef(activeAssetId);
   activeAssetIdRef.current = activeAssetId;
+  const geometryKey = JSON.stringify([activeAssetId, transform, printer.id, printer.buildVolumeMm]);
+  const geometryKeyRef = useRef(geometryKey);
+  geometryKeyRef.current = geometryKey;
   const assets = useLiveQuery(
     () => db.stlAssets.where({ projectId }).sortBy('updatedAt'),
     [projectId],
@@ -206,6 +238,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
       await flushPendingTransform();
       const file = new File([asset.sourceFile], `${asset.name}.stl`, { type: 'model/stl' });
       const parsed = await parseStlFile(file);
+      if (!isValidMeshTransform(asset.transform)) throw new Error('Saved STL transform is invalid. Restore or re-import this model.');
       setActiveAssetId(asset.id);
       setMesh(parsed);
       setTransform(asset.transform);
@@ -230,9 +263,15 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
       return;
     }
     pendingTransformRef.current = null;
+    outstandingWritesRef.current += 1;
     const nextWrite = transformWritesRef.current
       .catch(() => undefined)
-      .then(() => updateStlAssetTransform(pending.assetId, pending.value));
+      .then(() => updateStlAssetTransform(pending.assetId, pending.value))
+      .catch((error) => {
+        if (!pendingTransformRef.current) pendingTransformRef.current = pending;
+        throw error;
+      })
+      .finally(() => { outstandingWritesRef.current -= 1; });
     transformWritesRef.current = nextWrite;
     await nextWrite;
   }
@@ -256,6 +295,17 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     };
   }, [activeAssetId, mesh, transform]);
 
+  useEffect(() => {
+    const warnIfUnsaved = (event: BeforeUnloadEvent) => {
+      if (pendingTransformRef.current || outstandingWritesRef.current > 0) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', warnIfUnsaved);
+    return () => window.removeEventListener('beforeunload', warnIfUnsaved);
+  }, []);
+
   useEffect(() => () => {
     // Last-resort unmount flush; the Close button waits for persistence.
     void flushPendingTransform().catch((error) => console.error('STL transform save failed on unmount', error));
@@ -269,6 +319,16 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'STL edits were not saved. Keep the studio open and retry.');
     }
+  }
+
+  function changeTransform(key: keyof MeshTransform, value: number) {
+    const next = { ...transform, [key]: value };
+    if (!isValidMeshTransform(next)) {
+      setStatus('Invalid rotation or scale; value was not applied.');
+      return;
+    }
+    if (activeAssetId) pendingTransformRef.current = { assetId: activeAssetId, value: next };
+    setTransform(next);
   }
 
   function setView(name: 'top' | 'front' | 'side' | 'iso') {
