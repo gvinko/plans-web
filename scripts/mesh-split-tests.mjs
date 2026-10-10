@@ -29,7 +29,7 @@ function loadTypescript(filename) {
   return module.exports;
 }
 
-const { computeMeshBounds, exportBinaryStl, parseStlFile } = loadTypescript('src/lib/stl/stl.ts');
+const { computeMeshBounds, exportBinaryStl, parseStlFile, transformMesh, isValidMeshTransform, MAX_STL_FILE_BYTES } = loadTypescript('src/lib/stl/stl.ts');
 const { cutWatertightMesh, splitMeshForPrinter, validateWatertightMesh } =
   loadTypescript('src/lib/printers/meshSplitter.ts');
 const printer = {
@@ -58,6 +58,23 @@ function cube(w, h, d, ox = 0, oy = 0, oz = 0) {
   return { name: 'test-box', triangles: faces, bounds: computeMeshBounds(faces) };
 }
 
+function cylinder(diameter, depth, segments = 256) {
+  const radius = diameter / 2;
+  const faces = [];
+  const p = (index, z) => {
+    const theta = 2 * Math.PI * index / segments;
+    return { x: radius + radius * Math.cos(theta), y: radius + radius * Math.sin(theta), z };
+  };
+  const add = (a, b, c) => faces.push({ a, b, c, normal: { x: 0, y: 0, z: 0 } });
+  for (let i = 0; i < segments; i++) {
+    const a = p(i, 0), b = p(i + 1, 0), c = p(i, depth), d = p(i + 1, depth);
+    add(a, b, d); add(a, d, c);
+    add({ x: radius, y: radius, z: 0 }, b, a);
+    add({ x: radius, y: radius, z: depth }, c, d);
+  }
+  return { name: 'test-cylinder', triangles: faces, bounds: computeMeshBounds(faces) };
+}
+
 let successes = 0;
 function test(name, action) {
   try {
@@ -71,6 +88,25 @@ function test(name, action) {
 }
 
 test('input cube is watertight', () => validateWatertightMesh(cube(300, 100, 25)));
+test('inside-out solid reports meaningful error', () => {
+  const bad = cube(300, 100, 25);
+  for (const face of bad.triangles) [face.b, face.c] = [face.c, face.b];
+  assert.throws(() => validateWatertightMesh(bad), /inside-out/i);
+});
+test('Infinity and NaN transforms are rejected', () => {
+  const safe = { scaleX: 1, scaleY: 1, scaleZ: 1, rotateXDeg: 0, rotateYDeg: 0, rotateZDeg: 0 };
+  assert.equal(isValidMeshTransform(safe), true);
+  for (const value of [Infinity, NaN, 1e308]) {
+    const unsafe = { ...safe, rotateXDeg: value };
+    assert.equal(isValidMeshTransform(unsafe), false);
+    assert.throws(() => transformMesh(cube(10, 10, 10), unsafe), /invalid/i);
+  }
+});
+test('NaN in exported mesh is blocked', () => {
+  const bad = cube(10, 10, 10);
+  bad.triangles[0].a.x = NaN;
+  assert.throws(() => exportBinaryStl(bad), /invalid/i);
+});
 test('one cut is capped on both sides', () => {
   const [left, right] = cutWatertightMesh(cube(300, 100, 25), 'x', 150);
   assert.equal(left.bounds.size.x, 150);
@@ -114,6 +150,11 @@ test('two-axis split exports four bed-fitting meshes', () => {
     assert.ok(part.mesh.bounds.size.y < printer.buildVolumeMm.y);
     validateWatertightMesh(part.mesh);
   });
+});
+test('256-segment cylinder can be split on both bed axes', () => {
+  const result = splitMeshForPrinter(cylinder(300, 25), printer);
+  assert.equal(result.parts.length, 4);
+  result.parts.forEach((part) => validateWatertightMesh(part.mesh));
 });
 test('three-axis split exports eight watertight meshes', () => {
   const result = splitMeshForPrinter(cube(300, 300, 300), printer);
@@ -161,4 +202,26 @@ try {
   process.exitCode = 1;
   console.error('FAIL real binary STL part export/import round-trip', error);
 }
+async function asyncTest(name, action) {
+  try { await action(); successes += 1; console.log('PASS ' + name); }
+  catch (error) { process.exitCode = 1; console.error('FAIL ' + name, error); }
+}
+await asyncTest('binary STL with non-finite vertex is rejected', async () => {
+  const bytes = new ArrayBuffer(134);
+  const view = new DataView(bytes);
+  view.setUint32(80, 1, true);
+  view.setFloat32(96, NaN, true);
+  await assert.rejects(() => parseStlFile(new File([bytes], 'bad.stl')), /invalid/i);
+});
+await asyncTest('implausibly large random binary coordinates are rejected', async () => {
+  const bytes = new ArrayBuffer(134);
+  const view = new DataView(bytes);
+  view.setUint32(80, 1, true);
+  view.setFloat32(96, 4e33, true);
+  await assert.rejects(() => parseStlFile(new File([bytes], 'junk.stl')), /invalid|implausibly/i);
+});
+await asyncTest('100 MB import size guard rejects before decoding', async () => {
+  const fakeFile = { name: 'large.stl', size: MAX_STL_FILE_BYTES + 1, arrayBuffer: () => { throw Error('Should not read'); } };
+  await assert.rejects(() => parseStlFile(fakeFile), /100 MB/);
+});
 console.log(successes + ' geometry regression tests passed');
