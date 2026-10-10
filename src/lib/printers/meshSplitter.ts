@@ -23,7 +23,7 @@ const AXES: Axis[] = ['x', 'y', 'z'];
 const MAX_INPUT_TRIANGLES = 60000;
 const MAX_PARTS = 12;
 const MAX_TOTAL_TRIANGLES = 200000;
-const BED_MARGIN_TOTAL_MM = 4; // 2 mm safety margin on each side.
+const BED_MARGIN_TOTAL_MM = 4;
 
 function tolerance(mesh: StlMesh): number {
   const size = mesh.bounds.size;
@@ -76,7 +76,6 @@ export function validateWatertightMesh(mesh: StlMesh): void {
       throw new Error('STL is open, non-manifold or inconsistently oriented. Repair it before splitting.');
     }
   }
-  // Distinguish fully inverted meshes from mixed-winding/non-manifold topology.
   const origin = mesh.bounds.min;
   const signedSixVolume = mesh.triangles.reduce((sum, face) => {
     const a = subtract(face.a, origin), b = subtract(face.b, origin), c = subtract(face.c, origin);
@@ -123,10 +122,7 @@ function sectionsToLoop(segments: Array<[Vec3, Vec3]>, eps: number): Vec3[] {
   for (const [a, b] of segments) {
     const ka = key(a, eps);
     const kb = key(b, eps);
-    // Thin triangle slivers can yield two intersections quantised to the same
-    // contour point. They contribute zero contour length; drop those edges,
-    // then require a complete degree-two loop and watertight output below.
-    if (ka === kb) continue;
+    if (ka === kb) throw new Error('Cut generated a collapsed boundary segment.');
     if (!nodes.has(ka)) nodes.set(ka, { p: vec(a), edges: new Set() });
     if (!nodes.has(kb)) nodes.set(kb, { p: vec(b), edges: new Set() });
     const na = nodes.get(ka)!;
@@ -184,45 +180,23 @@ function cap(loop: Vec3[], axis: Axis, outwardPositive: boolean, eps: number): S
     const b = projected[(i + 1) % loop.length];
     const c = projected[(i + 2) % loop.length];
     const turn = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
-    const edgeA = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const edgeB = Math.hypot(c[0] - b[0], c[1] - b[1]);
-    const float32Tolerance = Math.max(eps * eps, edgeA * edgeB * 1e-5);
-    if (turn * orientation < -float32Tolerance) {
+    // Float32 STL round-trips can introduce tiny negative cross products.
+    const lenA = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const lenB = Math.hypot(c[0] - b[0], c[1] - b[1]);
+    if (turn * orientation < -Math.max(eps * eps, lenA * lenB * 1e-5)) {
       throw new Error('Cut produces a concave section. This safe splitter supports convex, single-loop sections only.');
-    }
-  }
-  const forward = (orientation > 0) === outwardPositive;
-  // A boundary fan avoids creating the exact-centre cap vertex that obstructs a
-  // later orthogonal split. If any triangles collapse due to collinear contour
-  // vertices, retain every boundary segment using a deliberately off-centre fan.
-  // Boundary fans are useful on densely tessellated curved contours. On a
-  // low-segment polygon they can put diagonals through later orthogonal cut
-  // planes; use the off-centre interior fan for those cross sections instead.
-  if (loop.length > 20) {
-    try {
-      const anchored: StlTriangle[] = [];
-      for (let i = 1; i + 1 < loop.length; i++) {
-        const a = loop[0], b = loop[i], c = loop[i + 1];
-        anchored.push(forward ? triangle(a, b, c) : triangle(a, c, b));
-      }
-      return anchored;
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes('zero-area')) throw error;
     }
   }
   const centroid = loop.reduce(
     (total, p) => ({ x: total.x + p.x / loop.length, y: total.y + p.y / loop.length, z: total.z + p.z / loop.length }),
     { x: 0, y: 0, z: 0 },
   );
-  const interior = {
-    x: centroid.x * 0.93 + loop[0].x * 0.07,
-    y: centroid.y * 0.93 + loop[0].y * 0.07,
-    z: centroid.z * 0.93 + loop[0].z * 0.07,
-  };
+  const forward = (orientation > 0) === outwardPositive;
   const result: StlTriangle[] = [];
   for (let i = 0; i < loop.length; i++) {
-    const a = loop[i], b = loop[(i + 1) % loop.length];
-    result.push(forward ? triangle(interior, a, b) : triangle(interior, b, a));
+    const a = loop[i];
+    const b = loop[(i + 1) % loop.length];
+    result.push(forward ? triangle(centroid, a, b) : triangle(centroid, b, a));
   }
   return result;
 }
