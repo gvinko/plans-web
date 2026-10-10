@@ -23,6 +23,7 @@ const AXES: Axis[] = ['x', 'y', 'z'];
 const MAX_INPUT_TRIANGLES = 60000;
 const MAX_PARTS = 12;
 const MAX_TOTAL_TRIANGLES = 200000;
+const BED_MARGIN_TOTAL_MM = 4; // 2 mm safety margin on each side.
 
 function tolerance(mesh: StlMesh): number {
   const size = mesh.bounds.size;
@@ -74,6 +75,16 @@ export function validateWatertightMesh(mesh: StlMesh): void {
     if (counts.forward !== 1 || counts.backward !== 1) {
       throw new Error('STL is open, non-manifold or inconsistently oriented. Repair it before splitting.');
     }
+  }
+  // Distinguish fully inverted meshes from mixed-winding/non-manifold topology.
+  const origin = mesh.bounds.min;
+  const signedSixVolume = mesh.triangles.reduce((sum, face) => {
+    const a = subtract(face.a, origin), b = subtract(face.b, origin), c = subtract(face.c, origin);
+    const n = cross(b, c);
+    return sum + a.x * n.x + a.y * n.y + a.z * n.z;
+  }, 0);
+  if (signedSixVolume < -1e-8) {
+    throw new Error('STL is inside-out (inverted face normals). Reorient faces before splitting.');
   }
 }
 
@@ -170,20 +181,40 @@ function cap(loop: Vec3[], axis: Axis, outwardPositive: boolean, eps: number): S
     const b = projected[(i + 1) % loop.length];
     const c = projected[(i + 2) % loop.length];
     const turn = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
-    if (turn * orientation < -eps * eps) {
+    const edgeA = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const edgeB = Math.hypot(c[0] - b[0], c[1] - b[1]);
+    const float32Tolerance = Math.max(eps * eps, edgeA * edgeB * 1e-5);
+    if (turn * orientation < -float32Tolerance) {
       throw new Error('Cut produces a concave section. This safe splitter supports convex, single-loop sections only.');
     }
+  }
+  const forward = (orientation > 0) === outwardPositive;
+  // A boundary fan avoids creating the exact-centre cap vertex that obstructs a
+  // later orthogonal split. If any triangles collapse due to collinear contour
+  // vertices, retain every boundary segment using a deliberately off-centre fan.
+  try {
+    const anchored: StlTriangle[] = [];
+    for (let i = 1; i + 1 < loop.length; i++) {
+      const a = loop[0], b = loop[i], c = loop[i + 1];
+      anchored.push(forward ? triangle(a, b, c) : triangle(a, c, b));
+    }
+    return anchored;
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('zero-area')) throw error;
   }
   const centroid = loop.reduce(
     (total, p) => ({ x: total.x + p.x / loop.length, y: total.y + p.y / loop.length, z: total.z + p.z / loop.length }),
     { x: 0, y: 0, z: 0 },
   );
-  const forward = (orientation > 0) === outwardPositive;
+  const interior = {
+    x: centroid.x * 0.93 + loop[0].x * 0.07,
+    y: centroid.y * 0.93 + loop[0].y * 0.07,
+    z: centroid.z * 0.93 + loop[0].z * 0.07,
+  };
   const result: StlTriangle[] = [];
   for (let i = 0; i < loop.length; i++) {
-    const a = loop[i];
-    const b = loop[(i + 1) % loop.length];
-    result.push(forward ? triangle(centroid, a, b) : triangle(centroid, b, a));
+    const a = loop[i], b = loop[(i + 1) % loop.length];
+    result.push(forward ? triangle(interior, a, b) : triangle(interior, b, a));
   }
   return result;
 }
@@ -253,7 +284,7 @@ export function splitMeshForPrinter(mesh: StlMesh, printer: PrinterProfile): Pri
       const step = size / instruction.partCount;
       for (let i = 1; i < instruction.partCount; i++) {
         const requested = piece.bounds.min[axis] + i * step;
-        const headroom = Math.max(0, printer.buildVolumeMm[axis] - 4 - step);
+        const headroom = Math.max(0, printer.buildVolumeMm[axis] - BED_MARGIN_TOTAL_MM - step);
         const nudge = Math.min(0.5, headroom / 3);
         const candidates = [0, 0.05, -0.05, 0.2, -0.2, 0.5, -0.5]
           .map((fraction) => requested + fraction * nudge);
@@ -263,9 +294,9 @@ export function splitMeshForPrinter(mesh: StlMesh, printer: PrinterProfile): Pri
           value < remainder.bounds.max[axis] - eps &&
           // The current left section must fit; the right remainder is allowed to
           // exceed one bed length because subsequent cuts will subdivide it.
-          value - remainder.bounds.min[axis] <= printer.buildVolumeMm[axis] - 4 + eps &&
+          value - remainder.bounds.min[axis] <= printer.buildVolumeMm[axis] - BED_MARGIN_TOTAL_MM + eps &&
           remainder.bounds.max[axis] - value <=
-            (instruction.partCount - i) * (printer.buildVolumeMm[axis] - 4) + eps &&
+            (instruction.partCount - i) * (printer.buildVolumeMm[axis] - BED_MARGIN_TOTAL_MM) + eps &&
           !remainder.triangles.some((face) =>
             [face.a, face.b, face.c].some((point) => Math.abs(point[axis] - value) < eps)));
         if (plane === undefined) {
@@ -286,7 +317,7 @@ export function splitMeshForPrinter(mesh: StlMesh, printer: PrinterProfile): Pri
   const parts: PrintablePart[] = pieces.map((piece, index) => {
     const offset = { ...piece.bounds.min };
     for (const axis of AXES) {
-      if (piece.bounds.size[axis] > printer.buildVolumeMm[axis] - 1) {
+      if (piece.bounds.size[axis] > printer.buildVolumeMm[axis] - BED_MARGIN_TOTAL_MM) {
         throw new Error('Part ' + (index + 1) + ' still exceeds the ' + axis.toUpperCase() + ' print bed dimension.');
       }
     }
