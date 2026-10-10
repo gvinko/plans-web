@@ -89,6 +89,14 @@ class PlansToPrintDB extends Dexie {
       appSettings: 'id',
       stlAssets: 'id, projectId, updatedAt',
     });
+    // v5: persist Plans to Print split-model joining settings on STL assets.
+    this.version(5).stores({
+      projects: 'id, name, updatedAt', planPages: 'id, projectId, order', ductRuns: 'id, planPageId, zoneName',
+      fittings: 'id, planPageId, type', terminals: 'id, planPageId, zoneName', equipment: 'id, planPageId, kind',
+      costItems: 'id, projectId, category', equipmentCatalog: 'id, category, itemName',
+      ductworkCatalog: 'id, category, itemName', fittingsCatalog: 'id, category, itemName', zones: 'id, projectId',
+      appSettings: 'id', stlAssets: 'id, projectId, updatedAt',
+    });
   }
 }
 

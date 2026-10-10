@@ -163,8 +163,20 @@ export async function updateStlAssetTransform(
 ): Promise<void> {
   const asset = await db.stlAssets.get(id);
   if (!asset) throw new Error('The STL asset no longer exists.');
-  const updated = await db.stlAssets.update(id, { transform, updatedAt: Date.now() });
+  const updated = await db.stlAssets.update(id, { transform, joiningPlan: null, joiningPlanRevision: undefined, updatedAt: Date.now() });
   if (updated !== 1) throw new Error('Could not save STL transform.');
+  await touchProject(asset.projectId);
+}
+
+export async function saveStlAssetJoiningPlan(
+  id: string,
+  joiningPlan: StlAsset['joiningPlan'],
+  joiningPlanRevision: string,
+): Promise<void> {
+  const asset = await db.stlAssets.get(id);
+  if (!asset) throw new Error('The STL asset no longer exists.');
+  const updated = await db.stlAssets.update(id, { joiningPlan, joiningPlanRevision, updatedAt: Date.now() });
+  if (updated !== 1) throw new Error('Could not save joining settings.');
   await touchProject(asset.projectId);
 }
 

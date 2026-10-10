@@ -8,6 +8,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
+const manifoldModule = await import('manifold-3d/manifold.js');
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cache = new Map();
 
@@ -22,6 +23,7 @@ function loadTypescript(filename) {
     fileName: file,
   }).outputText;
   const relativeRequire = (specifier) => {
+    if (specifier === 'manifold-3d/manifold.js') return manifoldModule;
     if (!specifier.startsWith('.')) throw Error('Unexpected module: ' + specifier);
     return loadTypescript(resolve(dirname(file), specifier + '.ts'));
   };
@@ -29,9 +31,13 @@ function loadTypescript(filename) {
   return module.exports;
 }
 
-const { computeMeshBounds, exportBinaryStl, parseStlFile } = loadTypescript('src/lib/stl/stl.ts');
+const { computeMeshBounds, exportBinaryStl, parseStlFile, transformMesh } = loadTypescript('src/lib/stl/stl.ts');
 const { cutWatertightMesh, splitMeshForPrinter, validateWatertightMesh } =
   loadTypescript('src/lib/printers/meshSplitter.ts');
+const { createJoiningPlan } = loadTypescript('src/lib/printers/joinPlanner.ts');
+const { applyJoiningPlan } = loadTypescript('src/lib/printers/joinGeometry.ts');
+const { recoverSavedJoiningParts } = loadTypescript('src/lib/printers/joinRecovery.ts');
+const { restoreUnjoinedParts } = loadTypescript('src/lib/printers/joinState.ts');
 const printer = {
   id: 'test-ender-3',
   name: 'Ender 3',
@@ -145,6 +151,100 @@ test('disconnected sections are rejected rather than silently capped', () => {
 test('cut at model boundary is rejected', () => {
   assert.throws(() => cutWatertightMesh(cube(300, 50, 30), 'x', 0), /inside/);
 });
+test('joining plan creates complementary keyed join records for every split boundary', () => {
+  const split = splitMeshForPrinter(cube(600, 80, 30), printer);
+  const plan = createJoiningPlan(split.parts, printer, 'dovetail-pins');
+  assert.equal(plan.mode, 'dovetail-pins');
+  assert.equal(plan.printerProfileId, printer.id);
+  assert.equal(plan.joints.length, 2);
+  assert.equal(plan.joints[0].leftPartNumber, 1);
+  assert.equal(plan.joints[0].rightPartNumber, 2);
+  assert.equal(plan.joints[1].leftPartNumber, 2);
+  assert.equal(plan.joints[1].rightPartNumber, 3);
+  assert.ok(plan.joints.every((joint) => joint.pinCount === 2));
+});
+test('joining plan finds every shared boundary in a multi-axis split', () => {
+  const split = splitMeshForPrinter(cube(300, 300, 25), printer);
+  const plan = createJoiningPlan(split.parts, printer, 'pins');
+  assert.equal(plan.joints.length, 4);
+  assert.ok(plan.joints.every((joint) => joint.hasDovetail === false));
+  assert.equal(new Set(plan.joints.map((joint) => joint.id)).size, 4);
+});
+test('joining plan rejects unsafe clearance and unsupported boundaries', () => {
+  const split = splitMeshForPrinter(cube(300, 100, 25), printer);
+  assert.throws(() => createJoiningPlan(split.parts, printer, 'pins', 0), /clearance/i);
+  assert.throws(() => createJoiningPlan(split.parts, printer, 'pins', 4), /clearance/i);
+  const thin = splitMeshForPrinter(cube(300, 6, 8), printer);
+  assert.throws(() => createJoiningPlan(thin.parts, printer, 'dovetail-pins'), /too small|margin/i);
+});
+try {
+  const split = splitMeshForPrinter(cube(300, 80, 30), printer);
+  const sourceTriangles = split.parts.map((part) => part.mesh.triangles.length);
+  const joined = await applyJoiningPlan(split, createJoiningPlan(split.parts, printer, 'dovetail-pins'));
+  assert.equal(joined.length, split.parts.length);
+  assert.deepEqual(split.parts.map((part) => part.mesh.triangles.length), sourceTriangles);
+  assert.ok(joined.some((part, index) => part.mesh.triangles.length !== sourceTriangles[index]));
+  joined.forEach((part) => validateWatertightMesh(part.mesh));
+  successes += 1;
+  console.log('PASS complementary dovetail and pin geometry is applied without mutating the split');
+} catch (error) {
+  process.exitCode = 1;
+  console.error('FAIL complementary dovetail and pin geometry is applied without mutating the split', error);
+}
+try {
+  const split = splitMeshForPrinter(cube(300, 300, 25), printer);
+  const plan = createJoiningPlan(split.parts, printer, 'pins');
+  const joined = await applyJoiningPlan(split, plan);
+  assert.equal(plan.joints.length, 4);
+  assert.equal(joined.length, 4);
+  joined.forEach((part) => validateWatertightMesh(part.mesh));
+  successes += 1;
+  console.log('PASS pin joins remain watertight across every boundary in a multi-axis split');
+} catch (error) {
+  process.exitCode = 1;
+  console.error('FAIL pin joins remain watertight across every boundary in a multi-axis split', error);
+}
+try {
+  const split = splitMeshForPrinter(cube(300, 80, 30), printer);
+  const joined = await applyJoiningPlan(split, createJoiningPlan(split.parts, printer, 'dovetail-pins'));
+  const restored = restoreUnjoinedParts(split);
+  assert.notDeepEqual(joined.map((part) => part.mesh.triangles.length), restored.map((part) => part.mesh.triangles.length));
+  assert.deepEqual(restored.map((part) => part.mesh.triangles.length), split.parts.map((part) => part.mesh.triangles.length));
+  restored.forEach((part) => validateWatertightMesh(part.mesh));
+  successes += 1;
+  console.log('PASS changing join settings restores clean unjoined printable parts');
+} catch (error) {
+  process.exitCode = 1;
+  console.error('FAIL changing join settings restores clean unjoined printable parts', error);
+}
+try {
+  const source = cube(300, 80, 30);
+  const transform = { scaleX: 1.1, scaleY: 1, scaleZ: 1, rotateXDeg: 0, rotateYDeg: 0, rotateZDeg: 0 };
+  const split = splitMeshForPrinter(transformMesh(source, transform), printer);
+  const plan = createJoiningPlan(split.parts, printer, 'dovetail-pins');
+  const recovered = await recoverSavedJoiningParts(source, transform, printer, plan);
+  assert.equal(recovered.parts.length, split.parts.length);
+  assert.equal(recovered.plan.joints.length, plan.joints.length);
+  recovered.parts.forEach((part) => validateWatertightMesh(part.mesh));
+  successes += 1;
+  console.log('PASS saved joining plans recover matching transformed printable parts');
+} catch (error) {
+  process.exitCode = 1;
+  console.error('FAIL saved joining plans recover matching transformed printable parts', error);
+}
+try {
+  const source = cube(300, 80, 30);
+  const transform = { scaleX: 1, scaleY: 1, scaleZ: 1, rotateXDeg: 0, rotateYDeg: 0, rotateZDeg: 0 };
+  const split = splitMeshForPrinter(source, printer);
+  const plan = createJoiningPlan(split.parts, printer, 'pins');
+  const differentPrinter = { ...printer, id: 'test-printer-with-different-profile' };
+  await assert.rejects(() => recoverSavedJoiningParts(source, transform, differentPrinter, plan), /printer profile/i);
+  successes += 1;
+  console.log('PASS saved joining plans reject a different printer profile');
+} catch (error) {
+  process.exitCode = 1;
+  console.error('FAIL saved joining plans reject a different printer profile', error);
+}
 try {
   const result = splitMeshForPrinter(cube(300, 300, 25), printer);
   for (const part of result.parts) {

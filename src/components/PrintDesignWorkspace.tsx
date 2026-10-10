@@ -751,7 +751,7 @@ export default function PrintDesignWorkspace() {
           <div className="mt-6 border-t border-slate-800 pt-4">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">3D / STL</div>
             <p className="mt-2 text-xs text-slate-500">
-              Real 3D geometry, STL import/export and physical split/join generation remain disabled until the geometry engine is connected and validated.
+              Open STL Studio to import, transform and export closed STL models. Oversized supported models can be safely split into printable parts with validated dovetail-plus-pin or pins-only joins.
             </p>
           </div>
         </aside>
