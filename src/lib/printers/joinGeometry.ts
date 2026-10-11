@@ -166,6 +166,18 @@ function pin(api: ManifoldApi, joint: JoinDescriptor, left: PrintablePart, right
 export async function applyJoiningPlan(split: PrintableSplit, plan: JoiningPlan): Promise<PrintablePart[]> {
   if (plan.version !== 1 || !plan.joints.length) throw new Error('A valid joining plan is required before connector geometry can be generated.');
   if (plan.mode === 'clips') throw new Error('Removable clips need a separate connector STL and are not available in this export yet.');
+  if (split.parts.length < 2 || plan.joints.length > split.parts.length * 3) throw new Error('Joining plan has an invalid number of boundaries.');
+  const partNumbers = new Set(split.parts.map((part) => part.partNumber));
+  if (partNumbers.size !== split.parts.length) throw new Error('Split contains duplicate part numbers.');
+  const seenBoundaries = new Set<string>();
+  for (const joint of plan.joints) {
+    if (!partNumbers.has(joint.leftPartNumber) || !partNumbers.has(joint.rightPartNumber) || joint.leftPartNumber === joint.rightPartNumber) throw new Error('Joining plan references invalid part numbers.');
+    if (!Number.isFinite(joint.clearanceMm) || joint.clearanceMm < 0.08 || joint.clearanceMm > 2 || !Number.isFinite(joint.pinDiameterMm) || joint.pinDiameterMm <= 0 || !Number.isFinite(joint.pinDepthMm) || joint.pinDepthMm <= 0 || !Number.isFinite(joint.planeMm)) throw new Error('Joining plan has invalid connector dimensions.');
+    if (joint.pinCount !== 2 || joint.hasClip || joint.hasDovetail !== (plan.mode === 'dovetail-pins')) throw new Error('Joining plan has unsupported connector settings.');
+    const boundaryKey = `${joint.axis}:${Math.min(joint.leftPartNumber, joint.rightPartNumber)}:${Math.max(joint.leftPartNumber, joint.rightPartNumber)}`;
+    if (seenBoundaries.has(boundaryKey)) throw new Error('Joining plan contains duplicate boundaries.');
+    seenBoundaries.add(boundaryKey);
+  }
   const api = await getManifold();
   const states = new Map<number, ManifoldShape>();
   const source = new Map(split.parts.map((part) => [part.partNumber, part]));
