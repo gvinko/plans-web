@@ -245,6 +245,30 @@ test('joining plan rejects unsafe clearance and unsupported boundaries', () => {
   const thin = splitMeshForPrinter(cube(300, 6, 8), printer);
   assert.throws(() => createJoiningPlan(thin.parts, printer, 'dovetail-pins'), /too small|margin/i);
 });
+test('unsupported clip joins fail before creating a plan', () => {
+  const split = splitMeshForPrinter(cube(300, 80, 30), printer);
+  assert.throws(() => createJoiningPlan(split.parts, printer, 'clips'), /not implemented/i);
+});
+try {
+  const split = splitMeshForPrinter(cube(300, 80, 30), printer);
+  const plan = createJoiningPlan(split.parts, printer, 'pins');
+  await assert.rejects(() => applyJoiningPlan(split, { ...plan, joints: [...plan.joints, plan.joints[0]] }), /duplicate boundaries/i);
+  successes += 1;
+  console.log('PASS duplicated connector boundaries are rejected before mesh processing');
+} catch (error) {
+  process.exitCode = 1;
+  console.error('FAIL duplicated connector boundaries are rejected before mesh processing', error);
+}
+try {
+  const split = splitMeshForPrinter(cube(300, 80, 30), printer);
+  const plan = createJoiningPlan(split.parts, printer, 'pins');
+  await assert.rejects(() => applyJoiningPlan(split, { ...plan, joints: [{ ...plan.joints[0], pinDiameterMm: Number.NaN }] }), /invalid connector dimensions/i);
+  successes += 1;
+  console.log('PASS non-finite connector dimensions are rejected before mesh processing');
+} catch (error) {
+  process.exitCode = 1;
+  console.error('FAIL non-finite connector dimensions are rejected before mesh processing', error);
+}
 try {
   const split = splitMeshForPrinter(cube(300, 80, 30), printer);
   const sourceTriangles = split.parts.map((part) => part.mesh.triangles.length);
