@@ -1,6 +1,6 @@
 // Offline support: the app shell and its files are cached as they load.
 // Jobs themselves live in IndexedDB, not here.
-const CACHE = 'ductplanner-v2';
+const CACHE = 'ductplanner-v3';
 // Works at the site root or under a sub-path such as /ductplanner/.
 const SHELL = new URL('./', self.location).pathname;
 

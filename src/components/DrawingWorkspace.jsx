@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from 'sonner';
 import { sdk } from '@/services/sdk';
 import { DUCTED_MODELS } from '@/data/ductedModels';
+import { unitSpec, specLines } from '@/data/unitSpecs';
 import { SPLIT_MODELS } from '@/data/splitModels';
 import { PAIR_COILS, UNIT_COIL } from '@/data/pipeSizing';
 import AutoLayoutDialog from '@/components/AutoLayoutDialog';
@@ -117,6 +118,9 @@ function modelCodes(model) {
   return { indoor: codes[0] || '', outdoor: '' };
 }
 const indoorShort = (v) => [modelCodes(v).indoor, kwShort(v)].filter(Boolean).join(' · ');
+// Published specs for the chosen ducted unit (null when not in the spec list yet).
+const modelSpec = (model) => (model && model !== CHOOSE_MODEL ? unitSpec(modelCodes(model).indoor) : null);
+const itemSpec = (item) => (item?.type === 'indoor' ? modelSpec(item.spec?.model) : null);
 
 // ActronAir two-piece fan coils (install guides 9590-0015-08/-09): coil & fan
 // section footprints W x D in mm; pipe = PAIR_COILS index (null = not in the list:
@@ -505,7 +509,11 @@ function outdoorBody(item) {
 // Plan footprint in mm, unrotated [W, D]
 function footprintMm(item) {
   if (item.dims?.w && item.dims?.d) return [item.dims.w, item.dims.d];
-  if (item.type === 'indoor') { const p = indoorPreset(item.spec?.model); return [p.w, p.d]; }
+  if (item.type === 'indoor') {
+    const sp = itemSpec(item);
+    if (sp?.dims) return [sp.dims[1], sp.dims[2]]; // true cabinet W x D from the spec sheet
+    const p = indoorPreset(item.spec?.model); return [p.w, p.d];
+  }
   if (item.type === 'splitindoor') {
     // Approximate head sizes by capacity; floor consoles are narrower and deeper.
     const model = item.spec?.model || '';
@@ -1339,10 +1347,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
   const unitKw = (it) => {
     if (it.type === 'coilsection') return sectionKw(it);
+    const sp = itemSpec(it);
+    if (sp?.c) return sp.c;
     if (it.type === 'indoor' || it.type === 'splitindoor') return parseFloat(kwShort(it.spec?.model)) || 0;
     return 0;
   };
-  const unitLps = (it) => (Number(it.airflow) > 0 ? Number(it.airflow) : Math.round(unitKw(it) * LPS_PER_KW));
+  const unitLps = (it) => (Number(it.airflow) > 0 ? Number(it.airflow) : itemSpec(it)?.ls || Math.round(unitKw(it) * LPS_PER_KW));
 
   // Rooms for the load estimate: zone areas if any are drawn, else sketched rooms.
   // Each carries its rectangle (world units) so the auto layout can place outlets.
@@ -1401,6 +1411,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     items.filter(isUnit).forEach((u) => {
       const name = tags[u.id];
       const lps = unitLps(u);
+      if (u.type === 'indoor' && u.spec?.model && u.spec.model !== CHOOSE_MODEL) {
+        const sp = itemSpec(u);
+        if (!sp) out.push({ level: 'info', group: 'Airflow', title: `${name}: no spec sheet data for this model`, detail: 'Size, airflow and capacity are estimated from the kW in the name. Type the rated airflow to check properly.', itemId: u.id });
+        else if (sp.check) out.push({ level: 'info', group: 'Airflow', title: `${name}: confirm a spec figure`, detail: sp.note, itemId: u.id });
+      }
       const net = [...network(u.id)].map((id) => byId[id]);
       const outlets = net.filter((i) => getTool(i.type).role === 'supplyTerm');
       const grilles = net.filter((i) => i.type === 'return');
@@ -1797,7 +1812,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       });
       // Picking a unit model / body resets the footprint to that series' size.
       if (item.type === 'indoor' && key === 'model') { const p = indoorPreset(value); next.dims = { w: p.w, d: p.d }; }
-      if (SECTION_TYPES.has(item.type) && key === 'model') next.dims = undefined;
+      if ((SECTION_TYPES.has(item.type) || item.type === 'indoor') && key === 'model') next.dims = undefined;
       if (item.type === 'outdoor' && key === 'body') next.dimsFromBody = true;
       if (item.type === 'outdoor' && key === 'body') { const b = OUTDOOR_BODIES.find((o) => o.label === value) || OUTDOOR_BODIES[1]; next.dims = { w: b.w, d: b.d }; }
       return next;
@@ -2283,7 +2298,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     btoSizes: BTO_SIZES,
     raGrilles: RA_GRILLES,
   };
-  const modelKw = (m) => parseFloat(kwShort(m)) || 0;
+  const modelKw = (m) => modelSpec(m)?.c || parseFloat(kwShort(m)) || 0;
   const autoFcu = items.find((i) => i.type === 'indoor' && !i.remove) || null;
 
   function patchRoom(room, patch) {
@@ -3877,10 +3892,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 </label>
               )}
               {selected.type === 'zonearea' && roomFields({ ...selected, kind: 'zone', name: selected.room }, (patch) => updateItem(selected.id, patch), (footprintMm(selected)[0] * footprintMm(selected)[1]) / 1e6)}
+              {selected.type === 'indoor' && selected.spec?.model && selected.spec.model !== CHOOSE_MODEL && (() => {
+                const sp = itemSpec(selected);
+                if (!sp) return <p className="rounded-md border border-dashed border-border p-2 text-[11px] text-muted-foreground">No published specs loaded for this model yet — size and airflow are estimates. Type the airflow below, or set the plan size.</p>;
+                return (
+                  <div className="rounded-md border border-border bg-muted/40 p-2 text-xs" data-testid="unit-spec">
+                    <div className="mb-1 flex items-center justify-between gap-2"><span className="font-semibold">{sp.code}</span><span className="text-[10px] uppercase tracking-wide text-muted-foreground">Spec sheet</span></div>
+                    <ul className="space-y-0.5">{specLines(sp).map((l) => <li key={l}>{l}</li>)}</ul>
+                    {sp.dims && <p className="mt-1 text-[11px] text-muted-foreground">{`Drawn at its true ${sp.dims[1]} × ${sp.dims[2]} mm footprint. Needs about ${sp.dims[0] + 100} mm of ceiling space (unit + 100 mm for hangers and drain fall).`}</p>}
+                    {sp.check && <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">{`Check: ${sp.note}`}</p>}
+                    <p className="mt-1 text-[10px] text-muted-foreground">{`Source: ${sp.src}`}</p>
+                  </div>
+                );
+              })()}
               {(selected.type === 'indoor' || selected.type === 'coilsection') && (
                 <label className="flex flex-col gap-1 text-xs">
                   <span className="text-muted-foreground">Rated airflow (L/s) — from the spec sheet</span>
-                  <Input className="h-9" type="number" min="0" inputMode="numeric" value={selected.airflow ?? ''} placeholder={unitKw(selected) ? `≈${Math.round(unitKw(selected) * LPS_PER_KW)} (estimated from kW)` : 'Choose the model first'} onChange={(event) => updateItem(selected.id, { airflow: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                  <Input className="h-9" type="number" min="0" inputMode="numeric" value={selected.airflow ?? ''} placeholder={itemSpec(selected)?.ls ? `${itemSpec(selected).ls} (spec sheet, high fan)` : unitKw(selected) ? `≈${Math.round(unitKw(selected) * LPS_PER_KW)} (estimated from kW)` : 'Choose the model first'} onChange={(event) => updateItem(selected.id, { airflow: event.target.value === '' ? undefined : Number(event.target.value) })} />
                 </label>
               )}
               {selected.type === 'outdoor' && (
