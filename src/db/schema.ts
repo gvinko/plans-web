@@ -1,3 +1,5 @@
+import type { JoiningPlan } from '../lib/printers/joinPlanner';
+
 /**
  * Plandroid Web — IndexedDB schema (Dexie)
  * All units stored in SI base (mm, L/s, m/s). Imperial is a display-layer conversion
@@ -187,6 +189,9 @@ export interface StlAsset {
     rotateYDeg: number;
     rotateZDeg: number;
   };
+  /** Durable connector settings. Mesh previews are regenerated from this plan. */
+  joiningPlan?: JoiningPlan | null;
+  joiningPlanRevision?: string;
   createdAt: number;
   updatedAt: number;
 }
