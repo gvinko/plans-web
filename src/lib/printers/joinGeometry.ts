@@ -28,10 +28,17 @@ let manifoldApi: Promise<ManifoldApi> | null = null;
 
 function getManifold(): Promise<ManifoldApi> {
   if (!manifoldApi) {
-    manifoldApi = import('manifold-3d/manifold.js').then(({ default: createManifold }) => createManifold()).then((api) => {
-      api.setup();
-      return api as unknown as ManifoldApi;
-    });
+    manifoldApi = import('manifold-3d/manifold.js')
+      .then(({ default: createManifold }) => createManifold())
+      .then((api) => {
+        api.setup();
+        return api as unknown as ManifoldApi;
+      })
+      .catch((error) => {
+        // A transient WASM load failure must not poison every subsequent retry.
+        manifoldApi = null;
+        throw error;
+      });
   }
   return manifoldApi;
 }
