@@ -97,12 +97,12 @@ export function createJoiningPlan(
       planeMm: boundary.planeMm,
       leftPartNumber: left.partNumber,
       rightPartNumber: right.partNumber,
-      pinCount: mode === 'clips' ? 0 : 2,
+      pinCount: 2,
       pinDiameterMm,
       pinDepthMm,
       clearanceMm,
       hasDovetail: mode === 'dovetail-pins',
-      hasClip: mode === 'clips',
+      hasClip: false,
     });
     }
   }
