@@ -1,0 +1,31 @@
+name: Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Build for the site root (Cloudflare Pages / localhost)
+        run: npm run build
+      - name: Build for WorkBrain (/ductplanner/)
+        run: DP_BASE=/ductplanner/ npx vite build --outDir dist-workbrain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ductplanner-workbrain
+          path: dist-workbrain
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ductplanner-root
+          path: dist
+          retention-days: 30

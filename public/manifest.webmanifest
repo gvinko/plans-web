@@ -1,0 +1,13 @@
+{
+  "name": "Ductplanner",
+  "short_name": "Ductplanner",
+  "description": "Ducted layout, heat load and takeoff — jobs stored on this computer.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fbfbfe",
+  "theme_color": "#3b3fb6",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
