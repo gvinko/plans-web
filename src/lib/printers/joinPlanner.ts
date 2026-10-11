@@ -71,6 +71,7 @@ export function createJoiningPlan(
   clearanceMm = printer.defaultFitClearanceMm,
 ): JoiningPlan {
   validClearance(printer, clearanceMm);
+  if (mode === 'clips') throw new Error('Removable clips are not implemented; choose pins or dovetail + pins.');
   if (parts.length < 2) throw new Error('At least two split parts are required before adding joins.');
   const joints: JoinDescriptor[] = [];
   for (let leftIndex = 0; leftIndex < parts.length; leftIndex++) {
@@ -84,7 +85,7 @@ export function createJoiningPlan(
         [left, right] = [right, left];
       }
       const minimumSpan = boundary.crossSpanMm;
-    const pinDiameterMm = Math.max(3, printer.nozzleDiameterMm * 8);
+      const pinDiameterMm = Math.max(3, printer.nozzleDiameterMm * 8);
     const pinDepthMm = Math.max(6, pinDiameterMm * 2);
     const requiredSpan = pinDiameterMm * 2.4 + clearanceMm * 4;
     if (minimumSpan < requiredSpan || left.mesh.bounds.size[boundary.axis] < pinDepthMm || right.mesh.bounds.size[boundary.axis] < pinDepthMm) {
