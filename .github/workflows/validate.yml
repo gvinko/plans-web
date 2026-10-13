@@ -2,7 +2,7 @@ name: Validate Plans to Print
 
 on:
   push:
-    branches: [main, plans-to-print-rebuild]
+    branches: [main, plans-to-print-rebuild, 'rebuild/**']
   pull_request:
     branches: [main, plans-to-print-rebuild]
   workflow_dispatch:
