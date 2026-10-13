@@ -14,6 +14,24 @@ export interface PrinterProfile {
 
 export const BUILT_IN_PRINTER_PROFILES: PrinterProfile[] = [
   {
+    id: 'bambu-lab-p1s-ams',
+    name: 'Bambu Lab P1S + AMS (4 slots)',
+    manufacturer: 'Bambu Lab',
+    buildVolumeMm: { x: 256, y: 256, z: 256 },
+    nozzleDiameterMm: 0.4,
+    defaultFitClearanceMm: 0.2,
+    notes: 'Four AMS filament slots; multi-colour assignments and print preparation must be verified in Bambu Studio. Account for printer-specific excluded bed regions and material compatibility.',
+  },
+  {
+    id: 'bambu-lab-p1s',
+    name: 'Bambu Lab P1S',
+    manufacturer: 'Bambu Lab',
+    buildVolumeMm: { x: 256, y: 256, z: 256 },
+    nozzleDiameterMm: 0.4,
+    defaultFitClearanceMm: 0.2,
+    notes: 'Nominal build volume. Verify excluded bed regions, material and nozzle settings in Bambu Studio.',
+  },
+  {
     id: 'creality-ender-3',
     name: 'Ender 3',
     manufacturer: 'Creality',
