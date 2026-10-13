@@ -48,8 +48,31 @@ export async function touchProject(projectId: string): Promise<void> {
 }
 
 export async function saveCanvasState(planPageId: string, canvasJSON: string): Promise<void> {
-  const updated = await db.planPages.update(planPageId, { canvasJSON });
-  if (updated !== 1) throw new Error('Plan page no longer exists, so the drawing was not saved.');
+  let incoming: { objects?: unknown[] };
+  try {
+    incoming = JSON.parse(canvasJSON) as { objects?: unknown[] };
+  } catch {
+    throw new Error('Invalid canvas data: drawing was not saved.');
+  }
+  if (!incoming || !Array.isArray(incoming.objects)) {
+    throw new Error('Incomplete canvas data: drawing was not saved.');
+  }
+  await db.transaction('rw', db.planPages, async () => {
+    const page = await db.planPages.get(planPageId);
+    if (!page) throw new Error('Plan page no longer exists, so the drawing was not saved.');
+    if (page.canvasJSON && incoming.objects!.length === 0) {
+      let previous: { objects?: unknown[] };
+      try {
+        previous = JSON.parse(page.canvasJSON) as { objects?: unknown[] };
+      } catch {
+        throw new Error('Existing canvas needs recovery: refusing an empty overwrite.');
+      }
+      if (Array.isArray(previous?.objects) && previous.objects.length > 0) {
+        throw new Error('Empty canvas cannot overwrite a saved drawing. Delete objects explicitly before saving.');
+      }
+    }
+    await db.planPages.update(planPageId, { canvasJSON });
+  });
 }
 
 export async function setPageScale(
