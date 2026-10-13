@@ -18,6 +18,9 @@ Stage 1 — repository audit, navigation and data-loss prevention. Working branc
 - Legacy branding persists on main. Check all routes, controls, PWA manifest and build identities on the rebuild branch.
 - Audit pending: actual console errors, navigation routes, IndexedDB migrations, empty-save protection, mobile layout and exports. No unsupported claim that any particular control is broken.
 
+## Latest implementation
+- Commit `fe7135d`: added transactional protection to `saveCanvasState` against invalid JSON, missing object arrays and empty overwrite of an existing populated drawing. This is not yet tested; deliberate clearing needs a separate explicit action and regression tests.
+
 ## In progress — exact next steps
 1. Inspect rebuild branch `src/App.tsx`, `src/db/*`, `src/store/*`, project save/autosave logic and current branch package.json.
 2. Add regression tests proving a populated project cannot be overwritten by an empty transient canvas; verify migration and recovery without deleting old records.
