@@ -19,6 +19,10 @@ Stage 1 — repository audit, navigation and data-loss prevention. Working branc
 - Audit pending: actual console errors, navigation routes, IndexedDB migrations, empty-save protection, mobile layout and exports. No unsupported claim that any particular control is broken.
 
 ## Latest implementation
+- Commit `112e759`: added Bambu Lab P1S and P1S + four-slot AMS nominal build-volume profiles; 3MF multicolour workflow is NOT yet implemented or verified.
+- Commit `da0ddd2`: extended GitHub Actions validation to rebuild branches. GitHub Actions run 38364896452 for the prior stage head reported success (lint, geometry, zip, build and manifest checks). Check latest run after the CI workflow edit; physical/device and browser acceptance are still outstanding.
+- Desktop Commander device `Gerads_Yoga` is offline; local connected-machine browser and printer checks cannot run through it. Container GitHub clone attempt failed due to DNS restrictions. GitHub connector remains operational.
+
 - Commit `fe7135d`: added transactional protection to `saveCanvasState` against invalid JSON, missing object arrays and empty overwrite of an existing populated drawing. This is not yet tested; deliberate clearing needs a separate explicit action and regression tests.
 
 ## In progress — exact next steps
