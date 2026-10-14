@@ -901,6 +901,14 @@ function TransitionPlan({ t, className }) {
   );
 }
 
+// ---- Print sheet sizes (landscape), in mm ----
+const PX_PER_MM = 96 / 25.4;
+const PAPER = {
+  A4: { w: 297, h: 210, plan: { w: 200, h: 150 } },
+  A3: { w: 420, h: 297, plan: { w: 323, h: 236 } },
+};
+const PRINT_SCALES = [20, 25, 50, 100, 200];
+
 // ---- Sheet metal network: snapping, joins and automatic fittings ----
 // A run (sketch kind 'smduct') keeps its own points plus optional end links:
 //   s.a (start) / s.b (end) = { kind: 'port', itemId, portId }   tied to a part's duct connection
@@ -1379,6 +1387,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [wire, setWire] = useState(null); // live duct being dragged from a port
   const [showKeys, setShowKeys] = useState(false);
   const [printMode, setPrintMode] = useState(null); // 'plan' | 'pick'
+  const [printOpts, setPrintOpts] = useState({ paper: 'A3', scale: 'fit' });
+  const [printDialog, setPrintDialog] = useState(false);
+  const [printScaleUsed, setPrintScaleUsed] = useState(null);
   // Free sketch for jobs with no plan: walls, room boxes and text labels.
   const [sketch, setSketch] = useState([]);
   const [sketchTool, setSketchTool] = useState(null); // null | 'wall' | 'room' | 'text'
@@ -3250,6 +3261,41 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
   }
 
+  // Fans for the schedule on the PDF and in the list.
+  const fanSchedule = items
+    .filter((it) => FAN_TYPES.has(it.type))
+    .map((it) => {
+      const tool = getTool(it.type);
+      const pick = it.spec?.model || it.spec?.kind || '';
+      return {
+        id: it.id,
+        tag: tags[it.id] || '',
+        kind: tool.label,
+        model: (it.fanModel || '').trim() || pick || '—',
+        supplier: (it.fanSupplier || '').trim() || '—',
+        duty: it.spec?.duty || '—',
+      };
+    });
+
+  // Extent of everything drawn (the whole sheet when a plan image is loaded), with a margin.
+  function drawingBounds() {
+    if (background) return { x0: 0, y0: 0, x1: WORLD_W, y1: WORLD_H };
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    const take = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
+    items.forEach((it) => { const b = itemBox(it, ppm); take(it.cx - b.w / 2, it.cy - b.h / 2); take(it.cx + b.w / 2, it.cy + b.h / 2); });
+    runs.forEach((r) => r.pts.forEach((q) => take(q.x, q.y)));
+    sketch.forEach((x) => {
+      if (x.kind === 'smduct') smPts(x, smCtx).forEach((q) => take(q.x, q.y));
+      else { if (x.x1 != null) take(x.x1, x.y1); if (x.x2 != null) take(x.x2, x.y2); }
+    });
+    if (!Number.isFinite(x0)) return { x0: 0, y0: 0, x1: WORLD_W, y1: WORLD_H };
+    const pad = Math.max(20, 0.06 * Math.max(x1 - x0, y1 - y0));
+    return { x0: x0 - pad, y0: y0 - pad, x1: x1 + pad, y1: y1 + pad };
+  }
+
   // Print view: the plan fitted to an A4 landscape sheet (plus schedule), or the pick slip.
   // The browser's print dialog saves it as a PDF.
   function exportPdf(mode) {
@@ -3260,11 +3306,28 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     setShowKeys(false);
     if (!project?.address_c) toast.message('Tip: add the customer address in Job details so it prints on the sheet.');
     const prev = viewRef.current;
+    setPrintScaleUsed(null);
     if (mode === 'plan') {
-      const W = 756;
-      const H = 567;
-      const z = Math.min(W / WORLD_W, H / WORLD_H);
-      setView({ z, x: (W - WORLD_W * z) / 2, y: (H - WORLD_H * z) / 2 });
+      const paper = PAPER[printOpts.paper] || PAPER.A4;
+      const W = paper.plan.w * PX_PER_MM;
+      const H = paper.plan.h * PX_PER_MM;
+      const bx = drawingBounds();
+      const N = Number(printOpts.scale);
+      if (N && scale) {
+        // True scale: 1 m on site = 1000/N mm on paper.
+        const z = ((1000 / N) / ppm) * PX_PER_MM;
+        const cx = (bx.x0 + bx.x1) / 2;
+        const cy = (bx.y0 + bx.y1) / 2;
+        setView({ z, x: W / 2 - cx * z, y: H / 2 - cy * z });
+        setPrintScaleUsed(N);
+        if ((bx.x1 - bx.x0) * z > W * 1.001 || (bx.y1 - bx.y0) * z > H * 1.001) {
+          const fits = PRINT_SCALES.find((n) => (bx.x1 - bx.x0) * (((1000 / n) / ppm) * PX_PER_MM) <= W && (bx.y1 - bx.y0) * (((1000 / n) / ppm) * PX_PER_MM) <= H);
+          toast.warning(`The drawing is bigger than ${printOpts.paper} at 1:${N}`, { description: fits ? `It fits at 1:${fits}${printOpts.paper === 'A4' ? ', or try A3' : ''}. Printing centred and cropped.` : 'Try A3 or a smaller scale. Printing centred and cropped.' });
+        }
+      } else {
+        const z = Math.min(W / (bx.x1 - bx.x0), H / (bx.y1 - bx.y0));
+        setView({ z, x: (W - (bx.x1 - bx.x0) * z) / 2 - bx.x0 * z, y: (H - (bx.y1 - bx.y0) * z) / 2 - bx.y0 * z });
+      }
     }
     setPrintMode(mode);
     const restore = () => {
@@ -3491,7 +3554,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       ['Customer', project?.Name || '—'],
       ['Address', [project?.address_c, project?.suburb_c].filter(Boolean).join(', ') || '—'],
       ['Phone', project?.phone_c || '—'],
-      ['Scale', scale ? `Set from ${Number(scale.mm).toLocaleString()} mm reference` : 'Not to scale'],
+      ['Scale', printScaleUsed ? `1:${printScaleUsed} @ ${printOpts.paper}` : scale ? `Not to a set scale (fitted to ${printOpts.paper})` : 'Not to scale'],
     ];
     return (
       <div className="grid grid-cols-4 gap-2 text-[10px] mb-2">
@@ -3534,7 +3597,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       <style>{'.nss .sym svg *{vector-effect:non-scaling-stroke}'}</style>
       <style>{`@media screen { .dp-print-only { display: none !important; } }
 @media print {
-  @page { size: A4 ${printMode === 'pick' ? 'portrait' : 'landscape'}; margin: 8mm; }
+  @page { size: ${printMode === 'pick' ? 'A4 portrait' : `${printOpts.paper} landscape`}; margin: 8mm; }
   html, body { background: #fff !important; }
   body * { visibility: hidden !important; }
   #dp-print-root, #dp-print-root * { visibility: visible !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -3542,7 +3605,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   #dp-print-root .dp-noprint { display: none !important; }
   #dp-print-root .dp-print-plan { padding: 0 !important; background: #fff !important; flex: none !important; display: flex !important; align-items: flex-start; gap: 4mm; }
   #dp-print-root .dp-side-list { display: block !important; width: 77mm; flex: none; }
-  #dp-print-root [data-drawing-canvas] { width: 200mm !important; flex: none !important; height: 150mm !important; min-height: 0 !important; border: 1px solid #000 !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; }
+  #dp-print-root [data-drawing-canvas] { width: ${(PAPER[printOpts.paper] || PAPER.A4).plan.w}mm !important; flex: none !important; height: ${(PAPER[printOpts.paper] || PAPER.A4).plan.h}mm !important; min-height: 0 !important; border: 1px solid #000 !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; }
   .dp-page-break { break-before: page; }
 }`}</style>
       <header className="dp-noprint border-b border-border bg-card px-3 py-2 flex items-center gap-2 min-h-14">
@@ -3574,7 +3637,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <ApperIcon name="UserRound" size={15} />
           <span className="hidden md:inline">Job details</span>
         </Button>
-        <Button variant="outline" size="sm" className="shrink-0" onClick={() => exportPdf('plan')} title="Export the plan and schedule as a PDF">
+        <Button variant="outline" size="sm" className="shrink-0" onClick={() => setPrintDialog(true)} title="Export the plan and schedule as a PDF">
           <ApperIcon name="FileDown" size={15} />
           <span className="hidden md:inline">Export PDF</span>
         </Button>
@@ -4684,6 +4747,25 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
           {/* Equipment list printed beside the plan on PDF page 1 */}
           <div className="dp-print-only dp-side-list text-black text-[9px] leading-tight">
+            {fanSchedule.length > 0 && (
+              <div className="mb-2">
+                <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Fan schedule</div>
+                <table className="w-full border-collapse text-[8px]">
+                  <thead>
+                    <tr className="text-left">
+                      {['Tag', 'Fan', 'Model', 'Supplier', 'Duty'].map((h) => <th key={h} className="border border-black px-0.5 py-0.5">{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fanSchedule.map((f) => (
+                      <tr key={f.id}>
+                        {[f.tag, f.kind, f.model, f.supplier, f.duty].map((v, i) => <td key={i} className="border border-black px-0.5 py-0.5 align-top">{v}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Equipment list</div>
             {equipment.groups.length === 0 && <p>Nothing drawn yet.</p>}
             {equipment.groups.map((g) => (
@@ -5353,6 +5435,19 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
           {rightTab === 'list' && (
           <div className="space-y-3">
+            {fanSchedule.length > 0 && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Fan schedule</div>
+                <div className="rounded-md border border-border divide-y divide-border text-xs">
+                  {fanSchedule.map((f) => (
+                    <div key={f.id} className="px-2 py-1.5">
+                      <div className="font-semibold">{`${f.tag} · ${f.model}`}</div>
+                      <div className="text-muted-foreground">{`${f.kind} · ${f.supplier} · ${f.duty}`}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {runs.some((r) => r.mismatch.length) && (
               <div className="mb-2 rounded-md border border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200 px-2 py-1.5 text-xs">
                 {`${runs.filter((r) => r.mismatch.length).length} duct run(s) don't match their spigot size — marked ! on the plan. Check before ordering.`}
@@ -5501,6 +5596,38 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         kwOf={modelKw}
         onGenerate={generateAuto}
       />
+      <Dialog open={printDialog} onOpenChange={setPrintDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Export PDF</DialogTitle>
+            <DialogDescription>Pick the sheet and scale. In the print window choose “Save as PDF”, scale 100% (not “Fit to page”) so it measures true.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Sheet</span>
+              <select value={printOpts.paper} onChange={(event) => setPrintOpts((o) => ({ ...o, paper: event.target.value }))} className="h-9 rounded-md border border-input bg-background px-2">
+                <option value="A3">A3 landscape</option>
+                <option value="A4">A4 landscape</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Scale</span>
+              <select value={printOpts.scale} onChange={(event) => setPrintOpts((o) => ({ ...o, scale: event.target.value }))} className="h-9 rounded-md border border-input bg-background px-2">
+                <option value="fit">Fit to sheet</option>
+                {PRINT_SCALES.map((n) => <option key={n} value={String(n)} disabled={!scale}>{`1:${n}${scale ? '' : ' (set the plan scale first)'}`}</option>)}
+              </select>
+            </label>
+          </div>
+          {!scale && <p className="text-xs text-amber-700">Set the plan scale to print at 1:50, 1:100 etc.</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPrintDialog(false)}>Cancel</Button>
+            <Button onClick={() => { setPrintDialog(false); setTimeout(() => exportPdf('plan'), 50); }}>
+              <ApperIcon name="FileDown" size={15} />
+              Make PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={jobOpen} onOpenChange={setJobOpen}>
         <DialogContent>
           <DialogHeader>
