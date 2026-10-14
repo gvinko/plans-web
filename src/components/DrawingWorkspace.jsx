@@ -944,7 +944,7 @@ const PRINT_SCALES = [20, 25, 50, 100, 200];
 //                           | { kind: 'side', id, seg, t }       branch take-off off another run's side
 // Linked ends follow whatever they are tied to, so runs stay joined when parts or runs move.
 const SM_SNAP_PX = 16;
-const SM_DEFAULT_SHEET = 1200; // mm between TDF joints
+const SM_DEFAULT_SHEET = 2400; // mm between TDF joints (stock sheet length)
 const smDims = (s) => ({ w: Number(s.w) || 300, h: Number(s.h) || 150 });
 const smLenOf = (pts) => pts.reduce((n, q, i) => (i ? n + Math.hypot(q.x - pts[i - 1].x, q.y - pts[i - 1].y) : 0), 0);
 
@@ -1349,6 +1349,36 @@ function smTransLenMm(from, to, s) {
   const dW = Math.abs(from.w - to.w);
   const dH = Math.abs(from.h - to.h);
   return Math.max(150, Math.ceil((Math.max(ecc ? dW : dW / 2, dH / 2) * ratio) / 25) * 25);
+}
+
+// ---- Duct sizing from airflow (equal friction with a velocity cap) ----
+// Friction via Altshul–Tsal on the equivalent round diameter (galvanised steel, air at 20°C).
+const SM_SIZING = {
+  standard: { label: 'Standard (1.0 Pa/m, max 6 m/s)', pa: 1.0, vmax: 6 },
+  quiet: { label: 'Quiet (0.8 Pa/m, max 4 m/s)', pa: 0.8, vmax: 4 },
+};
+function smAirflow(lps, w, h) {
+  const q = Number(lps) / 1000; // m³/s
+  if (!(q > 0) || !(w > 0) || !(h > 0)) return null;
+  const v = q / ((w / 1000) * (h / 1000));
+  const d = eqDia(w, h) / 1000;
+  const vr = q / ((Math.PI * d * d) / 4);
+  const re = (vr * d) / 1.5e-5;
+  const f = 0.11 * (0.00009 / d + 68 / re) ** 0.25;
+  const fr = f >= 0.018 ? f : 0.85 * f + 0.0028;
+  return { v, pa: (fr / d) * ((1.2 * vr * vr) / 2) };
+}
+// Smallest width (50 mm steps) at each depth that meets the sizing rule, aspect ratio ≤ 4:1.
+function smSuggest(lps, mode = 'standard', depths = [200, 250, 300, 350, 400, 450, 500, 600]) {
+  const rule = SM_SIZING[mode] || SM_SIZING.standard;
+  if (!(Number(lps) > 0)) return [];
+  return depths.map((h) => {
+    for (let w = Math.max(100, Math.ceil(h / 2 / 50) * 50); w <= h * 4; w += 50) {
+      const a = smAirflow(lps, w, h);
+      if (a.pa <= rule.pa && a.v <= rule.vmax) return { w, h, ...a };
+    }
+    return null;
+  }).filter(Boolean);
 }
 
 // Split run `id` at `dist` (world units along it) into two tied runs; the far part takes `dims`.
@@ -2174,8 +2204,21 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const powered = connections.some((c) => c.type === 'power' && (c.from.itemId === cu.id || c.to.itemId === cu.id));
       if (!powered) out.push({ level: 'info', group: 'Electrical', title: `${tags[cu.id]}: no power run drawn`, detail: 'Add a Switchboard and Isolator, then run cable (dark red dots) to get an approx. length.', itemId: cu.id });
     });
+    sketch.forEach((r) => {
+      if (r.kind !== 'smduct' || !(Number(r.ls) > 0)) return;
+      const { w, h } = smDims(r);
+      const rule = SM_SIZING[r.sizeBy] || SM_SIZING.standard;
+      const a = smAirflow(r.ls, w, h);
+      if (!a) return;
+      const best = smSuggest(r.ls, r.sizeBy).find((x) => x.h === h);
+      if (a.v > rule.vmax || a.pa > rule.pa * 1.15) {
+        out.push({ level: 'warn', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s is too small — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, detail: best ? `Try ${best.w}/${best.h}. Select the run to resize it.` : 'Go deeper. Select the run for options.' });
+      } else {
+        out.push({ level: 'ok', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m` });
+      }
+    });
     return out;
-  }, [items, connections, joins, runs, rooms, tags, scale, sketch.length]);
+  }, [items, connections, joins, runs, rooms, tags, scale, sketch]);
   const warnCount = checks.filter((c) => c.level === 'warn').length;
 
   // Pipe run length limit and the (optional) spec'd refrigerant top-up.
@@ -5584,6 +5627,38 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         <Input className="h-9" placeholder="e.g. U/S 2700" value={s.elev ?? ''} onChange={(event) => updateSketch(s.id, { elev: event.target.value })} />
                       </label>
                     </div>
+                    {Number(s.ls) > 0 && (() => {
+                      const { w, h } = smDims(s);
+                      const rule = SM_SIZING[s.sizeBy] || SM_SIZING.standard;
+                      const now = smAirflow(s.ls, w, h);
+                      const sug = smSuggest(s.ls, s.sizeBy);
+                      const same = sug.find((x) => x.h === h);
+                      const others = sug.filter((x) => x.h !== h && x.w >= x.h).slice(0, 3);
+                      const over = now && (now.v > rule.vmax || now.pa > rule.pa * 1.15);
+                      const use = (x) => { updateSketch(s.id, { w: x.w, h: x.h }); toast.message(`Resized to ${x.w}/${x.h}`); };
+                      return (
+                        <div className={`rounded-md border p-2 space-y-2 text-xs ${over ? 'border-red-400 bg-red-50 dark:bg-red-950/30' : 'border-border'}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium">Duct sizing</span>
+                            <select value={s.sizeBy || 'standard'} onChange={(event) => updateSketch(s.id, { sizeBy: event.target.value })} className="h-7 rounded-md border border-input bg-background px-1 text-xs">
+                              {Object.entries(SM_SIZING).map(([k, r]) => <option key={k} value={k}>{r.label}</option>)}
+                            </select>
+                          </div>
+                          {now && <div>{`${w}/${h} at ${s.ls} L/s: `}<span className={over ? 'font-semibold text-red-700' : 'font-semibold'}>{`${now.v.toFixed(1)} m/s · ${now.pa.toFixed(2)} Pa/m`}</span>{over ? ' — too small' : ' — OK'}</div>}
+                          {same && (same.w !== w) && (
+                            <Button size="sm" className="h-8 w-full" onClick={() => use(same)}>{`Use ${same.w}/${same.h} (keeps ${h} deep) — ${same.v.toFixed(1)} m/s`}</Button>
+                          )}
+                          {same && same.w === w && <div className="text-muted-foreground">{`${w}/${h} is the smallest width at this depth.`}</div>}
+                          {!same && <div className="text-muted-foreground">{`No width at ${h} deep stays within 4:1 — go deeper.`}</div>}
+                          {others.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              <span className="text-muted-foreground self-center">Other depths:</span>
+                              {others.map((x) => <Button key={x.h} size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => use(x)}>{`${x.w}/${x.h}`}</Button>)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {fits.some((f) => f.type === 'transition') && (
                       <div className="grid grid-cols-2 gap-2">
                         <label className="flex flex-col gap-1 text-xs">
@@ -5691,7 +5766,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           {rightTab === 'checks' && (
             <div className="space-y-3">
               {checks.length === 0 && <p className="text-xs text-muted-foreground">Add a unit, outlets and a return grille to run the design checks.</p>}
-              {['Airflow', 'Return air', 'Refrigerant', 'Heat load', 'Electrical'].map((grp) => {
+              {['Airflow', 'Duct sizing', 'Return air', 'Refrigerant', 'Heat load', 'Electrical'].map((grp) => {
                 const rows = checks.filter((c) => c.group === grp);
                 if (!rows.length) return null;
                 return (

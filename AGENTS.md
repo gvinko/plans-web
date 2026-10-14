@@ -46,6 +46,8 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - `smLayout()` gives the centre-line path (radius bends as arcs) and the straight part of each segment. `smPieces()` cuts those into stock sheet lengths (`sheetLen`) — shown in the run panel and the BOM note.
 - Eccentric reducers: `smEccShift()` moves the tied end sideways so one edge runs straight. `smPts()` applies it.
 - "Add reducer" in the run panel calls `smSplit()`: the run splits at a distance from its start and the far part takes the new size. Ties and parts on the far part move with it.
+- Sheet length defaults to 2400 (`SM_DEFAULT_SHEET`); each straight is 2400s plus one balance piece.
+- Duct sizing: `smAirflow(L/s, w, h)` gives velocity and friction (Altshul–Tsal on equivalent diameter). `smSuggest()` gives the smallest width per depth for the run's `sizeBy` rule (`SM_SIZING`: standard 1.0 Pa/m max 6 m/s, quiet 0.8 Pa/m max 4 m/s). Shown in the run panel and the Checks tab ("Duct sizing").
 - New parts: `flexconn` (flexible canvas connection, drops into a run like a damper) and `rafilterbox` (R/A filter box: face size, filter grade, spigots or a rect neck `rfbNeck`).
 
 ## Testing builds
@@ -55,7 +57,7 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 
 ## Wish list (do one at a time, only when asked)
 
-1. Airflow: give each system an airflow (from the fan duty or grille L/s), then show L/s and velocity on each run, and suggest duct sizes (section 5 of Gerad's spec).
+1. Airflow, stage 2: L/s on each outlet/grille, summed back up the network so each run's L/s fills in by itself (stage 1, typed L/s with velocity and size suggestions, is done).
 2. Duct board (PolyPlan) and spiral duct as run materials.
 3. Manufacturer equipment catalogue with real port positions (Daikin / Fujitsu / Mitsubishi / Rinnai / Fantech).
 4. Vector PDF (the current PDF comes from the browser's print view, which is already sharp but not a CAD file), plus DXF export.
