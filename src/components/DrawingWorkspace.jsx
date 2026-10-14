@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import ApperIcon from '@/components/ApperIcon';
 import HvacSymbol from '@/components/HvacSymbol';
 import { ECHO_LOGO } from '@/assets/echoLogo';
@@ -40,13 +40,29 @@ const CABLE_TAILS = 3; // metres for terminations at each end
 const approxCable = (m) => Math.ceil(m * CABLE_ALLOW + CABLE_TAILS);
 const coilShort = (idx) => (idx == null ? 'Pipe' : PAIR_COILS[idx].split(' - ')[0].replace(/''/g, '"').replace(/ /g, ''));
 
-// The host serves .mjs files as application/octet-stream, which browsers refuse
-// to run as a module worker. Vite's ?worker import bundles the worker into a
-// .js file (correct MIME type); pdf.js then uses it through workerPort.
+// pdf.js reads PDFs in a background worker. Hosts don't always serve the worker's
+// .mjs file with a JavaScript type, and an open tab can point at a file from an
+// older deploy. So fetch the worker ourselves and hand pdf.js a blob URL with the
+// right type, falling back to the public CDN copy of the same pdf.js version.
+let pdfWorkerReady = null;
 function ensurePdfWorker() {
-  if (!pdfjsLib.GlobalWorkerOptions.workerPort) {
-    pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
+  if (!pdfWorkerReady) {
+    pdfWorkerReady = (async () => {
+      const sources = [pdfWorkerUrl, `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`];
+      for (const src of sources) {
+        try {
+          const res = await fetch(src, { cache: 'no-cache' });
+          const text = res.ok ? await res.text() : '';
+          if (!text || /^\s*<(!doctype|html)/i.test(text)) continue; // missing file served as the app page
+          pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([text], { type: 'text/javascript' }));
+          return;
+        } catch { /* try the next source */ }
+      }
+      pdfWorkerReady = null;
+      throw new Error('The PDF reader could not load — refresh the page (Ctrl + Shift + R) and try again');
+    })();
   }
+  return pdfWorkerReady;
 }
 
 // ---- Catalogue: names and sizes mirror the Echo DOMESTIC costing sheet ----
@@ -342,7 +358,7 @@ async function imageFileToJpeg(file) {
 }
 
 async function pdfFileToJpeg(file) {
-  ensurePdfWorker();
+  await ensurePdfWorker();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
   const pdfPage = await pdf.getPage(1);
