@@ -1008,6 +1008,50 @@ function smDetachOthers(sketch, id, ctx) {
   });
 }
 
+// Parts that drop onto a sheet metal run: in-line ones sit in it, spigots sit on its side.
+const SM_INLINE = new Set(['exhfan', 'vcd', 'firedamper', 'motdamper', 'backdraft', 'attenuator']);
+const SM_SIDE = new Set(['spigot']);
+
+// Where a part dropped near a run should sit, or null if it isn't close enough.
+function smSeat(item, ctx, reach) {
+  const inline = SM_INLINE.has(item.type);
+  if (!inline && !SM_SIDE.has(item.type)) return null;
+  let best = null;
+  ctx.sketch.forEach((s) => {
+    if (s.kind !== 'smduct') return;
+    const P = smPts(s, ctx);
+    const hw = (smDims(s).w / 1000) * ctx.ppm / 2;
+    for (let i = 0; i < P.length - 1; i += 1) {
+      const a = P[i];
+      const b = P[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const L = Math.hypot(dx, dy);
+      if (L < 1) continue;
+      const ux = dx / L;
+      const uy = dy / L;
+      if (Math.abs(ux) > 0.01 && Math.abs(uy) > 0.01) continue; // parts turn in 90° steps: straight runs only
+      const t = clamp(((item.cx - a.x) * ux + (item.cy - a.y) * uy) / L, 0, 1);
+      const px = a.x + dx * t;
+      const py = a.y + dy * t;
+      const off = (item.cx - px) * -uy + (item.cy - py) * ux; // + = left of travel
+      const dist = Math.abs(off) - hw;
+      if (dist > reach || (best && dist >= best.dist)) continue;
+      if (inline) {
+        best = { dist, cx: px, cy: py, rot: Math.abs(ux) > 0.5 ? 0 : 90, onRun: { id: s.id, seg: i, t } };
+      } else {
+        const side = off >= 0 ? 1 : -1;
+        const nx = -uy * side;
+        const ny = ux * side;
+        const depth = (footprintMm(item)[1] / 1000) * ctx.ppm;
+        const rot = ny > 0.5 ? 0 : nx < -0.5 ? 90 : ny < -0.5 ? 180 : 270;
+        best = { dist, cx: px + nx * (hw + depth / 2), cy: py + ny * (hw + depth / 2), rot, onRun: { id: s.id, seg: i, t, side } };
+      }
+    }
+  });
+  return best;
+}
+
 const smReverse = (s) => ({ ...s, pts: [...s.pts].reverse(), a: s.b, b: s.a });
 
 // Join run X's end to run Y's end into one continuous run (same size), re-pointing
@@ -1083,8 +1127,22 @@ function smEndFittings(s, ctx) {
     const other = smDims(t);
     if (link.kind === 'side') {
       out.push({ type: 'bto', at, u, from: other, to: me, label: `Branch take-off (shoe) — ${me.w} x ${me.h} off ${other.w} x ${other.h}` });
-    } else if (other.w !== me.w || other.h !== me.h) {
-      out.push({ type: 'transition', at, u, from: other, to: me, label: `Transition — ${other.w} x ${other.h} to ${me.w} x ${me.h}` });
+    } else {
+      if (other.w !== me.w || other.h !== me.h) {
+        out.push({ type: 'transition', at, u, from: other, to: me, label: `Transition — ${other.w} x ${other.h} to ${me.w} x ${me.h}` });
+      }
+      // Leaving a run end at an angle needs a bend as well.
+      const tp = smPts(t, ctx);
+      if (tp.length > 1) {
+        const [p1, p0] = link.end === 'end' ? [tp[tp.length - 1], tp[tp.length - 2]] : [tp[0], tp[1]];
+        const ol = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+        const dot = clamp(((p1.x - p0.x) / ol) * u.x + ((p1.y - p0.y) / ol) * u.y, -1, 1);
+        const deg = (Math.acos(dot) * 180) / Math.PI;
+        if (deg > 10) {
+          const big = other.w * other.h >= me.w * me.h ? other : me;
+          out.push({ type: 'bend', at, u, from: other, to: me, label: deg < 67.5 ? `Sheet metal 45° bend — ${big.w} x ${big.h} mm` : `Sheet metal 90° bend c/w turning vanes — ${big.w} x ${big.h} mm` });
+        }
+      }
     }
   });
   return out;
@@ -1105,6 +1163,7 @@ function smNetworks(ctx) {
       union(`r:${s.id}`, l.kind === 'port' ? `i:${l.itemId}` : `r:${l.id}`);
     });
   });
+  ctx.items.forEach((it) => { if (it.onRun?.id) union(`r:${it.onRun.id}`, `i:${it.id}`); });
   const groups = new Map();
   parent.forEach((_, key) => {
     const r = find(key);
@@ -2493,11 +2552,40 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       setSketchDraft({ kind: drag.tool, x1: drag.x1, y1: drag.y1, x2, y2, snapA: drag.startTarget, snapB: drag.endTarget });
       return;
     }
+    if (drag.kind === 'smpoint') {
+      const run = sketch.find((x) => x.id === drag.id);
+      if (!run) return;
+      let x = skSnap(p.x);
+      let y = skSnap(p.y);
+      drag.target = null;
+      if (drag.end) {
+        const hit = smFindSnap(p, SM_SNAP_PX / (viewRef.current?.z || 1), smCtx, run.id);
+        if (hit) { x = hit.x; y = hit.y; drag.target = hit; }
+      }
+      const nb = run.pts[drag.idx === 0 ? 1 : drag.idx - 1];
+      if (!drag.target && nb && !event.shiftKey) {
+        // Keep the segment to the neighbour at 0 / 45 / 90°.
+        const len = Math.hypot(p.x - nb.x, p.y - nb.y);
+        const ang = Math.round(Math.atan2(p.y - nb.y, p.x - nb.x) / (Math.PI / 4)) * (Math.PI / 4);
+        const g = (ppm * 50) / 1000;
+        const l = Math.round(len / g) * g;
+        x = nb.x + Math.cos(ang) * l;
+        y = nb.y + Math.sin(ang) * l;
+      }
+      setSketch((current) => current.map((r) => (r.id === drag.id ? { ...r, pts: r.pts.map((q, i) => (i === drag.idx ? { x, y } : q)) } : r)));
+      markDirty();
+      return;
+    }
     if (drag.kind === 'sketchmove') {
       const dx = skSnap(p.x - drag.px);
       const dy = skSnap(p.y - drag.py);
       const o = drag.orig;
       setSketch((current) => current.map((s) => (s.id === drag.id ? { ...s, x1: o.x1 + dx, y1: o.y1 + dy, ...(o.x2 != null ? { x2: o.x2 + dx, y2: o.y2 + dy } : {}), ...(o.pts ? { pts: o.pts.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : {}) } : s)));
+      if (drag.riders?.length) {
+        // Dampers, fans and spigots fitted to the run travel with it.
+        const at = new Map(drag.riders.map((r) => [r.id, r]));
+        setItems((current) => current.map((i) => (at.has(i.id) ? { ...i, cx: at.get(i.id).cx + dx, cy: at.get(i.id).cy + dy } : i)));
+      }
       markDirty();
       return;
     }
@@ -2633,6 +2721,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return;
     }
     if (drag?.kind === 'sketchmove') return;
+    if (drag?.kind === 'smpoint') {
+      if (drag.end && drag.target) {
+        setSketch((current) => current.map((r) => (r.id === drag.id ? { ...r, [drag.end]: smLinkFrom(drag.target) } : r)));
+        toast.message(drag.target.kind === 'side' ? 'Branch take-off added' : drag.target.kind === 'port' ? 'Connected to the part' : 'Joined');
+      }
+      return;
+    }
     if (drag?.kind === 'wire') {
       setWire(null);
       if (!drag.moved) {
@@ -2685,6 +2780,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (group.length > 1) return;
     const me = members[0];
     if (!me || me.type === 'zonearea') return;
+    if (SM_INLINE.has(me.type) || SM_SIDE.has(me.type)) {
+      const seat = smSeat(me, smCtx, reach);
+      if (seat) {
+        setItems((current) => current.map((item) => (item.id === me.id ? { ...item, cx: seat.cx, cy: seat.cy, rot: seat.rot, onRun: seat.onRun } : item)));
+        markDirty();
+        toast.message(SM_SIDE.has(me.type) ? `${tags[me.id]} fitted to the duct side — run flex from its outlet` : `${tags[me.id]} fitted in the duct run`);
+        return;
+      }
+      if (me.onRun) setItems((current) => current.map((item) => (item.id === me.id ? { ...item, onRun: undefined } : item)));
+    }
     if (me.type === 'zone' && cutIn(me)) return;
     const b = itemBox(me, ppm);
     const boxes = boxesExcept(items, [me.id]);
@@ -2904,8 +3009,78 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       setSketch((current) => smDetachOthers(current, el.id, { ...smCtx, sketch: current }).map((x) => (x.id === el.id ? orig : x)));
       toast.message('Run disconnected');
     }
-    dragRef.current = { kind: 'sketchmove', id: el.id, orig, px: p.x, py: p.y, sx: event.clientX, sy: event.clientY, moved: false };
+    const riders = el.kind === 'smduct' ? items.filter((i) => i.onRun?.id === el.id).map((i) => ({ id: i.id, cx: i.cx, cy: i.cy })) : [];
+    dragRef.current = { kind: 'sketchmove', id: el.id, orig, riders, px: p.x, py: p.y, sx: event.clientX, sy: event.clientY, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  // ---- Editing the points of a sheet metal run ----
+  function startSmPoint(event, run, idx) {
+    if (fingerOnly(event) || sketchTool || scaleDraft) return;
+    event.stopPropagation();
+    const pts = smPts(run, smCtx);
+    // Moving a tied end frees it; it can re-tie where it's dropped.
+    const freed = idx === 0 && run.a ? 'a' : idx === pts.length - 1 && run.b ? 'b' : null;
+    setSketch((current) => current.map((x) => (x.id === run.id ? { ...x, pts, ...(freed ? { [freed]: undefined } : {}) } : x)));
+    dragRef.current = { kind: 'smpoint', id: run.id, idx, end: idx === 0 ? 'a' : idx === pts.length - 1 ? 'b' : null, target: null, sx: event.clientX, sy: event.clientY, moved: false };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function addSmPoint(run, p) {
+    const pts = smPts(run, smCtx);
+    let best = { d: Infinity, i: -1, x: 0, y: 0 };
+    for (let i = 0; i < pts.length - 1; i += 1) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const l2 = dx * dx + dy * dy || 1;
+      const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0.05, 0.95);
+      const x = a.x + dx * t;
+      const y = a.y + dy * t;
+      const d = Math.hypot(x - p.x, y - p.y);
+      if (d < best.d) best = { d, i, x, y };
+    }
+    if (best.i < 0) return;
+    const next = [...pts.slice(0, best.i + 1), { x: best.x, y: best.y }, ...pts.slice(best.i + 1)];
+    setSketch((current) => current.map((x) => {
+      if (x.id === run.id) return { ...x, pts: next };
+      // Branches off later segments shift up one.
+      if (x.kind !== 'smduct') return x;
+      let y = x;
+      ['a', 'b'].forEach((k) => {
+        const l = x[k];
+        if (l?.kind === 'side' && l.id === run.id && l.seg >= best.i) {
+          if (l.seg > best.i) y = { ...y, [k]: { ...l, seg: l.seg + 1 } };
+          else y = smBake(y, { ...smCtx, sketch: current }, [k]);
+        }
+      });
+      return y;
+    }));
+    markDirty();
+    toast.message('Bend point added — drag it to shape the run');
+  }
+
+  function removeSmPoint(run, idx) {
+    const pts = smPts(run, smCtx);
+    if (idx === 0 || idx === pts.length - 1 || pts.length <= 2) return;
+    const next = pts.filter((_, i) => i !== idx);
+    setSketch((current) => {
+      const c = { ...smCtx, sketch: current };
+      return current.map((x) => {
+        if (x.id === run.id) return { ...x, pts: next };
+        if (x.kind !== 'smduct') return x;
+        let y = x;
+        ['a', 'b'].forEach((k) => {
+          const l = x[k];
+          if (l?.kind !== 'side' || l.id !== run.id || l.seg < idx - 1) return;
+          if (l.seg >= idx) y = { ...y, [k]: { ...l, seg: l.seg - 1 } };
+          else y = smBake(y, c, [k]);
+        });
+        return y;
+      });
+    });
+    markDirty();
   }
 
   function updateSketch(id, patch) {
@@ -3842,13 +4017,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const fits = smEndFittings(s, smCtx);
                     return (
                       <g key={s.id}>
-                        <path d={dpath} fill="none" stroke="transparent" strokeWidth={Math.max(16, dw + 8)} strokeLinejoin="miter" style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} />
+                        <path d={dpath} fill="none" stroke="transparent" strokeWidth={Math.max(16, dw + 8)} strokeLinejoin="miter" style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} onDoubleClick={(event) => { event.stopPropagation(); addSmPoint(s, toWorld(event.clientX, event.clientY)); }} />
                         <path d={dpath} fill="none" stroke={edge} strokeWidth={dw} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                         <path d={dpath} fill="none" stroke={fillC} strokeWidth={Math.max(1, dw - 2.5)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                         <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.8} strokeDasharray="6 4" style={{ pointerEvents: 'none' }} />
                         {ticks.length > 0 && <path d={ticks.join(' ')} fill="none" stroke={edge} strokeWidth={1.4} style={{ pointerEvents: 'none' }} />}
                         {vanes.length > 0 && <path d={vanes.join(' ')} fill="none" stroke={edge} strokeWidth={1} style={{ pointerEvents: 'none' }} />}
-                        {fits.map((f, i) => {
+                        {fits.filter((f) => f.type !== 'bend').map((f, i) => {
                           const n = { x: -f.u.y, y: f.u.x };
                           const wA = Math.max(3, f.from.w * mm) / 2;
                           const wB = dw / 2;
@@ -3873,9 +4048,28 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                             {`${DUCT_PREFIX[s.air] || ''}SM ${smDims(s).w}×${smDims(s).h}${scale || sketch.length ? ` ${fmtM(lenM)}m` : ''}`}
                           </text>
                         )}
-                        {(sel || sketchTool === 'smduct') && [[P[0], s.a], [P[P.length - 1], s.b]].map(([q, link], i) => (
+                        {sketchTool === 'smduct' && !sel && [[P[0], s.a], [P[P.length - 1], s.b]].map(([q, link], i) => (
                           <circle key={i} cx={q.x} cy={q.y} r={4 * k} fill={link ? '#16a34a' : '#fff'} stroke={link ? '#14532d' : '#2563eb'} strokeWidth={1.5} style={{ pointerEvents: 'none' }} />
                         ))}
+                        {sel && P.map((q, i) => {
+                          const end = i === 0 ? s.a : i === P.length - 1 ? s.b : null;
+                          return (
+                            <rect
+                              key={i}
+                              x={q.x - 5 * k}
+                              y={q.y - 5 * k}
+                              width={10 * k}
+                              height={10 * k}
+                              rx={i === 0 || i === P.length - 1 ? 5 * k : 1.5 * k}
+                              fill={end ? '#16a34a' : '#ffffff'}
+                              stroke={end ? '#14532d' : '#2563eb'}
+                              strokeWidth={1.5}
+                              style={{ pointerEvents: live || 'all', cursor: 'grab' }}
+                              onPointerDown={(event) => startSmPoint(event, s, i)}
+                              onDoubleClick={(event) => { event.stopPropagation(); removeSmPoint(s, i); }}
+                            />
+                          );
+                        })}
                       </g>
                     );
                   }
