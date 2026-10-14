@@ -980,9 +980,11 @@ function smPts(s, ctx, depth = 0) {
   if (s.trKind === 'flatL' || s.trKind === 'flatR') {
     const sa = smEccShift(s, 'a', ctx, depth);
     const sb = smEccShift(s, 'b', ctx, depth);
-    pts[0] = { x: pts[0].x + sa.x, y: pts[0].y + sa.y };
     const e = pts.length - 1;
-    pts[e] = { x: pts[e].x + sb.x, y: pts[e].y + sb.y };
+    const move = (i, d) => { pts[i] = { x: pts[i].x + d.x, y: pts[i].y + d.y }; };
+    // Shift the whole first (or last) straight so it stays parallel, unless its far end is tied down.
+    if (sa.x || sa.y) { move(0, sa); if (e > 1 || !s.b) move(1, sa); }
+    if (sb.x || sb.y) { move(e, sb); if (e > 1 || !s.a) move(e - 1, sb); }
   }
   return pts;
 }
