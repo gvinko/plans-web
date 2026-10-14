@@ -580,6 +580,9 @@ function transDims(item) {
 }
 
 function fanLine(item, tool) {
+  if (item.ductSize && item.onRun && item.type !== 'exhfan' && item.type !== 'spigot') {
+    return `${tool.specs?.[0]?.sheet || tool.label} — ${item.ductSize} mm (to suit duct)`;
+  }
   if (item.type === 'transition') {
     const t = transDims(item);
     return `Transition — ${t.a.label} → ${t.b.label} x ${t.len}mm long${t.ecc ? ' (eccentric)' : ''}`;
@@ -593,6 +596,7 @@ function shortSpec(item) {
   if (item.type === 'outdoor') return item.outdoorModel || (item.suits ? `to suit ${item.suits}` : '');
   if (FAN_TYPES.has(item.type) && (item.fanModel || '').trim()) return item.fanModel.trim();
   if (item.type === 'transition') { const t = transDims(item); return `${t.a.label}→${t.b.label}`; }
+  if (item.ductSize && item.onRun) return item.ductSize;
   const tool = getTool(item.type);
   const field = (tool.specs || []).find((f) => f.short);
   if (!field) return '';
@@ -1011,6 +1015,7 @@ function smDetachOthers(sketch, id, ctx) {
 // Parts that drop onto a sheet metal run: in-line ones sit in it, spigots sit on its side.
 const SM_INLINE = new Set(['exhfan', 'vcd', 'firedamper', 'motdamper', 'backdraft', 'attenuator']);
 const SM_SIDE = new Set(['spigot']);
+const SM_INLINE_LEN = { vcd: 250, firedamper: 300, motdamper: 300, backdraft: 250, attenuator: 900 }; // mm along the run
 
 // Where a part dropped near a run should sit, or null if it isn't close enough.
 function smSeat(item, ctx, reach) {
@@ -1038,7 +1043,12 @@ function smSeat(item, ctx, reach) {
       const dist = Math.abs(off) - hw;
       if (dist > reach || (best && dist >= best.dist)) continue;
       if (inline) {
-        best = { dist, cx: px, cy: py, rot: Math.abs(ux) > 0.5 ? 0 : 90, onRun: { id: s.id, seg: i, t } };
+        // Dampers take the duct's size; fans keep their own casing.
+        const d = smDims(s);
+        const dims = item.type === 'exhfan' ? null : { w: SM_INLINE_LEN[item.type] || 300, d: d.w };
+        const size = `${d.w}x${d.h}mm`;
+        const sizeOpts = getTool(item.type).specs?.find((f) => f.key === 'size')?.options || [];
+        best = { dist, cx: px, cy: py, rot: Math.abs(ux) > 0.5 ? 0 : 90, onRun: { id: s.id, seg: i, t }, dims, spec: sizeOpts.includes(size) ? { size } : null, ductSize: `${d.w}x${d.h}` };
       } else {
         const side = off >= 0 ? 1 : -1;
         const nx = -uy * side;
@@ -2783,12 +2793,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (SM_INLINE.has(me.type) || SM_SIDE.has(me.type)) {
       const seat = smSeat(me, smCtx, reach);
       if (seat) {
-        setItems((current) => current.map((item) => (item.id === me.id ? { ...item, cx: seat.cx, cy: seat.cy, rot: seat.rot, onRun: seat.onRun } : item)));
+        setItems((current) => current.map((item) => (item.id === me.id ? {
+          ...item,
+          cx: seat.cx,
+          cy: seat.cy,
+          rot: seat.rot,
+          onRun: seat.onRun,
+          ...(seat.dims ? { dims: seat.dims, ductSize: seat.ductSize } : {}),
+          ...(seat.spec ? { spec: { ...item.spec, ...seat.spec } } : {}),
+        } : item)));
         markDirty();
         toast.message(SM_SIDE.has(me.type) ? `${tags[me.id]} fitted to the duct side — run flex from its outlet` : `${tags[me.id]} fitted in the duct run`);
         return;
       }
-      if (me.onRun) setItems((current) => current.map((item) => (item.id === me.id ? { ...item, onRun: undefined } : item)));
+      if (me.onRun) {
+        // Taken off the run: back to its own catalogue size.
+        setItems((current) => current.map((item) => (item.id === me.id ? { ...item, onRun: undefined, ...(item.ductSize ? { ductSize: undefined, dims: undefined } : {}) } : item)));
+      }
     }
     if (me.type === 'zone' && cutIn(me)) return;
     const b = itemBox(me, ppm);
