@@ -391,6 +391,29 @@ export default function HvacSymbol({ type, size = 22, className = '', stretch = 
         </svg>
       );
 
+    case 'flexconn':
+      // Flexible canvas connection: short gap with zig-zag fabric.
+      return (
+        <svg {...common}>
+          <line x1="1" y1="2" x2="1" y2="22" />
+          <line x1="23" y1="2" x2="23" y2="22" />
+          <path d="M1 2 L5 4 L9 2 L13 4 L17 2 L21 4 L23 2 M1 22 L5 20 L9 22 L13 20 L17 22 L21 20 L23 22" strokeWidth="1.2" />
+          <path d="M4 7 L8 17 M10 7 L14 17 M16 7 L20 17" strokeWidth="1" />
+        </svg>
+      );
+
+    case 'rafilterbox':
+      // R/A filter box: casing, access panel line, pleated media and hatch.
+      return (
+        <svg {...common}>
+          <rect x="1" y="1" width="22" height="22" />
+          <rect x="3" y="3" width="18" height="15" strokeWidth="1" strokeDasharray="2 1.5" />
+          <path d="M3 10.5 L5 7 L7 14 L9 7 L11 14 L13 7 L15 14 L17 7 L19 14 L21 10.5" strokeWidth="1.1" />
+          <path d="M3 18 L6 3 M9 18 L12 3 M15 18 L18 3" strokeWidth="0.6" />
+          {spigots ? spigotRects(spigots, 18) : <rect x="7" y="19" width="10" height="4" fill="currentColor" stroke="none" />}
+        </svg>
+      );
+
     case 'attenuator':
       return (
         <svg {...common}>

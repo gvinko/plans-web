@@ -40,6 +40,14 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - Ctrl + drag a run, or use the panel button, to disconnect it (`smBake` / `smDetachOthers`).
 - PDF: Export PDF lets you pick A3 or A4 and 1:20 to 1:200 (`PAPER`, `PRINT_SCALES`, `exportPdf`). The fan schedule prints beside the plan.
 
+## Shop-drawing detail (added 15 Oct 2026)
+
+- Run fields (all optional, old drawings unaffected): `bend` ('square' default | 'radius'), `bendR` (1 | 1.5 × W), `vanes` (0/2/3), `trKind` ('con' | 'flatL' | 'flatR') and `taper` (4 | 7) for a transition at a tied end, `ls` and `elev` (label text only).
+- `smLayout()` gives the centre-line path (radius bends as arcs) and the straight part of each segment. `smPieces()` cuts those into stock sheet lengths (`sheetLen`) — shown in the run panel and the BOM note.
+- Eccentric reducers: `smEccShift()` moves the tied end sideways so one edge runs straight. `smPts()` applies it.
+- "Add reducer" in the run panel calls `smSplit()`: the run splits at a distance from its start and the far part takes the new size. Ties and parts on the far part move with it.
+- New parts: `flexconn` (flexible canvas connection, drops into a run like a damper) and `rafilterbox` (R/A filter box: face size, filter grade, spigots or a rect neck `rfbNeck`).
+
 ## Testing builds
 
 - The CI workflow also pushes each built `dist` to the `build-preview` branch.

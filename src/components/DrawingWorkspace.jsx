@@ -142,6 +142,14 @@ const actronKw = (p) => (Number((p?.coilCode || '').match(/\d+/)?.[0]) || 0) / 1
 const sectionKw = (item) => actronKw(actronPair(item.spec?.model));
 const DUCT_PLATES = ['PLDP-2/400 — 2 x 16" (400mm)', 'PLDS-2/400 — 2 x 16" (400mm)', 'PLDT-2/450 — 2 x 18" (450mm)', 'Duct plate — 2 x 12" (300mm)', 'Duct plate — 2 x 14" (350mm)', 'Duct plate — 3 x 12" (300mm)', 'Duct plate — 3 x 14" (350mm)', 'Duct plate — 4 x 10" (250mm)'];
 
+// R/A filter box outlets: round spigots, or a rectangular neck (slip joint) sized in mm.
+const RFB_OUTLETS = ['Rect neck (slip joint)', '1 x 350Ø spigot', '1 x 450Ø spigot', '2 x 350Ø spigots', '2 x 400Ø spigots', '3 x 300Ø spigots', '4 x 250Ø spigots'];
+function rfbOutlet(item) {
+  const v = item.spec?.outlet || RFB_OUTLETS[0];
+  const m = v.match(/^(\d) x (\d+)Ø/);
+  return m ? { n: Number(m[1]), dia: Number(m[2]), rect: false, label: v } : { n: 1, dia: null, rect: true, label: `${item.rfbNeck || 'size TBC'} rect neck (slip joint)` };
+}
+
 const CATALOG = [
   {
     group: 'Equipment',
@@ -174,6 +182,14 @@ const CATALOG = [
           { key: 'box', label: 'R/A Box', sheet: 'R/A Box', options: ['None', ...RA_BOXES], dependsOn: 'size' },
         ],
       },
+      {
+        type: 'rafilterbox', label: 'R/A Filter Box', tag: 'RFB', role: 'returnFit',
+        specs: [
+          { key: 'face', label: 'Filter face', sheet: 'R/A Filter Box', options: ['1190x590mm', '890x590mm', '590x590mm', '1190x890mm', '1190x1190mm'], short: (v) => v.replace('mm', '') },
+          { key: 'filter', label: 'Filter', sheet: 'Filter media', options: ['G4 pleated', 'F7 pleated', 'F7 bag', 'Washable panel'] },
+          { key: 'outlet', label: 'Outlet', options: RFB_OUTLETS, noTakeoff: true },
+        ],
+      },
     ],
   },
   {
@@ -183,6 +199,7 @@ const CATALOG = [
       { type: 'dbto', label: 'DBTO', tag: 'DBTO', role: 'fit', specs: [{ key: 'size', label: 'Size', sheet: 'DBTO', options: DBTO_SIZES, short: compact }] },
       { type: 'reducer', label: 'Reducer', tag: 'RED', role: 'fit', sheet: 'Reducers' },
       { type: 'cushion', label: 'Cushion Box', tag: 'CB', role: 'fit', sheet: 'Cushion Box' },
+      { type: 'flexconn', label: 'Flexible Canvas Connection', tag: 'FC', role: 'fit', specs: [{ key: 'kind', label: 'Type', sheet: 'Flexible Connection', options: ['Neoprene / canvas 150mm', 'Neoprene / canvas 100mm'] }] },
       { type: 'transition', label: 'Transition (sheet metal)', tag: 'TR', role: 'fit', specs: [{ key: 'kind', label: 'Shape', options: ['Concentric', 'Eccentric (flat one side)'], noTakeoff: true }] },
     ],
   },
@@ -279,9 +296,9 @@ const TYPE_MM = {
   zone: [350, 300], controller: [120, 120], transformer: [150, 100], sensor: [90, 90], zonearea: [4000, 3000], condpump: [250, 150], drainpoint: [160, 160], isolator: [120, 120], switchboard: [600, 200],
   exhfan: [450, 300], roofcowl: [400, 400], jetfan: [1200, 450], eggcrate: [300, 300], sqdiff: [600, 600], linearslot: [1200, 150],
   louvre: [450, 450], transfer: [450, 150], doorgrille: [450, 150], makeup: [400, 600], accesspanel: [450, 450],
-  spigot: [300, 120], vcd: [300, 250], firedamper: [350, 300], motdamper: [400, 300], backdraft: [300, 250], attenuator: [900, 350],
+  spigot: [300, 120], flexconn: [150, 400], rafilterbox: [1190, 590], vcd: [300, 250], firedamper: [350, 300], motdamper: [400, 300], backdraft: [300, 250], attenuator: [900, 350],
 };
-const STRETCH = new Set(['return', 'wallgrille', 'floorgrille', 'saplenum', 'raplenum', 'ductplate', 'reducer', 'splitindoor', 'eggcrate', 'sqdiff', 'linearslot', 'louvre', 'transfer', 'doorgrille', 'accesspanel', 'exhfan', 'jetfan', 'vcd', 'firedamper', 'motdamper', 'backdraft', 'attenuator']);
+const STRETCH = new Set(['flexconn', 'rafilterbox', 'return', 'wallgrille', 'floorgrille', 'saplenum', 'raplenum', 'ductplate', 'reducer', 'splitindoor', 'eggcrate', 'sqdiff', 'linearslot', 'louvre', 'transfer', 'doorgrille', 'accesspanel', 'exhfan', 'jetfan', 'vcd', 'firedamper', 'motdamper', 'backdraft', 'attenuator']);
 // Commercial parts whose plan footprint follows the W x H picked in their Size spec.
 // Grilles and louvres set in a wall: on plan they are a thin strip along the wall face.
 const WALL_TYPES = new Set(['wallgrille', 'louvre', 'transfer', 'doorgrille']);
@@ -408,6 +425,10 @@ function portDefs(item) {
         { id: 'ref', fx: 0, fy: 0.38, dir: 'w', service: 'pipe' },
         { id: 'drain', fx: 1, fy: 0.7, dir: 'e', service: 'drain' },
       ];
+    case 'rafilterbox': {
+      const o = rfbOutlet(item);
+      return o.rect ? [{ id: 'out', fx: 0.5, fy: 1, dir: 's', air: 'return' }] : spread(o.n, 1, 's', 'return', 'ra');
+    }
     case 'raplenum':
       return [...spread(spigotCount(item.spec?.size, 2), 0, 'n', 'return', 'ra'), { id: 'out', fx: 0.5, fy: 1, dir: 's', joinOnly: true }];
     case 'return': {
@@ -421,6 +442,7 @@ function portDefs(item) {
       return [{ id: 'w', fx: 0, fy: 0.5, dir: 'w' }, { id: 'e', fx: 1, fy: 0.5, dir: 'e' }, { id: 's', fx: 0.5, fy: 1, dir: 's' }];
     case 'zone':
     case 'reducer':
+    case 'flexconn':
     case 'transition':
     case 'exhfan':
     case 'vcd':
@@ -645,6 +667,10 @@ function footprintMm(item) {
     const m = size.match(/(\d+)\s*x\s*(\d+)/);
     if (m) return [Number(m[1]), Number(m[2])];
   }
+  if (item.type === 'rafilterbox') {
+    const m = String(item.spec?.face || '1190x590').match(/(\d+)\s*x\s*(\d+)/);
+    return m ? [Number(m[1]), Number(m[2])] : [1190, 590];
+  }
   if (item.type === 'spigot') {
     const dia = Number(String(item.spec?.size || '250').match(/\d+/)?.[0]) || 250;
     return [dia + 50, 120];
@@ -738,6 +764,8 @@ function portSizeMm(item, portId) {
     }
     case 'spigot':
       return Number(String(spec.size || '250').match(/\d+/)?.[0]) || null;
+    case 'rafilterbox':
+      return rfbOutlet(item).dia;
     case 'transition': {
       const t = transDims(item);
       const end = portId === 'w' ? t.a : portId === 'e' ? t.b : null;
@@ -949,6 +977,13 @@ function smPts(s, ctx, depth = 0) {
   const b = smLinkPoint(s.b, ctx, depth);
   if (a) pts[0] = a;
   if (b) pts[pts.length - 1] = b;
+  if (s.trKind === 'flatL' || s.trKind === 'flatR') {
+    const sa = smEccShift(s, 'a', ctx, depth);
+    const sb = smEccShift(s, 'b', ctx, depth);
+    pts[0] = { x: pts[0].x + sa.x, y: pts[0].y + sa.y };
+    const e = pts.length - 1;
+    pts[e] = { x: pts[e].x + sb.x, y: pts[e].y + sb.y };
+  }
   return pts;
 }
 
@@ -1021,7 +1056,7 @@ function smDetachOthers(sketch, id, ctx) {
 }
 
 // Parts that drop onto a sheet metal run: in-line ones sit in it, spigots sit on its side.
-const SM_INLINE = new Set(['exhfan', 'vcd', 'firedamper', 'motdamper', 'backdraft', 'attenuator']);
+const SM_INLINE = new Set(['flexconn', 'exhfan', 'vcd', 'firedamper', 'motdamper', 'backdraft', 'attenuator']);
 const SM_SIDE = new Set(['spigot']);
 const SM_INLINE_LEN = { vcd: 250, firedamper: 300, motdamper: 300, backdraft: 250, attenuator: 900 }; // mm along the run
 
@@ -1053,7 +1088,8 @@ function smSeat(item, ctx, reach) {
       if (inline) {
         // Dampers take the duct's size; fans keep their own casing.
         const d = smDims(s);
-        const dims = item.type === 'exhfan' ? null : { w: SM_INLINE_LEN[item.type] || 300, d: d.w };
+        const along = item.type === 'flexconn' ? (String(item.spec?.kind || '').includes('100') ? 100 : 150) : SM_INLINE_LEN[item.type] || 300;
+        const dims = item.type === 'exhfan' ? null : { w: along, d: d.w };
         const size = `${d.w}x${d.h}mm`;
         const sizeOpts = getTool(item.type).specs?.find((f) => f.key === 'size')?.options || [];
         best = { dist, cx: px, cy: py, rot: Math.abs(ux) > 0.5 ? 0 : 90, onRun: { id: s.id, seg: i, t }, dims, spec: sizeOpts.includes(size) ? { size } : null, ductSize: `${d.w}x${d.h}` };
@@ -1147,7 +1183,9 @@ function smEndFittings(s, ctx) {
       out.push({ type: 'bto', at, u, from: other, to: me, label: `Branch take-off (shoe) — ${me.w} x ${me.h} off ${other.w} x ${other.h}` });
     } else {
       if (other.w !== me.w || other.h !== me.h) {
-        out.push({ type: 'transition', at, u, from: other, to: me, label: `Transition — ${other.w} x ${other.h} to ${me.w} x ${me.h}` });
+        const lenMm = smTransLenMm(other, me, s);
+        const ecc = s.trKind === 'flatL' || s.trKind === 'flatR';
+        out.push({ type: 'transition', at, u, from: other, to: me, lenMm, ecc, shift: smEccShift(s, k, ctx), label: `Transition — ${other.w} x ${other.h} to ${me.w} x ${me.h} x ${lenMm}mm long${ecc ? ' (flat one side)' : ''}` });
       }
       // Leaving a run end at an angle needs a bend as well.
       const tp = smPts(t, ctx);
@@ -1158,7 +1196,7 @@ function smEndFittings(s, ctx) {
         const deg = (Math.acos(dot) * 180) / Math.PI;
         if (deg > 10) {
           const big = other.w * other.h >= me.w * me.h ? other : me;
-          out.push({ type: 'bend', at, u, from: other, to: me, label: deg < 67.5 ? `Sheet metal 45° bend — ${big.w} x ${big.h} mm` : `Sheet metal 90° bend c/w turning vanes — ${big.w} x ${big.h} mm` });
+          out.push({ type: 'bend', at, u, from: other, to: me, label: smBendLabel(s, deg, big.w, big.h) });
         }
       }
     }
@@ -1207,6 +1245,151 @@ function smBends(s) {
     else out.b90 += 1;
   }
   return out;
+}
+
+// ---- Sheet metal geometry: bends, straight pieces, reducers ----
+// s.bend: 'square' (mitred, default) | 'radius'; s.bendR: centre radius as a multiple of W (1 or 1.5);
+// s.vanes: turning vanes per 90° bend (0 / 2 / 3). s.trKind: 'con' | 'flatL' | 'flatR' for a transition
+// at a tied end; s.taper: 4 or 7 (1:4 / 1:7). s.ls / s.elev: annotation only.
+const smIsRadius = (s) => s.bend === 'radius';
+const smVaneCount = (s) => (s.vanes != null && s.vanes !== '' ? Number(s.vanes) : smIsRadius(s) ? 0 : 3);
+
+// Centre-line path plus, per segment, the straight part left once bends take their share.
+function smLayout(P, s, mm) {
+  const W = Math.max(3, smDims(s).w * mm);
+  const n = P.length;
+  const lens = [];
+  const us = [];
+  for (let i = 0; i < n - 1; i += 1) {
+    const L = Math.hypot(P[i + 1].x - P[i].x, P[i + 1].y - P[i].y);
+    lens.push(L);
+    us.push(L ? { x: (P[i + 1].x - P[i].x) / L, y: (P[i + 1].y - P[i].y) / L } : { x: 1, y: 0 });
+  }
+  const cut = new Array(n).fill(0);
+  const bends = [];
+  const k = Number(s.bendR) || 1;
+  for (let i = 1; i < n - 1; i += 1) {
+    if (lens[i - 1] < 1 || lens[i] < 1) continue;
+    const u1 = us[i - 1];
+    const u2 = us[i];
+    const deg = (Math.acos(clamp(u1.x * u2.x + u1.y * u2.y, -1, 1)) * 180) / Math.PI;
+    if (deg < 10) continue;
+    const b = { i, v: P[i], u1, u2, deg, radius: false };
+    if (smIsRadius(s) && deg < 170) {
+      const tanH = Math.tan((deg * Math.PI) / 360);
+      const tl = Math.min(k * W * tanH, lens[i - 1] / 2, lens[i] / 2);
+      const R = tl / tanH;
+      const cross = u1.x * u2.y - u1.y * u2.x;
+      const nT = cross > 0 ? { x: -u1.y, y: u1.x } : { x: u1.y, y: -u1.x };
+      const st = { x: P[i].x - u1.x * tl, y: P[i].y - u1.y * tl };
+      const en = { x: P[i].x + u2.x * tl, y: P[i].y + u2.y * tl };
+      Object.assign(b, { radius: true, R, tl, st, en, c: { x: st.x + nT.x * R, y: st.y + nT.y * R }, sweep: cross > 0 ? 1 : 0 });
+      cut[i] = tl;
+    }
+    bends.push(b);
+  }
+  let d = n ? `M${P[0].x},${P[0].y}` : '';
+  for (let i = 1; i < n - 1; i += 1) {
+    const b = bends.find((x) => x.i === i);
+    d += b?.radius ? ` L${b.st.x},${b.st.y} A${b.R},${b.R} 0 0 ${b.sweep} ${b.en.x},${b.en.y}` : ` L${P[i].x},${P[i].y}`;
+  }
+  if (n > 1) d += ` L${P[n - 1].x},${P[n - 1].y}`;
+  const segs = lens.map((L, i) => ({ a: P[i], u: us[i], from: cut[i], to: L - cut[i + 1] }));
+  return { d, bends, segs, W };
+}
+
+// Straight pieces cut from stock sheet lengths: each straight between bends starts fresh.
+function smPieces(segs, mm, sheetLen) {
+  const sheet = Number(sheetLen) || SM_DEFAULT_SHEET;
+  const tally = new Map();
+  let count = 0;
+  segs.forEach((g) => {
+    const len = (g.to - g.from) / mm;
+    if (len < 20) return;
+    const full = Math.floor(len / sheet + 1e-6);
+    let rem = Math.round((len - full * sheet) / 5) * 5;
+    if (rem < 20) rem = 0;
+    if (full) tally.set(sheet, (tally.get(sheet) || 0) + full);
+    if (rem) tally.set(rem, (tally.get(rem) || 0) + 1);
+    count += full + (rem ? 1 : 0);
+  });
+  return { tally, count };
+}
+const smPiecesText = (tally) => [...tally.entries()].sort((x, y) => y[0] - x[0]).map(([len, q]) => `${q} x ${len}mm`).join(' + ');
+
+function smBendLabel(s, deg, w, h) {
+  const ninety = deg >= 67.5;
+  const vanes = ninety && smVaneCount(s) > 0 ? ' c/w turning vanes' : '';
+  const kind = smIsRadius(s) ? `radius bend (R ${(Number(s.bendR) || 1).toFixed(1)}W)` : 'square bend';
+  return `Sheet metal ${ninety ? '90°' : '45°'} ${kind}${vanes} — ${w} x ${h} mm`;
+}
+
+// Eccentric (flat one side) reducer: shift this run's tied end sideways so one edge runs straight through.
+function smEccShift(s, k, ctx, depth = 0) {
+  const link = s[k];
+  if (!link || link.kind !== 'run' || (s.trKind !== 'flatL' && s.trKind !== 'flatR')) return { x: 0, y: 0 };
+  const t = ctx.sketch.find((x) => x.id === link.id && x.kind === 'smduct');
+  if (!t?.pts?.length) return { x: 0, y: 0 };
+  const tp = depth < 3 ? smPts(t, ctx, depth + 1) : t.pts;
+  if (tp.length < 2) return { x: 0, y: 0 };
+  const [p1, p0] = link.end === 'end' ? [tp[tp.length - 1], tp[tp.length - 2]] : [tp[0], tp[1]];
+  const L = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+  const ud = { x: (p1.x - p0.x) / L, y: (p1.y - p0.y) / L };
+  const half = ((smDims(t).w - smDims(s).w) / 2 / 1000) * ctx.ppm;
+  const side = s.trKind === 'flatL' ? 1 : -1;
+  return { x: ud.y * half * side, y: -ud.x * half * side };
+}
+
+// Transition length from the taper: 1:4 or 1:7 on the side that moves most.
+function smTransLenMm(from, to, s) {
+  const ratio = Number(s.taper) || 4;
+  const ecc = s.trKind === 'flatL' || s.trKind === 'flatR';
+  const dW = Math.abs(from.w - to.w);
+  const dH = Math.abs(from.h - to.h);
+  return Math.max(150, Math.ceil((Math.max(ecc ? dW : dW / 2, dH / 2) * ratio) / 25) * 25);
+}
+
+// Split run `id` at `dist` (world units along it) into two tied runs; the far part takes `dims`.
+// Anything tied to or sitting on the far part moves to the new run. Returns null if dist is off the ends.
+function smSplit(sketch, items, id, dist, dims, ctx, newId) {
+  const run = sketch.find((x) => x.id === id);
+  if (!run) return null;
+  const P = smPts(run, ctx);
+  let acc = 0;
+  for (let i = 0; i < P.length - 1; i += 1) {
+    const L = Math.hypot(P[i + 1].x - P[i].x, P[i + 1].y - P[i].y);
+    if (dist > acc + 1 && dist < acc + L - 1) {
+      const t = (dist - acc) / L;
+      const q = { x: P[i].x + (P[i + 1].x - P[i].x) * t, y: P[i].y + (P[i + 1].y - P[i].y) * t };
+      const first = { ...run, pts: [...P.slice(0, i + 1), q] };
+      delete first.b;
+      const second = { ...run, id: newId, pts: [q, ...P.slice(i + 1)], a: { kind: 'run', id, end: 'end' }, w: dims.w, h: dims.h, trKind: dims.trKind || 'con' };
+      if (!run.b) delete second.b;
+      const remap = (link) => {
+        if (!link || link.id !== id) return link;
+        if (link.kind === 'run') return link.end === 'end' ? { ...link, id: newId } : link;
+        if (link.seg > i) return { ...link, id: newId, seg: link.seg - i };
+        if (link.seg === i && link.t > t) return { ...link, id: newId, seg: 0, t: (link.t - t) / (1 - t) };
+        if (link.seg === i) return { ...link, t: link.t / t };
+        return link;
+      };
+      const nextSketch = sketch.flatMap((x) => {
+        if (x.id === id) return [first, second];
+        if (x.kind !== 'smduct') return [x];
+        const a = x.a?.kind === 'port' ? x.a : remap(x.a);
+        const b = x.b?.kind === 'port' ? x.b : remap(x.b);
+        return [a === x.a && b === x.b ? x : { ...x, a, b }];
+      });
+      const nextItems = items.map((it) => {
+        if (it.onRun?.id !== id) return it;
+        const { kind, ...onRun } = remap({ kind: 'side', ...it.onRun }); // eslint-disable-line no-unused-vars
+        return { ...it, onRun };
+      });
+      return { sketch: nextSketch, items: nextItems };
+    }
+    acc += L;
+  }
+  return null;
 }
 
 function roundedPath(pts, radius = 10) {
@@ -1395,6 +1578,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [sketchTool, setSketchTool] = useState(null); // null | 'wall' | 'room' | 'text'
   const [sketchDraft, setSketchDraft] = useState(null);
   const [selectedSketchId, setSelectedSketchId] = useState(null);
+  const [redForm, setRedForm] = useState({ at: '', w: '', h: '', kind: 'con' });
   useEffect(() => { if (selectedId || selectedConnId) setSelectedSketchId(null); }, [selectedId, selectedConnId]);
   const [jobOpen, setJobOpen] = useState(false);
   const [jobForm, setJobForm] = useState({});
@@ -1724,6 +1908,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         add(group, `${item.spec?.variant || 'Metal Diffusers + Neck'} — ${item.spec?.neck || '250mm'} neck`);
         return;
       }
+      if (item.type === 'rafilterbox') {
+        const face = item.spec?.face || '1190x590mm';
+        const filter = item.spec?.filter || 'G4 pleated';
+        add(group, `R/A filter box — ${face} face c/w ${rfbOutlet(item).label}`);
+        add(group, `Filter media — ${filter} — ${face}`);
+        return;
+      }
       if (!tool.specs?.length) { add(group, tool.sheet || tool.label); return; }
       const fan = fanLine(item, tool);
       if (fan) add(group, fan);
@@ -1798,20 +1989,24 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const nm = `Sheet metal duct — ${w} x ${h} mm`;
       const m = smLenOf(P) / ppm;
       const cur = sheet.get(nm) || { count: 0, metres: 0 };
+      if (!cur.tally) cur.tally = new Map();
       cur.count += 1;
       cur.metres += m;
-      sheet.set(nm, cur);
       const { b45, b90 } = smBends({ pts: P });
-      if (b45) add('Ductwork', `Sheet metal 45° bend — ${w} x ${h} mm`, b45);
-      if (b90) add('Ductwork', `Sheet metal 90° bend c/w turning vanes — ${w} x ${h} mm`, b90);
+      if (b45) add('Ductwork', smBendLabel(s, 45, w, h), b45);
+      if (b90) add('Ductwork', smBendLabel(s, 90, w, h), b90);
       if (lengthsKnown) {
-        const joints = Math.max(0, Math.ceil((m * 1000) / (Number(s.sheetLen) || SM_DEFAULT_SHEET)) - 1) + b45 + b90 + (s.a ? 1 : 0) + (s.b ? 1 : 0);
+        const pc = smPieces(smLayout(P, s, ppm / 1000).segs, ppm / 1000, s.sheetLen);
+        pc.tally.forEach((q, len) => cur.tally.set(len, (cur.tally.get(len) || 0) + q));
+        const joints = Math.max(0, pc.count - 1) + b45 + b90 + (s.a ? 1 : 0) + (s.b ? 1 : 0);
         if (joints) add('Ductwork', `TDF joint set — ${w} x ${h} mm`, joints);
       }
+      sheet.set(nm, cur);
       smEndFittings(s, ctxNow).forEach((f) => add('Ductwork', f.label, 1));
     });
-    sheet.forEach(({ count, metres }, nm) => {
-      if (lengthsKnown) add('Ductwork', nm, Math.max(1, Math.ceil(metres)), { swatch: '#94a3b8', note: `metres — ${fmtM(metres)} m drawn over ${count} run(s)` });
+    sheet.forEach(({ count, metres, tally }, nm) => {
+      const cut = tally?.size ? ` · pieces: ${smPiecesText(tally)}` : '';
+      if (lengthsKnown) add('Ductwork', nm, Math.max(1, Math.ceil(metres)), { swatch: '#94a3b8', note: `metres — ${fmtM(metres)} m drawn over ${count} run(s)${cut}` });
       else add('Ductwork', nm, count, { swatch: '#94a3b8', note: 'runs — set the scale for lengths' });
     });
     const RD = 'Refrigeration & drains';
@@ -2051,6 +2246,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const rect = canvasRef.current.getBoundingClientRect();
     const v = viewRef.current;
     return { x: (clientX - rect.left - v.x) / v.z, y: (clientY - rect.top - v.y) / v.z };
+  }
+
+  // Insert a reducer: split the run at a distance from its start; the rest of the run takes the new size.
+  function addReducer(run) {
+    const at = Number(redForm.at);
+    const w = Number(redForm.w);
+    const h = Number(redForm.h);
+    if (!scale) { toast.error('Set the scale first so the distance is in real metres.'); return; }
+    if (!(at > 0) || !(w >= 50) || !(h >= 50)) { toast.error('Enter the distance from the start (m) and the new width and height (mm).'); return; }
+    const newId = crypto.randomUUID();
+    const res = smSplit(sketch, items, run.id, at * ppm, { w, h, trKind: redForm.kind }, smCtx, newId);
+    if (!res) { toast.error('That distance is off the run — pick a point between the two ends.'); return; }
+    setSketch(res.sketch);
+    setItems(res.items);
+    setSelectedSketchId(newId);
+    markDirty();
+    toast.message(`Reducer added — ${smDims(run).w}/${smDims(run).h} to ${w}/${h}`);
   }
 
   function markDirty(msg = 'Unsaved changes') {
@@ -3588,7 +3800,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (item.type === 'transition') {
       return <TransitionPlan t={transDims(item)} className={ROLE_TONE.fit} />;
     }
-    const spigots = item.type === 'saplenum' || item.type === 'raplenum' || item.type === 'ductplate' ? spigotCount(item.spec?.size, 2) : undefined;
+    const spigots = item.type === 'saplenum' || item.type === 'raplenum' || item.type === 'ductplate' ? spigotCount(item.spec?.size, 2) : item.type === 'rafilterbox' ? (rfbOutlet(item).rect ? 0 : rfbOutlet(item).n) : undefined;
     return <HvacSymbol type={item.type} size="100%" stretch={STRETCH.has(item.type)} spigots={spigots} className={ROLE_TONE[getTool(item.type).role] || 'text-slate-900'} />;
   }
 
@@ -4044,9 +4256,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   if (s.kind === 'smduct' && s.pts?.length > 1) {
                     const P = smPts(s, smCtx);
                     const mm = ppm / 1000;
-                    const dw = Math.max(3, smDims(s).w * mm);
+                    const lay = smLayout(P, s, mm);
+                    const dw = lay.W;
                     const hw = dw / 2;
-                    const dpath = P.map((q, i) => `${i ? 'L' : 'M'}${q.x},${q.y}`).join(' ');
+                    const dpath = lay.d;
                     const seg = longestSeg(P);
                     let ang = seg.ang ?? 0;
                     if (ang > 90 || ang < -90) ang += 180;
@@ -4054,50 +4267,52 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const edge = sel ? '#2563eb' : (CASING[s.air] || CASING.supply);
                     const fillC = SM_FILL[s.air] || SM_FILL.supply;
                     const k = Math.min(inv, 2.5);
-                    // TDF joints every sheet length, measured along the run.
+                    // TDF flange joints every sheet length, restarting on each straight between bends.
                     const ticks = [];
                     const sheetW = (Number(s.sheetLen) || SM_DEFAULT_SHEET) * mm;
                     if (scale && sheetW > 2) {
-                      let acc = 0;
-                      for (let i = 1; i < P.length; i += 1) {
-                        const a = P[i - 1];
-                        const b = P[i];
-                        const L = Math.hypot(b.x - a.x, b.y - a.y);
-                        if (L < 1) continue;
-                        const ux = (b.x - a.x) / L;
-                        const uy = (b.y - a.y) / L;
-                        let next = sheetW - (acc % sheetW);
-                        while (next < L - 1) {
-                          const cx = a.x + ux * next;
-                          const cy = a.y + uy * next;
-                          ticks.push(`M${cx - uy * hw},${cy + ux * hw} L${cx + uy * hw},${cy - ux * hw}`);
-                          next += sheetW;
+                      const ov = Math.max(1.2, 35 * mm);
+                      const gap = Math.max(0.8, 20 * mm);
+                      lay.segs.forEach((g) => {
+                        const { u } = g;
+                        for (let at = g.from + sheetW; at < g.to - 1; at += sheetW) {
+                          [0, gap].forEach((o) => {
+                            const cx = g.a.x + u.x * (at + o);
+                            const cy = g.a.y + u.y * (at + o);
+                            ticks.push(`M${cx - u.y * (hw + ov)},${cy + u.x * (hw + ov)} L${cx + u.y * (hw + ov)},${cy - u.x * (hw + ov)}`);
+                          });
                         }
-                        acc += L;
-                      }
+                      });
                     }
-                    // Turning vanes in 90° bends.
+                    // Turning vanes: across the mitre on square bends, as arcs on radius bends.
                     const vanes = [];
-                    for (let i = 1; i < P.length - 1; i += 1) {
-                      const a = P[i - 1];
-                      const v = P[i];
-                      const b = P[i + 1];
-                      const l1 = Math.hypot(v.x - a.x, v.y - a.y);
-                      const l2 = Math.hypot(b.x - v.x, b.y - v.y);
-                      if (l1 < 1 || l2 < 1) continue;
-                      const u1 = { x: (v.x - a.x) / l1, y: (v.y - a.y) / l1 };
-                      const u2 = { x: (b.x - v.x) / l2, y: (b.y - v.y) / l2 };
-                      if (Math.abs(u1.x * u2.x + u1.y * u2.y) > 0.2) continue; // 45s and straights: no vanes
+                    const nV = smVaneCount(s);
+                    const fr = nV === 2 ? [1 / 3, 2 / 3] : [0.25, 0.5, 0.75];
+                    lay.bends.forEach((b) => {
+                      const { v, u1, u2 } = b;
+                      if (b.radius) {
+                        const throat = b.R - hw;
+                        if (b.deg < 67.5 || !nV || throat < 0.5) return;
+                        for (let j = 1; j <= nV; j += 1) {
+                          const r = throat + (dw * j) / (nV + 1);
+                          const f = r / b.R;
+                          const p1 = { x: b.c.x + (b.st.x - b.c.x) * f, y: b.c.y + (b.st.y - b.c.y) * f };
+                          const p2 = { x: b.c.x + (b.en.x - b.c.x) * f, y: b.c.y + (b.en.y - b.c.y) * f };
+                          vanes.push(`M${p1.x},${p1.y} A${r},${r} 0 0 ${b.sweep} ${p2.x},${p2.y}`);
+                        }
+                        return;
+                      }
+                      if (Math.abs(u1.x * u2.x + u1.y * u2.y) > 0.2) return; // 45s: no vanes
                       const c1 = { x: v.x + (u2.x - u1.x) * hw, y: v.y + (u2.y - u1.y) * hw };
                       const c2 = { x: v.x - (u2.x - u1.x) * hw, y: v.y - (u2.y - u1.y) * hw };
                       const r = hw * 0.32;
-                      for (const f of [0.25, 0.5, 0.75]) {
+                      if (nV) fr.forEach((f) => {
                         const cx = c1.x + (c2.x - c1.x) * f;
                         const cy = c1.y + (c2.y - c1.y) * f;
                         vanes.push(`M${cx - u1.x * r},${cy - u1.y * r} Q${cx},${cy} ${cx + u2.x * r},${cy + u2.y * r}`);
-                      }
+                      });
                       vanes.push(`M${c1.x},${c1.y} L${c2.x},${c2.y}`);
-                    }
+                    });
                     const fits = smEndFittings(s, smCtx);
                     return (
                       <g key={s.id}>
@@ -4118,18 +4333,33 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                             const q = `${f.at.x + n.x * flare},${f.at.y + n.y * flare} ${f.at.x - n.x * flare},${f.at.y - n.y * flare} ${f.at.x + f.u.x * L - n.x * wB},${f.at.y + f.u.y * L - n.y * wB} ${f.at.x + f.u.x * L + n.x * wB},${f.at.y + f.u.y * L + n.y * wB}`;
                             return <polygon key={i} points={q} fill={fillC} stroke={edge} strokeWidth={1.4} style={{ pointerEvents: 'none' }} />;
                           }
-                          const L = Math.max(5, Math.max(250, Math.abs(f.from.w - f.to.w) * 1.2) * mm);
-                          const q = `${f.at.x + n.x * wA},${f.at.y + n.y * wA} ${f.at.x - n.x * wA},${f.at.y - n.y * wA} ${f.at.x + f.u.x * L - n.x * wB},${f.at.y + f.u.y * L - n.y * wB} ${f.at.x + f.u.x * L + n.x * wB},${f.at.y + f.u.y * L + n.y * wB}`;
+                          const L = Math.max(5, (f.lenMm || Math.max(250, Math.abs(f.from.w - f.to.w) * 1.2)) * mm);
+                          const o = { x: f.at.x - (f.shift?.x || 0), y: f.at.y - (f.shift?.y || 0) };
+                          const q = `${o.x + n.x * wA},${o.y + n.y * wA} ${o.x - n.x * wA},${o.y - n.y * wA} ${f.at.x + f.u.x * L - n.x * wB},${f.at.y + f.u.y * L - n.y * wB} ${f.at.x + f.u.x * L + n.x * wB},${f.at.y + f.u.y * L + n.y * wB}`;
+                          let ta = (Math.atan2(f.u.y, f.u.x) * 180) / Math.PI;
+                          if (ta > 90 || ta < -90) ta += 180;
+                          const tx = f.at.x + f.u.x * (L / 2);
+                          const ty = f.at.y + f.u.y * (L / 2);
                           return (
                             <g key={i} style={{ pointerEvents: 'none' }}>
                               <polygon points={q} fill="#ffffff" stroke={edge} strokeWidth={1.4} />
+                              {f.type === 'transition' && scale && (
+                                <text x={tx} y={ty} transform={`rotate(${ta} ${tx} ${ty})`} dy={Math.max(wA, wB) + 11 * k} textAnchor="middle" fontSize={8.5 * k} fontWeight="600" fill={edge} stroke="#fff" strokeWidth={2.5} paintOrder="stroke">
+                                  {`${f.from.w}/${f.from.h} → ${f.to.w}/${f.to.h}`}
+                                </text>
+                              )}
                               {f.type === 'sq2round' && <line x1={f.at.x + n.x * wA} y1={f.at.y + n.y * wA} x2={f.at.x + f.u.x * L + n.x * wB} y2={f.at.y + f.u.y * L + n.y * wB} stroke={edge} strokeWidth={0.6} strokeDasharray="2 2" />}
                             </g>
                           );
                         })}
                         {seg.x != null && (
                           <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={-(hw + 4)} textAnchor="middle" fontSize={10 * k} fontWeight="700" fill={edge} stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>
-                            {`${DUCT_PREFIX[s.air] || ''}SM ${smDims(s).w}×${smDims(s).h}${scale || sketch.length ? ` ${fmtM(lenM)}m` : ''}`}
+                            {`${DUCT_PREFIX[s.air] || ''}${smDims(s).w}/${smDims(s).h}${scale || sketch.length ? ` · ${fmtM(lenM)}m` : ''}`}
+                          </text>
+                        )}
+                        {seg.x != null && (String(s.ls || '').trim() || String(s.elev || '').trim()) && (
+                          <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={hw + 11 * k} textAnchor="middle" fontSize={9.5 * k} fontWeight="600" fill={edge} stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>
+                            {[String(s.ls || '').trim() && `${String(s.ls).trim()} L/s`, String(s.elev || '').trim()].filter(Boolean).join(' · ')}
                           </text>
                         )}
                         {sketchTool === 'smduct' && !sel && [[P[0], s.a], [P[P.length - 1], s.b]].map(([q, link], i) => (
@@ -4860,6 +5090,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   </label>
                 );
               })}
+              {selected.type === 'rafilterbox' && rfbOutlet(selected).rect && (
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="text-muted-foreground">Neck size W x D (mm)</span>
+                  <Input className="h-9" placeholder="e.g. 600x300" value={selected.rfbNeck || ''} onChange={(event) => updateItem(selected.id, { rfbNeck: event.target.value })} />
+                </label>
+              )}
               {selected.type === 'transition' && (
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
@@ -5271,6 +5507,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 const P = smPts(s, smCtx);
                 const lenM = smLenOf(P) / ppm;
                 const bends = smBends({ pts: P });
+                const pieces = smPieces(smLayout(P, s, ppm / 1000).segs, ppm / 1000, s.sheetLen);
                 const describe = (link) => {
                   if (!link) return 'Open end';
                   if (link.kind === 'port') return `Connected to ${tags[link.itemId] || 'a part'}`;
@@ -5309,6 +5546,80 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {`${scale ? `Length ${fmtM(lenM)} m` : 'Set the scale for lengths'} · ${bends.b45} × 45° bend, ${bends.b90} × 90° bend`}
+                    </div>
+                    {scale && pieces.count > 0 && (
+                      <div className="rounded-md bg-muted px-2 py-1.5 text-xs"><span className="text-muted-foreground">Straight pieces: </span><span className="font-medium">{smPiecesText(pieces.tally)}</span></div>
+                    )}
+                    <div className="grid grid-cols-3 gap-2">
+                      <label className="flex flex-col gap-1 text-xs">
+                        <span className="text-muted-foreground">Bends</span>
+                        <select value={smIsRadius(s) ? 'radius' : 'square'} onChange={(event) => updateSketch(s.id, { bend: event.target.value, vanes: '' })} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
+                          <option value="square">Square</option>
+                          <option value="radius">Radius</option>
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs">
+                        <span className="text-muted-foreground">Radius</span>
+                        <select disabled={!smIsRadius(s)} value={Number(s.bendR) || 1} onChange={(event) => updateSketch(s.id, { bendR: Number(event.target.value) })} className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50">
+                          <option value={1}>1.0 × W</option>
+                          <option value={1.5}>1.5 × W</option>
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs">
+                        <span className="text-muted-foreground">Vanes (90°)</span>
+                        <select value={smVaneCount(s)} onChange={(event) => updateSketch(s.id, { vanes: Number(event.target.value) })} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
+                          {[0, 2, 3].map((n) => <option key={n} value={n}>{n === 0 ? 'None' : n}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex flex-col gap-1 text-xs">
+                        <span className="text-muted-foreground">Airflow (L/s)</span>
+                        <Input className="h-9" inputMode="numeric" placeholder="e.g. 450" value={s.ls ?? ''} onChange={(event) => updateSketch(s.id, { ls: event.target.value })} />
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs">
+                        <span className="text-muted-foreground">Elevation tag</span>
+                        <Input className="h-9" placeholder="e.g. U/S 2700" value={s.elev ?? ''} onChange={(event) => updateSketch(s.id, { elev: event.target.value })} />
+                      </label>
+                    </div>
+                    {fits.some((f) => f.type === 'transition') && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="flex flex-col gap-1 text-xs">
+                          <span className="text-muted-foreground">Transition shape</span>
+                          <select value={s.trKind || 'con'} onChange={(event) => updateSketch(s.id, { trKind: event.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
+                            <option value="con">Concentric</option>
+                            <option value="flatL">Flat one side (A)</option>
+                            <option value="flatR">Flat one side (B)</option>
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          <span className="text-muted-foreground">Taper</span>
+                          <select value={Number(s.taper) || 4} onChange={(event) => updateSketch(s.id, { taper: Number(event.target.value) })} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
+                            <option value={4}>1:4</option>
+                            <option value={7}>1:7</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                    <div className="rounded-md border border-border p-2 space-y-2">
+                      <div className="text-xs font-medium">Add a reducer on this run</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[['at', 'From start (m)', 'e.g. 3.6'], ['w', 'New W (mm)', '450'], ['h', 'New H (mm)', '250']].map(([key, label, ph]) => (
+                          <label key={key} className="flex flex-col gap-1 text-xs">
+                            <span className="text-muted-foreground">{label}</span>
+                            <Input className="h-9" inputMode="decimal" placeholder={ph} value={redForm[key]} onChange={(event) => setRedForm((f) => ({ ...f, [key]: event.target.value }))} />
+                          </label>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <select value={redForm.kind} onChange={(event) => setRedForm((f) => ({ ...f, kind: event.target.value }))} className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm">
+                          <option value="con">Concentric</option>
+                          <option value="flatL">Flat one side (A)</option>
+                          <option value="flatR">Flat one side (B)</option>
+                        </select>
+                        <Button size="sm" className="h-9" onClick={() => addReducer(s)}>Add reducer</Button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">{`Measured from the start of the run (${describe(s.a).toLowerCase()}). The rest of the run takes the new size.`}</p>
                     </div>
                     <div className="rounded-md border border-border p-2 text-xs space-y-1">
                       <div><span className="text-muted-foreground">Start: </span>{describe(s.a)}</div>
