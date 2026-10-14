@@ -25,11 +25,30 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - The bill of materials is the `takeoff` useMemo, grouped by catalogue group.
 - Storage is `src/services/localDb.js`. Backup is `src/lib/backup.js`.
 
-## Wish list (Gerad's spec, do one at a time, only when asked)
+## Sheet metal network (built 14 Oct 2026)
 
-1. Sheet metal runs snap end-to-end and to fittings, and automatically add the elbow or transition where they meet.
-2. Link spigots to the sheet metal run they sit on, so airflow checks include them.
-3. Drag individual bend points on a sheet metal run.
-4. Vector PDF export at a set print scale. The old repo `gvinko/plans-web` has a working one in `src/lib/pdf/` worth porting.
-5. Fan schedule table (EF-1, EF-2 …) on the PDF.
-6. Commercial rates for the bill of materials.
+- Runs are sketch items `{ kind: 'smduct', pts, w, h, air, sheetLen, a?, b? }`.
+- `a` / `b` tie the start and end to one of:
+  - a part connection: `{kind:'port', itemId, portId}`
+  - another run's end: `{kind:'run', id, end}`
+  - the side of a run, as a branch: `{kind:'side', id, seg, t}`
+- Always read live points through `smPts(s, ctx)`, never `s.pts` directly, because tied ends follow what they're tied to.
+- Fittings are worked out on the fly by `smEndFittings()`: transition, branch take-off (shoe), square-to-round, and bend at angled joins. Nothing stores them.
+- Same-size runs that meet end to end are merged into one run by `smMerge()`.
+- `smNetworks()` groups runs and parts into systems.
+- Dampers and fans (`SM_INLINE`) drop into a run, and spigots (`SM_SIDE`) onto its side, via `smSeat()`. The part stores `item.onRun` and moves with the run.
+- Ctrl + drag a run, or use the panel button, to disconnect it (`smBake` / `smDetachOthers`).
+- PDF: Export PDF lets you pick A3 or A4 and 1:20 to 1:200 (`PAPER`, `PRINT_SCALES`, `exportPdf`). The fan schedule prints beside the plan.
+
+## Testing builds
+
+- The CI workflow also pushes each built `dist` to the `build-preview` branch.
+- Serve it locally to click-test with a headless browser before telling Gerad it works.
+
+## Wish list (do one at a time, only when asked)
+
+1. Airflow: give each system an airflow (from the fan duty or grille L/s), then show L/s and velocity on each run, and suggest duct sizes (section 5 of Gerad's spec).
+2. Duct board (PolyPlan) and spiral duct as run materials.
+3. Manufacturer equipment catalogue with real port positions (Daikin / Fujitsu / Mitsubishi / Rinnai / Fantech).
+4. Vector PDF (the current PDF comes from the browser's print view, which is already sharp but not a CAD file), plus DXF export.
+5. Commercial rates for the bill of materials.
