@@ -2212,9 +2212,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (!a) return;
       const best = smSuggest(r.ls, r.sizeBy).find((x) => x.h === h);
       if (a.v > rule.vmax || a.pa > rule.pa * 1.15) {
-        out.push({ level: 'warn', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s is too small — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, detail: best ? `Try ${best.w}/${best.h}. Select the run to resize it.` : 'Go deeper. Select the run for options.' });
+        out.push({ level: 'warn', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s is too small — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, detail: best ? `Try ${best.w}/${best.h}. Tap here to select the run and resize it.` : 'Go deeper. Tap here for options.', sketchId: r.id });
       } else {
-        out.push({ level: 'ok', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m` });
+        out.push({ level: 'ok', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, sketchId: r.id });
       }
     });
     return out;
@@ -5777,12 +5777,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         <button
                           key={`${grp}-${i}`}
                           type="button"
-                          disabled={!c.itemId && !c.connId}
+                          disabled={!c.itemId && !c.connId && !c.sketchId}
                           onClick={() => {
                             if (c.itemId) { setSelectedConnId(null); setSelectedId(c.itemId); }
                             else if (c.connId) { setSelectedId(null); setSelectedConnId(c.connId); }
+                            else if (c.sketchId) { setSelectedId(null); setSelectedConnId(null); setSelectedSketchId(c.sketchId); setRightTab('selection'); }
                           }}
-                          className={`w-full text-left rounded-md border px-2 py-1.5 text-xs ${c.level === 'warn' ? 'border-amber-500 bg-amber-50 text-amber-950 dark:bg-amber-950 dark:text-amber-100' : c.level === 'ok' ? 'border-green-600/40 bg-green-50 text-green-950 dark:bg-green-950 dark:text-green-100' : 'border-border bg-muted/40'} ${c.itemId || c.connId ? 'hover:ring-1 hover:ring-primary' : 'cursor-default'}`}
+                          className={`w-full text-left rounded-md border px-2 py-1.5 text-xs ${c.level === 'warn' ? 'border-amber-500 bg-amber-50 text-amber-950 dark:bg-amber-950 dark:text-amber-100' : c.level === 'ok' ? 'border-green-600/40 bg-green-50 text-green-950 dark:bg-green-950 dark:text-green-100' : 'border-border bg-muted/40'} ${c.itemId || c.connId || c.sketchId ? 'hover:ring-1 hover:ring-primary' : 'cursor-default'}`}
                         >
                           <div className="flex items-start gap-1.5 font-semibold">
                             <ApperIcon name={c.level === 'warn' ? 'TriangleAlert' : c.level === 'ok' ? 'CircleCheck' : 'Info'} size={13} className="mt-0.5 shrink-0" />
