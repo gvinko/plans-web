@@ -17,6 +17,7 @@ import { PAIR_COILS, UNIT_COIL } from '@/data/pipeSizing';
 import AutoLayoutDialog from '@/components/AutoLayoutDialog';
 import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, calcRoomLoad } from '@/lib/heatLoad';
 import { buildLayout } from '@/lib/autoLayout';
+import { createDxf } from '@/lib/dxf';
 
 const COLORBOND = ['Basalt', 'Blue Ocean', 'Classic Cream', 'Cottage Green', 'Cove', 'Deep Ocean', 'Dune', 'Evening Haze', 'Galvanised', 'Gully', 'Headland', 'Ironstone', 'Jasper', 'Mangrove', 'Manor Red', 'Monument', 'Night Sky', 'Pale Eucalypt', 'Paperbark', 'Shale Grey', 'Surfmist', 'Terrain', 'Wallaby', 'Windspray', 'Woodland'];
 const isService = (conn) => !!conn && (conn.type === 'pipe' || conn.type === 'drain' || conn.type === 'power');
@@ -535,6 +536,19 @@ const COMPANY = {
 };
 
 const SHORTCUTS = [
+  ['D', 'Draw sheet metal / spiral / duct board run (snaps to 45° / 90°, joins and branches)'],
+  ['X', 'Transition on the open end of the selected run'],
+  ['E', 'End cap on the selected run (toggle)'],
+  ['C', 'Canvas connections on the selected fan (toggle)'],
+  ['G', 'New ducts: flex ↔ sheet metal'],
+  ['V', 'Select / move (same as Esc)'],
+  ['K', 'Set the scale'],
+  ['O', 'Open a plan (PDF or image)'],
+  ['H', 'Hide / show side panels (bigger drawing)'],
+  ['Ctrl + P', 'Export PDF'],
+  ['Ctrl + Shift + E', 'Export DXF (for CAD)'],
+  ['Double-click a run', 'Add a bend point · double-click a point to remove it'],
+  ['Ctrl + drag a run', 'Disconnect it from what it is joined to'],
   ['Ctrl + S', 'Save drawing'],
   ['Ctrl + Z', 'Undo'],
   ['Ctrl + Y', 'Redo (or Ctrl + Shift + Z)'],
@@ -551,7 +565,6 @@ const SHORTCUTS = [
   ['F', 'Zoom to the selected part'],
   ['Esc', 'Cancel what you’re doing'],
   ['W / B / T', 'Sketch a wall / room box / text label'],
-  ['D', 'Draw a sheet metal duct run first (snaps to 45° / 90°)'],
   ['A', 'Callout — text box with an arrow'],
   ['M / N', 'Tape measure / drop a site note pin'],
   ['P', 'Pen mode on / off'],
@@ -961,7 +974,13 @@ const PRINT_SCALES = [20, 25, 50, 100, 200];
 // Linked ends follow whatever they are tied to, so runs stay joined when parts or runs move.
 const SM_SNAP_PX = 16;
 const SM_DEFAULT_SHEET = 2400; // mm between TDF joints (stock sheet length)
-const smDims = (s) => ({ w: Number(s.w) || 300, h: Number(s.h) || 150 });
+// Run material: 'sheet' (rectangular sheet metal, default) | 'spiral' (round, w = diameter) | 'board' (PolyPlan duct board).
+const SM_MATS = { sheet: 'Sheet metal', spiral: 'Spiral (round)', board: 'Duct board (PolyPlan)' };
+const smMat = (s) => (SM_MATS[s?.mat] ? s.mat : 'sheet');
+const smDims = (s) => (smMat(s) === 'spiral' ? { w: Number(s.w) || 300, h: Number(s.w) || 300 } : { w: Number(s.w) || 300, h: Number(s.h) || 150 });
+const smSizeText = (s) => (smMat(s) === 'spiral' ? `${smDims(s).w}Ø` : `${smDims(s).w} x ${smDims(s).h}`);
+const smRunName = (s) => (smMat(s) === 'spiral' ? `Spiral duct — ${smDims(s).w}Ø` : smMat(s) === 'board' ? `Duct board (PolyPlan) — ${smDims(s).w} x ${smDims(s).h} mm` : `Sheet metal duct — ${smDims(s).w} x ${smDims(s).h} mm`);
+const BOARD_MM = 25; // duct board wall thickness
 const smLenOf = (pts) => pts.reduce((n, q, i) => (i ? n + Math.hypot(q.x - pts[i - 1].x, q.y - pts[i - 1].y) : 0), 0);
 
 function smLinkPoint(link, ctx, depth) {
@@ -1078,6 +1097,33 @@ const SM_INLINE = new Set(['flexconn', 'exhfan', 'vcd', 'firedamper', 'motdamper
 const SM_SIDE = new Set(['spigot']);
 const SM_INLINE_LEN = { vcd: 250, firedamper: 300, motdamper: 300, backdraft: 250, attenuator: 900 }; // mm along the run
 
+// A transition dropped near the open end of a run snaps onto it: inlet on the run end,
+// pointing on along the run, inlet sized to the duct. Draw on from its outlet.
+function smSeatTransition(item, ctx, reach, outSize) {
+  let best = null;
+  ctx.sketch.forEach((s) => {
+    if (s.kind !== 'smduct') return;
+    const P = smPts(s, ctx);
+    if (P.length < 2) return;
+    [['start', 0, 1, 'a'], ['end', P.length - 1, P.length - 2, 'b']].forEach(([end, i, j, key]) => {
+      if (s[key]) return; // already tied to something
+      const d = Math.hypot(item.cx - P[i].x, item.cy - P[i].y);
+      const L0 = Math.hypot(P[i].x - P[j].x, P[i].y - P[j].y) || 1;
+      const u = { x: (P[i].x - P[j].x) / L0, y: (P[i].y - P[j].y) / L0 };
+      if (Math.abs(u.x) > 0.01 && Math.abs(u.y) > 0.01) return; // parts turn in 90° steps
+      if (d > reach * 4 || (best && d >= best.d)) return;
+      const dd = smDims(s);
+      const tIn = smMat(s) === 'spiral' ? String(dd.w) : `${dd.w}x${dd.h}`;
+      const tOut = outSize && outSize !== tIn ? outSize : item.tOut || (smMat(s) === 'spiral' ? String(Math.max(100, dd.w - 50)) : `${Math.max(100, dd.w - 100)}x${dd.h}`);
+      const len = Math.max(100, Number(item.tLen) || 300);
+      const Lw = (len / 1000) * ctx.ppm;
+      const rot = u.x > 0.5 ? 0 : u.y > 0.5 ? 90 : u.x < -0.5 ? 180 : 270;
+      best = { d, cx: P[i].x + u.x * Lw / 2, cy: P[i].y + u.y * Lw / 2, rot, tIn, tOut, runId: s.id, key, end };
+    });
+  });
+  return best;
+}
+
 // Where a part dropped near a run should sit, or null if it isn't close enough.
 function smSeat(item, ctx, reach) {
   const inline = SM_INLINE.has(item.type);
@@ -1190,6 +1236,7 @@ function smEndFittings(s, ctx) {
     const u = { x: (pts[j].x - at.x) / len, y: (pts[j].y - at.y) / len }; // pointing into this run
     if (link.kind === 'port') {
       const it = ctx.items.find((x) => x.id === link.itemId);
+      if (it?.type === 'transition') return; // the transition is the fitting
       const dia = it ? portSizeMm(it, link.portId) : null;
       if (dia) out.push({ type: 'sq2round', at, u, from: { w: dia, h: dia, round: true }, to: me, label: `Square-to-round — ${me.w} x ${me.h} to ${dia}Ø` });
       return;
@@ -1596,6 +1643,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [selectedConnId, setSelectedConnId] = useState(null);
   const [ductType, setDuctType] = useState('supply');
   const [ductMaterial, setDuctMaterial] = useState('flex');
+  const [runMaterial, setRunMaterial] = useState('sheet'); // material for new SM-duct-tool runs
   const [sheetDims, setSheetDims] = useState({ w: 300, h: 150 });
   const [pendingPort, setPendingPort] = useState(null);
   const [status, setStatus] = useState('Loaded');
@@ -1617,6 +1665,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const restoringRef = useRef(false);
   const [wire, setWire] = useState(null); // live duct being dragged from a port
   const [showKeys, setShowKeys] = useState(false);
+  const [compact, setCompact] = useState(() => { try { return localStorage.getItem('dp-compact') === '1'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('dp-compact', compact ? '1' : '0'); } catch { /* ignore */ } }, [compact]);
   const [printMode, setPrintMode] = useState(null); // 'plan' | 'pick'
   const [printOpts, setPrintOpts] = useState({ paper: 'A3', scale: 'fit' });
   const [printDialog, setPrintDialog] = useState(false);
@@ -2034,7 +2084,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (s.kind !== 'smduct' || !s.pts?.length) return;
       const { w, h } = smDims(s);
       const P = smPts(s, ctxNow);
-      const nm = `Sheet metal duct — ${w} x ${h} mm`;
+      const nm = smRunName(s);
+      const caps = (s.capA && !s.a ? 1 : 0) + (s.capB && !s.b ? 1 : 0);
+      if (caps) add('Ductwork', `End cap — ${smSizeText(s)}${smMat(s) === 'spiral' ? '' : ' mm'}`, caps);
       const m = smLenOf(P) / ppm;
       const cur = sheet.get(nm) || { count: 0, metres: 0 };
       if (!cur.tally) cur.tally = new Map();
@@ -2047,10 +2099,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         const pc = smPieces(smLayout(P, s, ppm / 1000).segs, ppm / 1000, s.sheetLen);
         pc.tally.forEach((q, len) => cur.tally.set(len, (cur.tally.get(len) || 0) + q));
         const joints = Math.max(0, pc.count - 1) + b45 + b90 + (s.a ? 1 : 0) + (s.b ? 1 : 0);
-        if (joints) add('Ductwork', `TDF joint set — ${w} x ${h} mm`, joints);
+        if (joints) add('Ductwork', smMat(s) === 'spiral' ? `Spiral coupling / joint — ${w}Ø` : smMat(s) === 'board' ? `Duct board joint (tape / H-bar) — ${w} x ${h} mm` : `TDF joint set — ${w} x ${h} mm`, joints);
       }
       sheet.set(nm, cur);
       smEndFittings(s, ctxNow).forEach((f) => add('Ductwork', f.label, 1));
+    });
+    // Inline fans fitted in a run get a flexible canvas connection each side.
+    items.forEach((it) => {
+      if (it.type !== 'exhfan' || !it.onRun || it.canvas === false) return;
+      const run = sketch.find((x) => x.id === it.onRun.id);
+      if (run) add('Ductwork', `Flexible canvas connection — ${smSizeText(run)}${smMat(run) === 'spiral' ? '' : ' mm'}`, 2, { note: `either side of ${tags[it.id] || 'the fan'}` });
     });
     sheet.forEach(({ count, metres, tally }, nm) => {
       const cut = tally?.size ? ` · pieces: ${smPiecesText(tally)}` : '';
@@ -2657,6 +2715,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (ctrl && key === 'c') { if (selected) { clipRef.current = selected; toast.message(`${tags[selected.id]} copied`); } return; }
       if (ctrl && key === 'v') { if (clipRef.current) { event.preventDefault(); pasteItem(clipRef.current); } return; }
       if (ctrl && key === 'd') { event.preventDefault(); if (selected) pasteItem(selected); return; }
+      if (ctrl && key === 'p') { event.preventDefault(); setPrintDialog(true); return; }
+      if (ctrl && event.shiftKey && key === 'e') { event.preventDefault(); exportDxf(); return; }
       if (ctrl) return;
       const nudge = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
       if (nudge && selected) {
@@ -2681,6 +2741,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (key === 'a') { setSketchTool('callout'); return; }
       if (key === 'm') { setSketchTool('measure'); return; }
       if (key === 'n') { setSketchTool('pin'); return; }
+      if (key === 'v') { setSketchTool(null); setPendingPort(null); setSketchDraft(null); return; }
+      if (key === 'k') { startScale(); return; }
+      if (key === 'o') { fileRef.current?.click(); return; }
+      if (key === 'h') { setCompact((c) => !c); return; }
+      if (key === 'g') { setDuctMaterial((m) => (m === 'sheet' ? 'flex' : 'sheet')); toast.message('Toggled flex / sheet metal for new runs'); return; }
+      if (key === 'x') { addTransitionToRun(selectedSketch?.kind === 'smduct' ? selectedSketch : null); return; }
+      if (key === 'e') { toggleCaps(selectedSketch); return; }
+      if (key === 'c' && selected?.type === 'exhfan' && selected.onRun) { updateItem(selected.id, { canvas: selected.canvas === false }); return; }
       if (key === 'p') { setPenMode((v) => !v); return; }
       if (event.key === 'r' || event.key === 'R') rotateSelected();
       else if (event.key === '+' || event.key === '=') zoomCentre(1.25);
@@ -2943,14 +3011,26 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       setSketchDraft(null);
       if (!drag.moved || !d || Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 6) return;
       if (d.kind === 'smduct') {
-        const W = Number(sheetDims.w) || 300;
-        const H = Number(sheetDims.h) || 150;
+        let W = Number(sheetDims.w) || 300;
+        let H = Number(sheetDims.h) || 150;
+        let runMat = smMat({ mat: runMaterial });
+        {
+          // Starting on a transition's outlet: the new run takes the outlet size.
+          const tp = [drag.startTarget, drag.endTarget].find((t) => t?.kind === 'port' && items.find((i) => i.id === t.itemId)?.type === 'transition' && t.portId === 'e');
+          const tr = tp && items.find((i) => i.id === tp.itemId);
+          if (tr) {
+            const o = transDims(tr).b;
+            W = o.w;
+            H = o.h;
+            if (o.round) runMat = 'spiral';
+          }
+        }
         const air = ['supply', 'return', 'exhaust', 'oa'].includes(ductType) ? ductType : 'supply';
         const A = drag.startTarget;
         const B = drag.endTarget;
         const runOf = (t) => (t?.kind === 'end' ? sketch.find((x) => x.id === t.id) : null);
         const freeEnd = (r, end) => r && !r[end === 'start' ? 'a' : 'b'];
-        const fits = (r) => r && smDims(r).w === W && smDims(r).h === H && (r.air || 'supply') === air;
+        const fits = (r) => r && smDims(r).w === W && smDims(r).h === H && (r.air || 'supply') === air && smMat(r) === runMat;
         const notes = [];
         let next = sketch;
         let selId;
@@ -2971,7 +3051,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             next = next.map((x) => (x.id === ra.id ? { ...x, [A.end === 'start' ? 'a' : 'b']: smLinkFrom(B) } : x));
           }
         } else {
-          const el = { id: crypto.randomUUID(), kind: 'smduct', pts: [{ x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 }], x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2, w: W, h: H, air, a: smLinkFrom(A), b: smLinkFrom(B) };
+          const el = { id: crypto.randomUUID(), kind: 'smduct', pts: [{ x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 }], x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2, w: W, h: H, air, mat: runMat, a: smLinkFrom(A), b: smLinkFrom(B) };
           if (!el.a) delete el.a;
           if (!el.b) delete el.b;
           next = [...next, el];
@@ -3074,6 +3154,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (group.length > 1) return;
     const me = members[0];
     if (!me || me.type === 'zonearea') return;
+    if (me.type === 'transition') {
+      const ts = smSeatTransition(me, smCtx, reach);
+      if (ts) {
+        fitTransition(me.id, ts);
+        return;
+      }
+    }
     if (SM_INLINE.has(me.type) || SM_SIDE.has(me.type)) {
       const seat = smSeat(me, smCtx, reach);
       if (seat) {
@@ -3317,6 +3404,114 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const riders = el.kind === 'smduct' ? items.filter((i) => i.onRun?.id === el.id).map((i) => ({ id: i.id, cx: i.cx, cy: i.cy })) : [];
     dragRef.current = { kind: 'sketchmove', id: el.id, orig, riders, px: p.x, py: p.y, sx: event.clientX, sy: event.clientY, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  // DXF for CAD: walls, rooms, sheet metal (both edges + centreline), flex and service runs,
+  // parts as outlines with tags, text, callouts and dimensions — all in real millimetres.
+  function exportDxf() {
+    if (!scale) toast.warning('Scale not set', { description: 'The DXF will not be in real millimetres until you set the scale.' });
+    const k = 1000 / ppm;
+    const P = (q) => ({ x: q.x * k, y: q.y * k });
+    const dxf = createDxf();
+    const th = 120; // text height, mm
+    sketch.forEach((x) => {
+      if (x.kind === 'wall') dxf.line('WALLS', x.x1 * k, x.y1 * k, x.x2 * k, x.y2 * k);
+      else if (x.kind === 'room') {
+        dxf.poly('ROOMS', [{ x: x.x1, y: x.y1 }, { x: x.x2, y: x.y1 }, { x: x.x2, y: x.y2 }, { x: x.x1, y: x.y2 }].map(P), true);
+        dxf.text('TEXT', ((x.x1 + x.x2) / 2) * k, ((x.y1 + x.y2) / 2) * k, th * 1.5, x.name);
+      } else if (x.kind === 'dim') {
+        dxf.line('DIMS', x.x1 * k, x.y1 * k, x.x2 * k, x.y2 * k);
+        dxf.text('DIMS', ((x.x1 + x.x2) / 2) * k, ((x.y1 + x.y2) / 2) * k - th, th, `${Math.round(Math.hypot(x.x2 - x.x1, x.y2 - x.y1) * k)}`);
+      } else if (x.kind === 'text' || x.kind === 'pin') dxf.text('TEXT', x.x1 * k, x.y1 * k, th, x.text);
+      else if (x.kind === 'callout') {
+        dxf.line('TEXT', x.x2 * k, x.y2 * k, x.x1 * k, x.y1 * k);
+        String(x.text || '').split('\n').forEach((ln, i) => dxf.text('TEXT', x.x2 * k, x.y2 * k + i * th * 1.4, th, ln));
+      } else if (x.kind === 'smduct') {
+        const pts = smPts(x, smCtx).map(P);
+        const hw = smDims(x).w / 2;
+        dxf.poly('DUCT-SM-CL', pts);
+        for (let i = 1; i < pts.length; i += 1) {
+          const a = pts[i - 1];
+          const b = pts[i];
+          const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+          const nx = -(b.y - a.y) / L;
+          const ny = (b.x - a.x) / L;
+          [-1, 1].forEach((sg) => dxf.line('DUCT-SM', a.x + nx * hw * sg, a.y + ny * hw * sg, b.x + nx * hw * sg, b.y + ny * hw * sg));
+        }
+        [[0, 1, x.capA && !x.a], [pts.length - 1, pts.length - 2, x.capB && !x.b], [0, 1, !x.capA && !x.a], [pts.length - 1, pts.length - 2, !x.capB && !x.b]].forEach(([i, j, on]) => {
+          if (!on || !pts[j]) return;
+          const L = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) || 1;
+          const nx = -(pts[i].y - pts[j].y) / L;
+          const ny = (pts[i].x - pts[j].x) / L;
+          dxf.line('DUCT-SM', pts[i].x + nx * hw, pts[i].y + ny * hw, pts[i].x - nx * hw, pts[i].y - ny * hw);
+        });
+        const sg = longestSeg(pts);
+        dxf.text('TEXT', sg.x, sg.y - hw - th * 0.6, th, `${DUCT_PREFIX[x.air] || ''}${smSizeText(x)} ${SM_MATS[smMat(x)]}`, sg.ang);
+      }
+    });
+    runs.forEach((r) => dxf.poly(isService(r.conn) ? 'SERVICES' : 'DUCT-FLEX', r.pts.map(P)));
+    items.forEach((it) => {
+      const b = itemBox(it, ppm);
+      const c = P({ x: it.cx, y: it.cy });
+      const w = b.w * k;
+      const h = b.h * k;
+      dxf.poly('EQUIP', [{ x: c.x - w / 2, y: c.y - h / 2 }, { x: c.x + w / 2, y: c.y - h / 2 }, { x: c.x + w / 2, y: c.y + h / 2 }, { x: c.x - w / 2, y: c.y + h / 2 }], true);
+      dxf.text('TEXT', c.x - w / 2, c.y + h / 2 + th * 1.2, th * 0.9, `${tags[it.id] || ''} ${shortSpec(it) || ''}`.trim());
+    });
+    const blob = new Blob([dxf.toString()], { type: 'application/dxf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(project?.Name || 'Ductplanner').replace(/[\\/:*?"<>|]+/g, '-')} - ${page.Name || 'Level'}.dxf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast.success('DXF exported', { description: 'Millimetres, one layer per kind (walls, sheet metal, flex, equipment, text).' });
+  }
+
+  // Cap / uncap the open ends of a run.
+  function toggleCaps(run) {
+    if (run?.kind !== 'smduct') { toast.message('Select a duct run first, then press E to cap its open end(s).'); return; }
+    const open = [['a', 'capA'], ['b', 'capB']].filter(([k]) => !run[k]);
+    if (!open.length) { toast.error('Both ends of this run are joined — nothing to cap.'); return; }
+    const on = !open.every(([, c]) => run[c]);
+    updateSketch(run.id, Object.fromEntries(open.map(([, c]) => [c, on])));
+    toast.message(on ? `End cap${open.length > 1 ? 's' : ''} added` : 'End cap removed');
+  }
+
+  // Put a transition onto a run end (from a drop, the X key or the panel button).
+  function fitTransition(itemId, ts) {
+    setItems((current) => current.map((it) => (it.id === itemId ? { ...it, cx: ts.cx, cy: ts.cy, rot: ts.rot, tIn: ts.tIn, tOut: ts.tOut, onRun: { id: ts.runId, end: ts.end } } : it)));
+    setSketch((current) => current.map((x) => (x.id === ts.runId ? { ...x, [ts.key]: { kind: 'port', itemId, portId: 'w' }, [ts.key === 'a' ? 'capA' : 'capB']: false } : x)));
+    setSelectedId(itemId);
+    setSelectedSketchId(null);
+    setRightTab('selection');
+    markDirty();
+    toast.message(`Transition ${ts.tIn} → ${ts.tOut} fitted`, { description: 'Change the outlet size in the panel. Draw on (D) from its outlet end — the new run takes the outlet size.' });
+  }
+
+  // Selected run (or the run of the selected part): add a transition at its open end.
+  function addTransitionToRun(run) {
+    if (!run) { addItem('transition'); toast.message('Transition added — drag it onto the open end of a duct run to fit it.'); return; }
+    const P = smPts(run, smCtx);
+    const key = !run.b ? 'b' : !run.a ? 'a' : null;
+    if (!key) { toast.error('Both ends of this run are already joined.'); return; }
+    const at = key === 'b' ? P[P.length - 1] : P[0];
+    const id = crypto.randomUUID();
+    const draft = { id, type: 'transition', cx: at.x, cy: at.y, rot: 0, spec: defaultSpec(getTool('transition')) };
+    const out = sketchDimsText(run);
+    const ts = smSeatTransition(draft, { ...smCtx, sketch: sketch.map((x) => x) }, 1e6, out);
+    if (!ts || ts.runId !== run.id) { toast.error('Transitions fit on straight (0° / 90°) run ends only.'); return; }
+    setItems((current) => [...current, draft]);
+    fitTransition(id, ts);
+  }
+
+  // Toolbar size as a transition outlet, when it differs from the run.
+  function sketchDimsText(run) {
+    const w = Number(sheetDims.w) || 300;
+    const h = Number(sheetDims.h) || 150;
+    return smMat(run) === 'spiral' ? String(w) : `${w}x${h}`;
   }
 
   // ---- Editing the points of a sheet metal run ----
@@ -3881,7 +4076,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   #dp-print-root [data-drawing-canvas] { width: ${(PAPER[printOpts.paper] || PAPER.A4).plan.w}mm !important; flex: none !important; height: ${(PAPER[printOpts.paper] || PAPER.A4).plan.h}mm !important; min-height: 0 !important; border: 1px solid #000 !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; }
   .dp-page-break { break-before: page; }
 }`}</style>
-      <header className="dp-noprint border-b border-border bg-card px-3 py-2 flex items-center gap-2 min-h-14">
+      <header className="dp-noprint border-b border-border bg-card px-2 py-1 flex items-center gap-2 min-h-11 [&_button]:h-8">
         <Button variant="ghost" size="sm" onClick={onBack} className="shrink-0">
           <ApperIcon name="ArrowLeft" size={16} />
           <span className="hidden sm:inline">Projects</span>
@@ -3914,6 +4109,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <ApperIcon name="FileDown" size={15} />
           <span className="hidden md:inline">Export PDF</span>
         </Button>
+        <Button variant="outline" size="sm" className="shrink-0" onClick={exportDxf} title="Export DXF for AutoCAD / other CAD  ·  Ctrl + Shift + E">
+          <ApperIcon name="FileCode2" size={15} />
+          <span className="hidden md:inline">DXF</span>
+        </Button>
         <Button variant="outline" size="sm" className="shrink-0" onClick={() => exportPdf('pick')} title="Print a pick slip for the store">
           <ApperIcon name="ClipboardList" size={15} />
           <span className="hidden md:inline">Pick slip</span>
@@ -3930,200 +4129,152 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </div>
 
       <div className="flex flex-col flex-1 min-h-0 pb-20 sm:pb-0">
-        <div className="dp-noprint border-b border-border bg-card px-3 py-2 flex items-stretch gap-3 overflow-x-auto shrink-0">
-          <div className="flex flex-col justify-between gap-1.5 shrink-0">
-            <div className="text-xs uppercase tracking-wider text-muted-foreground">Components</div>
-            <input ref={fileRef} type="file" accept="image/*,.pdf,application/pdf" className="hidden" onChange={loadPlan} />
-            <Button variant="outline" size="sm" disabled={planBusy} onClick={() => fileRef.current?.click()}>
-              <ApperIcon name={planBusy ? 'Loader' : 'ImagePlus'} size={15} className={planBusy ? 'animate-spin' : ''} />
-              {planBusy ? 'Loading…' : 'Load plan'}
-            </Button>
-          </div>
-          <div className="flex gap-3 shrink-0 lg:hidden">
-            {CATALOG.map((group) => (
-              <div key={group.group} className="shrink-0 pl-3 border-l border-border">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{group.group}</div>
-                <div className="flex gap-1">
-                  {group.items.map((tool) => (
-                    <Button key={tool.type} variant="outline" size="sm" title={`Add ${tool.label}`} className="h-auto w-[72px] flex-col gap-0.5 px-1 py-1.5 shrink-0 text-[10px] font-normal leading-tight whitespace-normal" onClick={() => addItem(tool.type)}>
-                      <HvacSymbol type={tool.type} size={22} />
-                      <span className="line-clamp-2 text-center">{tool.label}</span>
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          
+        <div className="dp-noprint border-b border-border bg-card px-2 py-1 flex items-center gap-1.5 overflow-x-auto shrink-0 [&_button]:shrink-0">
+          <input ref={fileRef} type="file" accept="image/*,.pdf,application/pdf" className="hidden" onChange={loadPlan} />
+          <Button variant="outline" size="sm" className="h-8 px-2" disabled={planBusy} title="Load a plan (PDF or image)  ·  O" onClick={() => fileRef.current?.click()}>
+            <ApperIcon name={planBusy ? 'Loader' : 'ImagePlus'} size={15} className={planBusy ? 'animate-spin' : ''} />
+            <span className="hidden xl:inline">{planBusy ? 'Loading…' : 'Plan'}</span>
+          </Button>
           {background && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0 self-center"
-              onClick={() => {
-                setBackground('');
-                setPlanFile([]);
-                markDirty('Plan removed · unsaved changes');
-              }}
-            >
-              <ApperIcon name="ImageOff" size={14} />
-              Remove plan
+            <Button variant="ghost" size="sm" className="h-8 px-2" title="Remove the plan image" onClick={() => { setBackground(''); setPlanFile([]); markDirty('Plan removed · unsaved changes'); }}>
+              <ApperIcon name="ImageOff" size={15} />
             </Button>
           )}
-
-          <div className="shrink-0 pl-3 border-l border-border w-60">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Scale</div>
-            {scaleDraft ? (
-              <div className="space-y-2">
-                <p className="text-xs">
-                  {!scaleDraft.a && 'Tap the start of a known dimension on the plan (e.g. a wall with a written length).'}
-                  {scaleDraft.a && !scaleDraft.b && 'Now tap the end of that dimension.'}
-                  {scaleDraft.a && scaleDraft.b && 'Enter the real length between the two points.'}
-                </p>
-                {scaleDraft.a && scaleDraft.b && (
-                  <form onSubmit={applyScale} className="flex gap-2">
-                    <Input
-                      autoFocus
-                      type="number"
-                      inputMode="numeric"
-                      min="1"
-                      placeholder="Length in mm, e.g. 3600"
-                      value={scaleDraft.mm}
-                      onChange={(event) => setScaleDraft((d) => ({ ...d, mm: event.target.value }))}
-                      className="h-9"
-                    />
-                    <Button type="submit" size="sm" className="h-9">Apply</Button>
-                  </form>
-                )}
-                <div className="flex gap-2">
-                  {scaleDraft.a && (
-                    <Button variant="ghost" size="sm" onClick={() => setScaleDraft({ a: null, b: null, mm: '' })}>
-                      <ApperIcon name="RotateCcw" size={14} />
-                      Restart
-                    </Button>
-                  )}
-                  <Button variant="ghost" size="sm" onClick={() => setScaleDraft(null)}>
-                    <ApperIcon name="X" size={14} />
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-[11px] text-muted-foreground">
-                  {scale ? `Set from a ${Number(scale.mm).toLocaleString()} mm reference. Units draw to size; ducts are measured.` : 'Not set — mark a known dimension so units draw to size and ducts are measured.'}
-                </p>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={startScale}>
-                    <ApperIcon name="Ruler" size={14} />
-                    {scale ? 'Reset scale' : 'Set scale'}
-                  </Button>
-                  {scale && (
-                    <Button variant="ghost" size="sm" onClick={() => { setScale(null); markDirty('Scale cleared · unsaved changes'); }}>
-                      Clear
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="shrink-0 pl-3 border-l border-border">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Sketch / trace rooms</div>
-            <div className="flex gap-1">
-              {[[null, 'MousePointer2', 'Select'], ['wall', 'PenLine', 'Wall'], ['room', 'Square', 'Room'], ['text', 'Type', 'Text'], ['callout', 'MessageSquareText', 'Callout'], ['smduct', 'RectangleHorizontal', 'SM duct'], ['measure', 'Ruler', 'Measure'], ['pin', 'MapPin', 'Note']].map(([tool, icon, label]) => (
-                <Button
-                  key={label}
-                  variant={sketchTool === tool ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-auto w-12 flex-col gap-0.5 px-1 py-1.5 text-[10px] font-normal"
-                  title={tool === 'measure' ? 'Tape measure: drag between two points (stays on the plan as a dimension)' : tool === 'smduct' ? 'Draw a sheet metal duct run first — snaps to 45° / 90° bends (D)' : tool === 'callout' ? 'Text box with an arrow — airflows, notes (A)' : tool === 'pin' ? 'Drop a site note pin — add text and a photo' : tool ? `Sketch ${label.toLowerCase()}s` : 'Back to selecting and moving'}
-                  onClick={() => { setSketchTool(tool); setPendingPort(null); setSketchDraft(null); }}
-                >
-                  <ApperIcon name={icon} size={16} />
-                  {label}
-                </Button>
-              ))}
-              <Button
-                variant={autoOpen || autoPreview ? 'default' : 'outline'}
-                size="sm"
-                className="h-auto w-14 flex-col gap-0.5 px-1 py-1.5 text-[10px] font-normal"
-                title="Heat load by room and an automatic duct layout to preview and select"
-                onClick={() => { setSketchTool(null); setPendingPort(null); setAutoOpen(true); }}
-              >
-                <ApperIcon name="Sparkles" size={16} />
-                Auto
-              </Button>
-            </div>
-            {sketchTool && (
-              <p className="text-[10px] text-muted-foreground mt-1 max-w-[210px]">
-                {sketchTool === 'wall' && 'Drag to draw a wall (stays square; hold Shift for angles). Esc when done.'}
-                {sketchTool === 'room' && 'Drag a box over each room (on the plan or blank). Name it and set its zone in the panel. Esc when done.'}
-                {sketchTool === 'text' && 'Tap where the label goes, then type it in the panel.'}
-                {sketchTool === 'smduct' && `Drag to draw sheet metal duct (${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}, ${AIR_NAME[ductType] || 'supply'}). Ends snap onto run ends, part connections or the side of a run (branch take-off); fittings are added for you. Start on a run end to carry on with a 45° or 90° bend. Shift = free angle · Ctrl + drag a run to disconnect it. Esc when done.`}
-                {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type the details in the panel.'}
-                {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
-                {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}
-              </p>
-            )}
-          </div>
-
-          <div className="shrink-0 pl-3 border-l border-border w-72">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Duct to draw</div>
-            <div className="flex flex-wrap gap-1.5">
-              {DUCT_TYPES.map((duct) => (
-                <button
-                  key={duct.type}
-                  type="button"
-                  onClick={() => setDuctType(duct.type)}
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md border text-xs transition-colors ${ductType === duct.type ? 'border-primary bg-primary/10' : 'border-border'}`}
-                >
-                  <span className="h-2 w-5 rounded-full shrink-0" style={{ backgroundColor: duct.color, boxShadow: `inset 0 0 0 1px ${duct.edge}` }} />
-                  {duct.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              {[['flex', 'Flex'], ['sheet', 'Sheet metal']].map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setDuctMaterial(id)}
-                  className={`px-2 py-1 rounded-md border text-xs ${ductMaterial === id ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
-                >
-                  {label}
-                </button>
-              ))}
-              {ductMaterial === 'sheet' && (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Input className="h-7 w-16 px-1.5 text-xs" type="number" min="50" step="25" inputMode="numeric" aria-label="Sheet metal width (mm)" value={sheetDims.w} onChange={(event) => setSheetDims((d) => ({ ...d, w: event.target.value }))} />
-                  ×
-                  <Input className="h-7 w-16 px-1.5 text-xs" type="number" min="50" step="25" inputMode="numeric" aria-label="Sheet metal height (mm)" value={sheetDims.h} onChange={(event) => setSheetDims((d) => ({ ...d, h: event.target.value }))} />
-                  mm
-                </span>
+          {scaleDraft ? (
+            <div className="flex items-center gap-1.5 rounded-md border border-primary bg-primary/5 px-2 py-0.5">
+              <span className="text-xs whitespace-nowrap">
+                {!scaleDraft.a ? 'Tap the start of a known dimension' : !scaleDraft.b ? 'Now tap the end' : 'Real length (mm):'}
+              </span>
+              {scaleDraft.a && scaleDraft.b && (
+                <form onSubmit={applyScale} className="flex gap-1">
+                  <Input autoFocus type="number" inputMode="numeric" min="1" placeholder="Length in mm, e.g. 3600" value={scaleDraft.mm} onChange={(event) => setScaleDraft((d) => ({ ...d, mm: event.target.value }))} className="h-7 w-28 text-xs" />
+                  <Button type="submit" size="sm" className="h-7">Apply</Button>
+                </form>
               )}
+              {scaleDraft.a && <Button variant="ghost" size="sm" className="h-7 px-1.5" title="Restart" onClick={() => setScaleDraft({ a: null, b: null, mm: '' })}><ApperIcon name="RotateCcw" size={14} /></Button>}
+              <Button variant="ghost" size="sm" className="h-7 px-1.5" title="Cancel (Esc)" onClick={() => setScaleDraft(null)}><ApperIcon name="X" size={14} /></Button>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-2">
-              {pendingPort
-                ? 'Now tap a port on the component at the other end.'
-                : 'Tap a component to show its ports, tap a port, then a port on another component. To join parts directly, drag one until its edge meets the other.'}
-            </p>
-            {pendingPort && (
-              <Button variant="ghost" size="sm" className="mt-1 w-full" onClick={() => setPendingPort(null)}>
-                <ApperIcon name="X" size={14} />
-                Cancel duct
-              </Button>
-            )}
+          ) : (
+            <Button variant={scale ? 'outline' : 'default'} size="sm" className="h-8 px-2" title={`${scale ? `Scale set from a ${Number(scale.mm).toLocaleString()} mm reference — click to reset` : 'Set the scale: mark a known dimension so everything draws to size'}  ·  K`} onClick={startScale}>
+              <ApperIcon name="Ruler" size={15} />
+              <span className="text-xs">{scale ? 'Scale ✓' : 'Set scale'}</span>
+            </Button>
+          )}
+          <div className="h-6 w-px bg-border mx-0.5" />
+          {[[null, 'MousePointer2', 'Select', 'V'], ['smduct', 'RectangleHorizontal', 'SM duct', 'D'], ['wall', 'PenLine', 'Wall', 'W'], ['room', 'Square', 'Room', 'B'], ['text', 'Type', 'Text', 'T'], ['callout', 'MessageSquareText', 'Callout', 'A'], ['measure', 'Ruler', 'Measure', 'M'], ['pin', 'MapPin', 'Note', 'N']].map(([tool, icon, label, key]) => (
+            <Button
+              key={label}
+              variant={sketchTool === tool ? 'default' : 'ghost'}
+              size="sm"
+              className={`h-8 gap-1 px-2 ${tool === 'smduct' ? 'font-semibold' : ''}`}
+              title={`${label}  ·  ${key}`}
+              onClick={() => { setSketchTool(tool); setPendingPort(null); setSketchDraft(null); }}
+            >
+              <ApperIcon name={icon} size={15} />
+              <span className={`text-xs ${tool === 'smduct' ? '' : 'hidden 2xl:inline'}`}>{label}</span>
+              <kbd className="hidden md:inline text-[9px] opacity-60">{key}</kbd>
+            </Button>
+          ))}
+          <Button variant={autoOpen || autoPreview ? 'default' : 'ghost'} size="sm" className="h-8 px-2" title="Heat load by room and an automatic duct layout" onClick={() => { setSketchTool(null); setPendingPort(null); setAutoOpen(true); }}>
+            <ApperIcon name="Sparkles" size={15} />
+          </Button>
+          <div className="h-6 w-px bg-border mx-0.5" />
+          <div className="flex items-center rounded-md border border-border p-0.5">
+            {DUCT_TYPES.map((duct, n) => (
+              <button
+                key={duct.type}
+                type="button"
+                title={`${duct.label}  ·  ${n + 1}`}
+                onClick={() => setDuctType(duct.type)}
+                className={`flex items-center gap-1 rounded px-1.5 py-1 text-[11px] ${ductType === duct.type ? 'bg-primary/15 font-semibold' : 'text-muted-foreground'}`}
+              >
+                <span className="h-2 w-3.5 rounded-full" style={{ backgroundColor: duct.color, boxShadow: `inset 0 0 0 1px ${duct.edge}` }} />
+                {{ supply: 'SA', return: 'RA', flex: 'Flex', exhaust: 'EA', oa: 'OA' }[duct.type] || duct.label}
+              </button>
+            ))}
           </div>
+          <div className="flex items-center rounded-md border border-border p-0.5" title="Material for new runs  ·  G toggles">
+            {[['flex', 'Flex'], ['sheet', 'SM']].map(([id, label]) => (
+              <button key={id} type="button" onClick={() => setDuctMaterial(id)} className={`rounded px-1.5 py-1 text-[11px] ${ductMaterial === id ? 'bg-primary/15 font-semibold text-primary' : 'text-muted-foreground'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {(ductMaterial === 'sheet' || sketchTool === 'smduct') && (
+            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+              <select aria-label="Run material" title="Material for new runs drawn with SM duct" value={runMaterial} onChange={(event) => setRunMaterial(event.target.value)} className="h-7 rounded-md border border-input bg-background px-1 text-[11px]">
+                {Object.entries(SM_MATS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+              <Input className="h-7 w-14 px-1 text-xs" type="number" min="50" step="25" inputMode="numeric" aria-label="Sheet metal width (mm)" title={runMaterial === 'spiral' ? 'Diameter (mm)' : 'Width (mm)'} value={sheetDims.w} onChange={(event) => setSheetDims((d) => ({ ...d, w: event.target.value }))} />
+              {runMaterial !== 'spiral' && (
+                <>
+                  ×
+                  <Input className="h-7 w-14 px-1 text-xs" type="number" min="50" step="25" inputMode="numeric" aria-label="Sheet metal height (mm)" value={sheetDims.h} onChange={(event) => setSheetDims((d) => ({ ...d, h: event.target.value }))} />
+                </>
+              )}
+              {runMaterial === 'spiral' && 'Ø'}
+            </span>
+          )}
+          <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" title="Transition: fit one on the open end of the selected run (or add one to drag onto a run end)  ·  X" onClick={() => addTransitionToRun(selectedSketch?.kind === 'smduct' ? selectedSketch : null)}>
+            <HvacSymbol type="reducer" size={15} />
+            <span className="text-xs hidden xl:inline">Transition</span>
+            <kbd className="hidden md:inline text-[9px] opacity-60">X</kbd>
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" title="End cap: cap the open end(s) of the selected run  ·  E" onClick={() => toggleCaps(selectedSketch)}>
+            <ApperIcon name="PanelRightClose" size={15} />
+            <span className="text-xs hidden xl:inline">End cap</span>
+            <kbd className="hidden md:inline text-[9px] opacity-60">E</kbd>
+          </Button>
+          {pendingPort && (
+            <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setPendingPort(null)}>
+              <ApperIcon name="X" size={14} />
+              <span className="text-xs">Cancel duct</span>
+            </Button>
+          )}
+          <div className="ml-auto flex items-center gap-1">
+            <Button variant={compact ? 'default' : 'ghost'} size="sm" className="h-8 px-2" title={`${compact ? 'Show' : 'Hide'} the parts library and side panel for a bigger drawing  ·  H`} onClick={() => setCompact((c) => !c)}>
+              <ApperIcon name={compact ? 'PanelsLeftRight' : 'Maximize2'} size={15} />
+            </Button>
+            <Button variant="ghost" size="sm" className="h-8 px-2" title="Keyboard shortcuts  ·  ?" onClick={() => setShowKeys((v) => !v)}>
+              <ApperIcon name="Keyboard" size={15} />
+            </Button>
+          </div>
+        </div>
+        {(sketchTool || pendingPort) && (
+          <div className="dp-noprint border-b border-border bg-primary/5 px-3 py-0.5 text-[11px] text-muted-foreground truncate shrink-0">
+            {pendingPort && 'Now tap a port on the component at the other end.'}
+            {sketchTool === 'wall' && 'Drag to draw a wall (stays square; Shift for angles). Esc when done.'}
+            {sketchTool === 'room' && 'Drag a box over each room. Name it and set its zone in the panel. Esc when done.'}
+            {sketchTool === 'text' && 'Tap where the label goes, then type it in the panel.'}
+            {sketchTool === 'smduct' && `Sheet metal ${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150} ${AIR_NAME[ductType] || 'supply'} — drag to draw; ends snap to run ends, part connections or a run side (branch). Start on a run end to bend. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
+            {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type in the panel.'}
+            {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
+            {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}
+          </div>
+        )}
+        <div className="dp-noprint lg:hidden border-b border-border bg-card px-2 py-1 flex gap-3 overflow-x-auto shrink-0">
+          {CATALOG.map((group) => (
+            <div key={group.group} className="shrink-0">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{group.group}</div>
+              <div className="flex gap-1">
+                {group.items.map((tool) => (
+                  <Button key={tool.type} variant="outline" size="sm" title={`Add ${tool.label}`} className="h-auto w-[72px] flex-col gap-0.5 px-1 py-1.5 shrink-0 text-[10px] font-normal leading-tight whitespace-normal" onClick={() => addItem(tool.type)}>
+                    <HvacSymbol type={tool.type} size={22} />
+                    <span className="line-clamp-2 text-center">{tool.label}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="flex flex-col lg:flex-row flex-1 min-h-0">
-        <aside className="dp-noprint hidden lg:flex flex-col w-60 shrink-0 border-r border-border bg-card p-3 min-h-0 max-h-[calc(100svh-150px)]">
+        <aside className={`dp-noprint hidden ${compact ? '' : 'lg:flex'} flex-col w-56 shrink-0 border-r border-border bg-card p-2 min-h-0 max-h-[calc(100svh-120px)]`}>
           <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Parts library</div>
           <ComponentList draggable onPick={(type) => addItem(type)} />
           <p className="text-[11px] text-muted-foreground mt-2 shrink-0">Drag a part onto the plan to place it, or right-click the plan to add one right there.</p>
         </aside>
-        <main className={`flex-1 p-2 sm:p-4 bg-muted/30 min-w-0 dp-print-plan ${printMode === 'pick' ? 'dp-noprint' : ''}`}>
+        <main className={`flex-1 p-1 sm:p-1.5 bg-muted/30 min-w-0 dp-print-plan ${printMode === 'pick' ? 'dp-noprint' : ''}`}>
           {autoPreview && (() => {
             const o = autoPreview.options[autoPreview.index];
             const sm = o.summary;
@@ -4161,7 +4312,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <div
             ref={canvasRef}
             data-drawing-canvas
-            className={`nss h-[62svh] sm:h-[calc(100svh-210px)] min-h-[380px] relative overflow-hidden rounded-lg border border-border bg-muted/40 shadow-sm touch-none select-none ${scaleDraft || sketchTool ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
+            className={`nss h-[62svh] sm:h-[calc(100svh-132px)] min-h-[380px] relative overflow-hidden rounded-lg border border-border bg-muted/40 shadow-sm touch-none select-none ${scaleDraft || sketchTool ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
             onPointerDown={onCanvasPointerDown}
             onPointerMove={onCanvasPointerMove}
             onPointerUp={onCanvasPointerUp}
@@ -4325,13 +4476,27 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     let ang = seg.ang ?? 0;
                     if (ang > 90 || ang < -90) ang += 180;
                     const lenM = smLenOf(P) / ppm;
-                    const edge = sel ? '#2563eb' : (CASING[s.air] || CASING.supply);
-                    const fillC = SM_FILL[s.air] || SM_FILL.supply;
+                    const mat = smMat(s);
+                    const edge = sel ? '#2563eb' : mat === 'board' ? '#92400e' : (CASING[s.air] || CASING.supply);
+                    const fillC = mat === 'board' ? '#fef3c7' : mat === 'spiral' ? '#e2e8f0' : (SM_FILL[s.air] || SM_FILL.supply);
                     const k = Math.min(inv, 2.5);
                     // TDF flange joints every sheet length, restarting on each straight between bends.
                     const ticks = [];
                     const sheetW = (Number(s.sheetLen) || SM_DEFAULT_SHEET) * mm;
-                    if (scale && sheetW > 2) {
+                    const seams = [];
+                    if (mat === 'spiral') {
+                      // Spiral lock-seam: short diagonal lines every 150 mm.
+                      const st = Math.max(3, 150 * mm);
+                      lay.segs.forEach((g) => {
+                        const { u } = g;
+                        for (let at = g.from + st / 2; at < g.to; at += st) {
+                          const cx = g.a.x + u.x * at;
+                          const cy = g.a.y + u.y * at;
+                          seams.push(`M${cx - u.y * hw - u.x * hw * 0.35},${cy + u.x * hw - u.y * hw * 0.35} L${cx + u.y * hw + u.x * hw * 0.35},${cy - u.x * hw + u.y * hw * 0.35}`);
+                        }
+                      });
+                    }
+                    if (scale && sheetW > 2 && mat === 'sheet') {
                       const ov = Math.max(1.2, 35 * mm);
                       const gap = Math.max(0.8, 20 * mm);
                       lay.segs.forEach((g) => {
@@ -4380,8 +4545,28 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         <path d={dpath} fill="none" stroke="transparent" strokeWidth={Math.max(16, dw + 8)} strokeLinejoin="miter" style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} onDoubleClick={(event) => { event.stopPropagation(); addSmPoint(s, toWorld(event.clientX, event.clientY)); }} />
                         <path d={dpath} fill="none" stroke={edge} strokeWidth={dw} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                         <path d={dpath} fill="none" stroke={fillC} strokeWidth={Math.max(1, dw - 2.5)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
-                        <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.8} strokeDasharray="6 4" style={{ pointerEvents: 'none' }} />
+                        {mat === 'board' && dw - 2 * BOARD_MM * mm > 3 && (
+                          <>
+                            <path d={dpath} fill="none" stroke={edge} strokeWidth={dw - 2 * BOARD_MM * mm} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
+                            <path d={dpath} fill="none" stroke="#ffffff" strokeWidth={Math.max(1, dw - 2 * BOARD_MM * mm - 1.6)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
+                          </>
+                        )}
+                        <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.8} strokeDasharray={mat === 'spiral' ? '14 4 2 4' : '6 4'} style={{ pointerEvents: 'none' }} />
+                        {seams.length > 0 && <path d={seams.join(' ')} fill="none" stroke={edge} strokeOpacity={0.55} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />}
                         {ticks.length > 0 && <path d={ticks.join(' ')} fill="none" stroke={edge} strokeWidth={1.4} style={{ pointerEvents: 'none' }} />}
+                        {[[0, 1, s.capA && !s.a], [P.length - 1, P.length - 2, s.capB && !s.b]].map(([i, j, on]) => {
+                          if (!on || !P[j]) return null;
+                          const L = Math.hypot(P[i].x - P[j].x, P[i].y - P[j].y) || 1;
+                          const u = { x: (P[i].x - P[j].x) / L, y: (P[i].y - P[j].y) / L };
+                          const t = Math.max(2, 40 * mm);
+                          const c = { x: P[i].x - u.x * t / 2, y: P[i].y - u.y * t / 2 };
+                          return (
+                            <g key={`cap${i}`} style={{ pointerEvents: 'none' }}>
+                              <line x1={c.x - u.y * (hw + 1)} y1={c.y + u.x * (hw + 1)} x2={c.x + u.y * (hw + 1)} y2={c.y - u.x * (hw + 1)} stroke={edge} strokeWidth={t} />
+                              <line x1={P[i].x - u.y * hw * 0.6} y1={P[i].y + u.x * hw * 0.6} x2={P[i].x + u.y * hw * 0.6} y2={P[i].y - u.x * hw * 0.6} stroke="#fff" strokeWidth={Math.max(0.6, t * 0.25)} />
+                            </g>
+                          );
+                        })}
                         {vanes.length > 0 && <path d={vanes.join(' ')} fill="none" stroke={edge} strokeWidth={1} style={{ pointerEvents: 'none' }} />}
                         {fits.filter((f) => f.type !== 'bend').map((f, i) => {
                           const n = { x: -f.u.y, y: f.u.x };
@@ -4415,7 +4600,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         })}
                         {seg.x != null && (
                           <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={-(hw + 4)} textAnchor="middle" fontSize={10 * k} fontWeight="700" fill={edge} stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>
-                            {`${DUCT_PREFIX[s.air] || ''}${smDims(s).w}/${smDims(s).h}${scale || sketch.length ? ` · ${fmtM(lenM)}m` : ''}`}
+                            {`${DUCT_PREFIX[s.air] || ''}${mat === 'spiral' ? `${smDims(s).w}Ø SPIRAL` : `${smDims(s).w}/${smDims(s).h}${mat === 'board' ? ' DB' : ''}`}${scale || sketch.length ? ` · ${fmtM(lenM)}m` : ''}`}
                           </text>
                         )}
                         {seg.x != null && (String(s.ls || '').trim() || String(s.elev || '').trim()) && (
@@ -4491,6 +4676,33 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       {s.text}
                     </text>
                   );
+                })}
+                {/* Flexible canvas connections either side of inline fans fitted in a run */}
+                {items.filter((it) => it.type === 'exhfan' && it.onRun && it.canvas !== false).map((it) => {
+                  const run = sketch.find((x) => x.id === it.onRun.id);
+                  if (!run) return null;
+                  const mm = ppm / 1000;
+                  const box = itemBox(it, ppm);
+                  const horiz = ((it.rot || 0) / 90) % 2 === 0;
+                  const half = (horiz ? box.w : box.h) / 2;
+                  const L = Math.max(3, 150 * mm);
+                  const W = Math.max(4, smDims(run).w * mm);
+                  return [-1, 1].map((sgn) => {
+                    const c = horiz ? { x: it.cx + sgn * (half + L / 2), y: it.cy } : { x: it.cx, y: it.cy + sgn * (half + L / 2) };
+                    const w = horiz ? L : W;
+                    const h = horiz ? W : L;
+                    const zig = [];
+                    for (let k2 = 0; k2 <= 6; k2 += 1) {
+                      const f = k2 / 6;
+                      zig.push(horiz ? `${c.x - w / 2 + (k2 % 2 ? w : 0)},${c.y - h / 2 + h * f}` : `${c.x - w / 2 + w * f},${c.y - h / 2 + (k2 % 2 ? h : 0)}`);
+                    }
+                    return (
+                      <g key={`${it.id}${sgn}`} style={{ pointerEvents: 'none' }}>
+                        <rect x={c.x - w / 2} y={c.y - h / 2} width={w} height={h} fill="#fff7ed" stroke="#7c2d12" strokeWidth={1} />
+                        <polyline points={zig.join(' ')} fill="none" stroke="#7c2d12" strokeWidth={0.7} />
+                      </g>
+                    );
+                  });
                 })}
                 {sketchDraft && (() => {
                   const d = sketchDraft;
@@ -5098,7 +5310,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           </div>
         </main>
 
-        <aside className="dp-noprint border-t lg:border-t-0 lg:border-l border-border bg-card p-3 lg:w-72 shrink-0 lg:overflow-y-auto lg:max-h-[calc(100svh-150px)]">
+        <aside className={`dp-noprint border-t lg:border-t-0 lg:border-l border-border bg-card p-3 lg:w-72 shrink-0 lg:overflow-y-auto lg:max-h-[calc(100svh-120px)] ${compact && !selected && !selectedConn && !selectedSketch ? 'lg:hidden' : ''}`}>
           <div className="flex gap-1 mb-3 rounded-md bg-muted p-1">
             {[['selection', 'Selection'], ['list', `List${equipment.total ? ` (${equipment.total})` : ''}`], ['checks', `Checks${warnCount ? ` ⚠${warnCount}` : ''}`]].map(([id, label]) => (
               <button
@@ -5175,6 +5387,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   </label>
                   <p className="text-[11px] text-muted-foreground">Type W x H for rectangular (600x300) or one number for round (300). It draws to these sizes and goes on the bill of materials.</p>
                 </div>
+              )}
+              {selected.type === 'exhfan' && selected.onRun && (
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={selected.canvas !== false} onChange={(event) => updateItem(selected.id, { canvas: event.target.checked })} />
+                  Flexible canvas connection each side of the fan
+                </label>
               )}
               {FAN_TYPES.has(selected.type) && (
                 <div className="space-y-2">
@@ -5584,7 +5802,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 return (
                   <>
                     <div className="grid grid-cols-2 gap-2">
-                      {[['w', 'Width (mm)'], ['h', 'Height (mm)']].map(([k, label]) => (
+                      {(smMat(s) === 'spiral' ? [['w', 'Diameter (mm)']] : [['w', 'Width (mm)'], ['h', 'Height (mm)']]).map(([k, label]) => (
                         <label key={`${s.id}-${k}`} className="flex flex-col gap-1 text-xs">
                           <span className="text-muted-foreground">{label}</span>
                           <Input className="h-9" type="number" min="50" step="25" inputMode="numeric" value={s[k] ?? ''} onChange={(event) => updateSketch(s.id, { [k]: event.target.value === '' ? '' : Number(event.target.value) })} />
@@ -5604,6 +5822,24 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           {[1200, 1500, 2400].map((n) => <option key={n} value={n}>{n}</option>)}
                         </select>
                       </label>
+                    </div>
+                    <label className="flex flex-col gap-1 text-xs">
+                      <span className="text-muted-foreground">Material</span>
+                      <select value={smMat(s)} onChange={(event) => updateSketch(s.id, { mat: event.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
+                        {Object.entries(SM_MATS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[['a', 'capA', 'Start'], ['b', 'capB', 'End']].map(([k, c, label]) => (
+                        <Button key={c} variant={s[c] && !s[k] ? 'default' : 'outline'} size="sm" disabled={!!s[k]} title={s[k] ? `${label} is joined` : `Cap the ${label.toLowerCase()} of the run`} onClick={() => updateSketch(s.id, { [c]: !s[c] })}>
+                          <ApperIcon name="PanelRightClose" size={14} />
+                          {`${s[c] && !s[k] ? 'Capped' : 'Cap'} ${label.toLowerCase()}`}
+                        </Button>
+                      ))}
+                      <Button variant="outline" size="sm" disabled={!!(s.a && s.b)} onClick={() => addTransitionToRun(s)} title="Fit a transition on the open end (X)">
+                        <HvacSymbol type="reducer" size={14} />
+                        Transition
+                      </Button>
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {`${scale ? `Length ${fmtM(lenM)} m` : 'Set the scale for lengths'} · ${bends.b45} × 45° bend, ${bends.b90} × 90° bend`}
