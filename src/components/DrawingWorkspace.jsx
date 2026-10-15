@@ -2876,13 +2876,17 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (fingerOnly(event)) return; // pen mode: fingers pan
     if (scaleDraft) return;
     event.stopPropagation();
-    if (sketchTool) {
-      // A drawing tool is active: start drawing here (e.g. a duct run from a part's connection) instead of moving the part.
-      event.preventDefault();
-      startSketch(event);
-      return;
-    }
     const p = toWorld(event.clientX, event.clientY);
+    if (sketchTool === 'smduct') {
+      // SM duct tool on: pressing a free duct connection of this part (e.g. a transition outlet) starts a run;
+      // pressing the part itself moves it, the same as in Select.
+      const hit = smFindSnap(p, SM_SNAP_PX / (viewRef.current?.z || 1), smCtx);
+      if (hit?.kind === 'port' && hit.itemId === item.id) {
+        event.preventDefault();
+        startSketch(event);
+        return;
+      }
+    }
     const group = groupOf(item.id);
     const starts = {};
     items.forEach((i) => { if (group.includes(i.id)) starts[i.id] = { cx: i.cx, cy: i.cy }; });
@@ -3033,6 +3037,22 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (drag?.kind === 'sketch') {
       const d = sketchDraft;
       setSketchDraft(null);
+      if (!drag.moved && drag.tool === 'smduct') {
+        // A tap with SM duct on selects the run or part under it, so it can be edited or deleted.
+        const t = drag.startTarget;
+        if (t?.kind === 'end' || t?.kind === 'side') {
+          setSelectedSketchId(t.id);
+          setSelectedId(null);
+          setSelectedConnId(null);
+          setRightTab('selection');
+        } else if (t?.kind === 'port') {
+          setSelectedId(t.itemId);
+          setSelectedSketchId(null);
+          setSelectedConnId(null);
+          setRightTab('selection');
+        }
+        return;
+      }
       if (!drag.moved || !d || Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 6) return;
       if (d.kind === 'smduct') {
         let W = Number(sheetDims.w) || 300;
@@ -4225,8 +4245,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               </button>
             ))}
           </div>
-          {(ductMaterial === 'sheet' || sketchTool === 'smduct' || selectedSketch?.kind === 'smduct') && (
-            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+          {(
+            <span className={`flex items-center gap-0.5 text-[11px] text-muted-foreground ${ductMaterial === 'sheet' || sketchTool === 'smduct' || selectedSketch?.kind === 'smduct' ? '' : 'invisible'}`}>
               <select aria-label="Run material" title="Material for new runs drawn with SM duct" value={runMaterial} onChange={(event) => setRunMaterial(event.target.value)} className="h-7 rounded-md border border-input bg-background px-1 text-[11px]">
                 {Object.entries(SM_MATS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
@@ -4250,8 +4270,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             <span className="text-xs hidden xl:inline">End cap</span>
             <kbd className="hidden md:inline text-[9px] opacity-60">E</kbd>
           </Button>
-          {pendingPort && (
-            <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setPendingPort(null)}>
+          {(
+            <Button variant="ghost" size="sm" className={`h-8 px-2 ${pendingPort ? '' : 'invisible'}`} tabIndex={pendingPort ? 0 : -1} onClick={() => setPendingPort(null)}>
               <ApperIcon name="X" size={14} />
               <span className="text-xs">Cancel duct</span>
             </Button>
@@ -4265,13 +4285,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             </Button>
           </div>
         </div>
-        {(sketchTool || pendingPort) && (
-          <div className="dp-noprint border-b border-border bg-primary/5 px-3 py-0.5 text-[11px] text-muted-foreground truncate shrink-0">
+        {(
+          <div className={`dp-noprint border-b border-border px-3 py-0.5 text-[11px] text-muted-foreground truncate shrink-0 ${sketchTool || pendingPort ? 'bg-primary/5' : 'bg-card'}`}>
+            {!sketchTool && !pendingPort && 'Select: tap a part or run to edit it · Delete removes it · drag to move.'}
             {pendingPort && 'Now tap a port on the component at the other end.'}
             {sketchTool === 'wall' && 'Drag to draw a wall (stays square; Shift for angles). Esc when done.'}
             {sketchTool === 'room' && 'Drag a box over each room. Name it and set its zone in the panel. Esc when done.'}
             {sketchTool === 'text' && 'Tap where the label goes, then type it in the panel.'}
-            {sketchTool === 'smduct' && `${SM_MATS[runMaterial]} ${runMaterial === 'spiral' ? `${Number(sheetDims.w) || 300}Ø` : `${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}`} ${AIR_NAME[ductType] || 'supply'} — drag to draw; ends snap to run ends, part connections or a run side (branch). Start on a run end to bend. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
+            {sketchTool === 'smduct' && `${SM_MATS[runMaterial]} ${runMaterial === 'spiral' ? `${Number(sheetDims.w) || 300}Ø` : `${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}`} ${AIR_NAME[ductType] || 'supply'} — drag to draw, tap to select; ends snap to run ends, part connections or a run side (branch). Start on a run end to bend. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
             {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type in the panel.'}
             {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
             {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}

@@ -31,3 +31,14 @@ jobs:
           git add -A
           git commit -qm "Build of ${GITHUB_SHA}"
           git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" build-preview
+      # Manual run on a work branch: publish that build to build-check so it can be tested before it goes live.
+      - name: Publish branch build to build-check
+        if: github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+        run: |
+          cd dist
+          git init -q -b build-check
+          git config user.name "ductplanner-ci"
+          git config user.email "ci@users.noreply.github.com"
+          git add -A
+          git commit -qm "Build of ${GITHUB_REF_NAME} ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" build-check
