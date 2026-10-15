@@ -1694,6 +1694,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // No-signal safety: unsaved work is kept on this device and synced when back online.
   const dirtyRef = useRef(false);
   const saveRef = useRef(null);
+  const saveFailToastRef = useRef(false);
   const draftKey = `dp-draft-${page.Id}`;
   const online = true; // everything saves on this device; no signal needed
   // Site photos pinned to notes: stored in the page's Site Photos files field.
@@ -1723,6 +1724,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   useEffect(() => {
     if (!dirtyRef.current) return undefined;
     const t = setTimeout(() => {
+      if (!dirtyRef.current) return; // already saved
       try {
         localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, sketch, climate }) }));
       } catch { /* storage full or blocked */ }
@@ -1731,6 +1733,20 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }, [items, connections, joins, scale, showLabels, sketch, climate, draftKey]);
 
   // Saving is on this device now, so losing signal no longer matters.
+  // Autosave: a couple of seconds after any change (drawing, plan, photos), save it.
+  useEffect(() => {
+    if (!dirtyRef.current || planBusy) return undefined;
+    const t = setTimeout(() => { if (dirtyRef.current) saveRef.current?.({ auto: true }); }, 1500);
+    return () => clearTimeout(t);
+  }, [items, connections, joins, scale, showLabels, sketch, climate, planFile, photos, planBusy]);
+  // Leaving the tab or closing the window: save straight away.
+  useEffect(() => {
+    const flush = () => { if (dirtyRef.current) saveRef.current?.({ auto: true }); };
+    const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHide);
+    return () => { window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', onHide); };
+  }, []);
 
   const ppm = scale?.pxPerM || DEFAULT_PPM;
   PLAN_MIN.px = scale ? 6 : MIN_PX;
@@ -1822,7 +1838,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     try {
       const draft = JSON.parse(localStorage.getItem(`dp-draft-${page.Id}`) || 'null');
       const mod = Date.parse(page.ModifiedOn || '');
-      if (draft?.payload && (Number.isNaN(mod) || draft.t > mod)) {
+      if (draft?.payload && draft.payload !== page.drawingJson_c && (Number.isNaN(mod) || draft.t > mod)) {
         source = draft.payload;
         restored = true;
       } else if (draft) {
@@ -1857,8 +1873,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       setScaleDraft(null);
       if (restored) {
         dirtyRef.current = true;
-        setStatus('Restored unsaved changes kept on this device — Save to sync');
-        toast.message('Unsaved changes restored', { description: 'Work from your last session (or while offline) was kept on this device. Hit Save to sync it.' });
+        setStatus('Restored unsaved changes from last time · saving');
+        toast.message('Unsaved changes restored', { description: 'Work from your last session was kept and has been saved.' });
       } else {
         setStatus('Loaded saved drawing');
       }
@@ -2813,7 +2829,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const uploaded = await sdk.storage.upload(new File([blob], 'plan.jpg', { type: 'image/jpeg' }));
       if (!uploaded) throw new Error('No file returned');
       setPlanFile([{ ...uploaded, size: uploaded.size || blob.size, name: uploaded.name || 'plan.jpg', type: uploaded.type || 'image/jpeg' }]);
-      setStatus(`Plan loaded${note} · hit Save to keep it, then set the scale`);
+      dirtyRef.current = true;
+      setStatus(`Plan loaded${note} · saved automatically · now set the scale`);
     } catch (err) {
       setPlanFile([]);
       setStatus(`Could not store plan: ${err?.message || 'unknown error'} · it will be lost on reload`);
@@ -3960,13 +3977,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (ok) {
       dirtyRef.current = false;
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
-      setStatus(`Saved ✓ · ${items.length} objects · ${connections.length} runs`);
+      setStatus(`${opts.auto ? 'Auto-saved' : 'Saved'} ✓ ${new Date().toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })} · ${items.length} objects · ${connections.length} runs`);
       if (!opts.quiet && !opts.auto) toast.success('Drawing saved', { description: `${items.length} objects and ${connections.length} run(s) saved successfully.` });
       return true;
     }
     try { localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload })); } catch { /* ignore */ }
     setStatus('SAVE FAILED — a draft copy is kept');
-    toast.error('Save failed', { description: 'A draft copy is kept. Try Save again.' });
+    if (!opts.auto || !saveFailToastRef.current) toast.error('Save failed', { description: 'A draft copy is kept. Try Save again.' });
+    if (opts.auto) saveFailToastRef.current = true;
     return false;
   }
   saveRef.current = save;
@@ -4084,7 +4102,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   .dp-page-break { break-before: page; }
 }`}</style>
       <header className="dp-noprint border-b border-border bg-card px-2 py-1 flex items-center gap-2 min-h-11 [&_button]:h-8">
-        <Button variant="ghost" size="sm" onClick={onBack} className="shrink-0">
+        <Button variant="ghost" size="sm" onClick={async () => { if (dirtyRef.current && !planBusy) await save({ quiet: true }); onBack(); }} className="shrink-0">
           <ApperIcon name="ArrowLeft" size={16} />
           <span className="hidden sm:inline">Projects</span>
         </Button>
