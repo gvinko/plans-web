@@ -4200,7 +4200,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               </button>
             ))}
           </div>
-          {(ductMaterial === 'sheet' || sketchTool === 'smduct') && (
+          {(ductMaterial === 'sheet' || sketchTool === 'smduct' || selectedSketch?.kind === 'smduct') && (
             <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
               <select aria-label="Run material" title="Material for new runs drawn with SM duct" value={runMaterial} onChange={(event) => setRunMaterial(event.target.value)} className="h-7 rounded-md border border-input bg-background px-1 text-[11px]">
                 {Object.entries(SM_MATS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -5697,7 +5697,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           )}
           {rightTab === 'selection' && !selected && !selectedConn && selectedSketch && (
             <div className="space-y-3">
-              <div className="text-sm font-semibold">{{ wall: 'Wall', room: 'Room', dim: 'Measurement', smduct: 'Sheet metal duct', callout: 'Callout', pin: `Site note ${pinNo[selectedSketch.id] || ''}` }[selectedSketch.kind] || 'Text label'}</div>
+              <div className="text-sm font-semibold">{{ wall: 'Wall', room: 'Room', dim: 'Measurement', smduct: `${SM_MATS[smMat(selectedSketch)]} run`, callout: 'Callout', pin: `Site note ${pinNo[selectedSketch.id] || ''}` }[selectedSketch.kind] || 'Text label'}</div>
               {selectedSketch.kind === 'dim' && (
                 <div className="text-xs">
                   <span className="font-semibold">{`${(Math.hypot(selectedSketch.x2 - selectedSketch.x1, selectedSketch.y2 - selectedSketch.y1) / ppm).toFixed(2)} m`}</span>

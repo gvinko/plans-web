@@ -103,6 +103,7 @@ export default function HvacSymbol({ type, size = 22, className = '', stretch = 
       );
 
     case 'reducer':
+    case 'transition':
       return (
         <svg {...common}>
           <path d="M1 3 H8 L16 8 H23 V16 H16 L8 21 H1 Z" />
