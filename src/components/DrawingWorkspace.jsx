@@ -5055,8 +5055,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     title={d.air ? `${(AIR_NAME[d.air] || d.air).replace(/^./, (c) => c.toUpperCase())} air connection` : 'Duct connection'}
                     className="absolute size-7 flex items-center justify-center touch-none cursor-crosshair"
                     style={{
-                      left: p.x + DIRS[p.dir][0] * 10 * Math.min(inv, 3),
-                      top: p.y + DIRS[p.dir][1] * 10 * Math.min(inv, 3),
+                      left: p.x + DIRS[p.dir][0] * 16 * Math.min(inv, 3),
+                      top: p.y + DIRS[p.dir][1] * 16 * Math.min(inv, 3),
                       transform: `translate(-50%, -50%) scale(${Math.min(inv, 3)})`,
                     }}
                     onPointerDown={(event) => startWire(event, item.id, d.id)}
@@ -5121,7 +5121,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     aria-label="Rotate 90 degrees"
                     title="Rotate 90° (R)"
                     className="absolute size-9 rounded-full bg-primary text-primary-foreground shadow flex items-center justify-center touch-none"
-                    style={{ left: selected.cx + box.w / 2, top: selected.cy - box.h / 2, transform: `translate(-20%, -80%) scale(${s})` }}
+                    style={{ left: selected.cx + box.w / 2 + 4 * s, top: selected.cy - box.h / 2 - 4 * s, transform: `translate(0, -100%) scale(${s})`, transformOrigin: 'bottom left' }}
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => { event.stopPropagation(); rotateSelected(); }}
                   >
