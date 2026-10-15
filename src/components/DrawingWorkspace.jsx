@@ -2859,6 +2859,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (fingerOnly(event)) return; // pen mode: fingers pan
     if (scaleDraft) return;
     event.stopPropagation();
+    if (sketchTool) {
+      // A drawing tool is active: start drawing here (e.g. a duct run from a part's connection) instead of moving the part.
+      event.preventDefault();
+      startSketch(event);
+      return;
+    }
     const p = toWorld(event.clientX, event.clientY);
     const group = groupOf(item.id);
     const starts = {};
