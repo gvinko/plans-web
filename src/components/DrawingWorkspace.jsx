@@ -1036,8 +1036,9 @@ function smFindSnap(p, tol, ctx, excludeId = null) {
     if (pts.length < 2) return;
     const f = pts[0];
     const l = pts[pts.length - 1];
-    consider({ kind: 'end', id: s.id, end: 'start', x: f.x, y: f.y }, Math.hypot(f.x - p.x, f.y - p.y));
-    consider({ kind: 'end', id: s.id, end: 'end', x: l.x, y: l.y }, Math.hypot(l.x - p.x, l.y - p.y));
+    // Only free ends can be joined or carried on; tied ends already belong to something.
+    if (!s.a) consider({ kind: 'end', id: s.id, end: 'start', x: f.x, y: f.y }, Math.hypot(f.x - p.x, f.y - p.y));
+    if (!s.b) consider({ kind: 'end', id: s.id, end: 'end', x: l.x, y: l.y }, Math.hypot(l.x - p.x, l.y - p.y));
   });
   ctx.items.forEach((it) => {
     if (getTool(it.type).role === 'none') return;
@@ -4246,7 +4247,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             {sketchTool === 'wall' && 'Drag to draw a wall (stays square; Shift for angles). Esc when done.'}
             {sketchTool === 'room' && 'Drag a box over each room. Name it and set its zone in the panel. Esc when done.'}
             {sketchTool === 'text' && 'Tap where the label goes, then type it in the panel.'}
-            {sketchTool === 'smduct' && `Sheet metal ${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150} ${AIR_NAME[ductType] || 'supply'} — drag to draw; ends snap to run ends, part connections or a run side (branch). Start on a run end to bend. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
+            {sketchTool === 'smduct' && `${SM_MATS[runMaterial]} ${runMaterial === 'spiral' ? `${Number(sheetDims.w) || 300}Ø` : `${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}`} ${AIR_NAME[ductType] || 'supply'} — drag to draw; ends snap to run ends, part connections or a run side (branch). Start on a run end to bend. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
             {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type in the panel.'}
             {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
             {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}

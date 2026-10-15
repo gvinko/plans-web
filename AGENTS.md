@@ -50,6 +50,15 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - Duct sizing: `smAirflow(L/s, w, h)` gives velocity and friction (Altshul–Tsal on equivalent diameter). `smSuggest()` gives the smallest width per depth for the run's `sizeBy` rule (`SM_SIZING`: standard 1.0 Pa/m max 6 m/s, quiet 0.8 Pa/m max 4 m/s). Shown in the run panel and the Checks tab ("Duct sizing").
 - New parts: `flexconn` (flexible canvas connection, drops into a run like a damper) and `rafilterbox` (R/A filter box: face size, filter grade, spigots or a rect neck `rfbNeck`).
 
+## Added 15 Oct 2026
+
+- The toolbar is one compact row. `compact` state (H key) hides the parts library, and hides the right panel when nothing is selected.
+- Run materials: `s.mat` is 'sheet' | 'spiral' | 'board' (`SM_MATS`, `smMat`, `smDims`, `smRunName`).
+- End caps: `s.capA` / `s.capB` (E key, `toggleCaps`).
+- Snap-in transitions: a `transition` part dropped near an open run end is placed by `smSeatTransition` / `fitTransition` (X key), and the run end is tied to its 'w' port. New runs started on its 'e' port take the outlet size.
+- Inline exhaust fans fitted in a run draw a flexible canvas connection each side (`item.canvas`, C key), and these are counted in the BOM.
+- DXF export: `src/lib/dxf.js` plus `exportDxf()` (Ctrl+Shift+E). Output is R12, in mm, with layers per kind.
+
 ## Testing builds
 
 - The CI workflow also pushes each built `dist` to the `build-preview` branch.
