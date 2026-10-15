@@ -2747,8 +2747,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (key === 'o') { fileRef.current?.click(); return; }
       if (key === 'h') { setCompact((c) => !c); return; }
       if (key === 'g') { setDuctMaterial((m) => (m === 'sheet' ? 'flex' : 'sheet')); toast.message('Toggled flex / sheet metal for new runs'); return; }
-      if (key === 'x') { addTransitionToRun(selectedSketch?.kind === 'smduct' ? selectedSketch : null); return; }
-      if (key === 'e') { toggleCaps(selectedSketch); return; }
+      if (key === 'x') { addTransitionToRun(selectedSketch?.kind === 'smduct' ? selectedSketch : (sketch.find((x) => x.id === selected?.onRun?.id && x.kind === 'smduct') || null)); return; }
+      if (key === 'e') { toggleCaps(selectedSketch?.kind === 'smduct' ? selectedSketch : sketch.find((x) => x.id === selected?.onRun?.id)); return; }
       if (key === 'c' && selected?.type === 'exhfan' && selected.onRun) { updateItem(selected.id, { canvas: selected.canvas === false }); return; }
       if (key === 'p') { setPenMode((v) => !v); return; }
       if (event.key === 'r' || event.key === 'R') rotateSelected();
@@ -4136,7 +4136,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </div>
 
       <div className="flex flex-col flex-1 min-h-0 pb-20 sm:pb-0">
-        <div className="dp-noprint border-b border-border bg-card px-2 py-1 flex items-center gap-1.5 overflow-x-auto shrink-0 [&_button]:shrink-0">
+        <div className="dp-noprint border-b border-border bg-card px-2 py-1 flex flex-wrap items-center gap-1.5 shrink-0 [&_button]:shrink-0">
           <input ref={fileRef} type="file" accept="image/*,.pdf,application/pdf" className="hidden" onChange={loadPlan} />
           <Button variant="outline" size="sm" className="h-8 px-2" disabled={planBusy} title="Load a plan (PDF or image)  ·  O" onClick={() => fileRef.current?.click()}>
             <ApperIcon name={planBusy ? 'Loader' : 'ImagePlus'} size={15} className={planBusy ? 'animate-spin' : ''} />
@@ -4549,7 +4549,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const fits = smEndFittings(s, smCtx);
                     return (
                       <g key={s.id}>
-                        <path d={dpath} fill="none" stroke="transparent" strokeWidth={Math.max(16, dw + 8)} strokeLinejoin="miter" style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} onDoubleClick={(event) => { event.stopPropagation(); addSmPoint(s, toWorld(event.clientX, event.clientY)); }} />
+                        <path d={dpath} fill="none" stroke="transparent" strokeWidth={Math.max(22 * inv, dw + 12 * inv)} strokeLinejoin="miter" style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} onDoubleClick={(event) => { event.stopPropagation(); addSmPoint(s, toWorld(event.clientX, event.clientY)); }} />
                         <path d={dpath} fill="none" stroke={edge} strokeWidth={dw} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                         <path d={dpath} fill="none" stroke={fillC} strokeWidth={Math.max(1, dw - 2.5)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                         {mat === 'board' && dw - 2 * BOARD_MM * mm > 3 && (
