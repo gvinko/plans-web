@@ -4238,18 +4238,24 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               </button>
             ))}
           </div>
-          <div className="flex items-center rounded-md border border-border p-0.5" title="Material for new runs  ·  G toggles">
-            {[['flex', 'Flex'], ['sheet', 'SM']].map(([id, label]) => (
-              <button key={id} type="button" onClick={() => setDuctMaterial(id)} className={`rounded px-1.5 py-1 text-[11px] ${ductMaterial === id ? 'bg-primary/15 font-semibold text-primary' : 'text-muted-foreground'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
           {(
-            <span className={`flex items-center gap-0.5 text-[11px] text-muted-foreground ${ductMaterial === 'sheet' || sketchTool === 'smduct' || selectedSketch?.kind === 'smduct' ? '' : 'invisible'}`}>
-              <select aria-label="Run material" title="Material for new runs drawn with SM duct" value={runMaterial} onChange={(event) => setRunMaterial(event.target.value)} className="h-7 rounded-md border border-input bg-background px-1 text-[11px]">
+            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+              <select
+                aria-label="Run material"
+                title="Material for new duct runs  ·  G toggles flex / sheet metal"
+                value={ductMaterial === 'flex' ? 'flex' : runMaterial}
+                onChange={(event) => {
+                  const v = event.target.value;
+                  if (v === 'flex') { setDuctMaterial('flex'); return; }
+                  setDuctMaterial('sheet');
+                  setRunMaterial(v);
+                }}
+                className="h-7 rounded-md border border-input bg-background px-1 text-[11px] font-medium text-foreground"
+              >
+                <option value="flex">Flex</option>
                 {Object.entries(SM_MATS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
+              <span className={`flex items-center gap-0.5 ${ductMaterial === 'flex' && sketchTool !== 'smduct' && selectedSketch?.kind !== 'smduct' ? 'invisible' : ''}`}>
               <Input className="h-7 w-14 px-1 text-xs" type="number" min="50" step="25" inputMode="numeric" aria-label="Sheet metal width (mm)" title={runMaterial === 'spiral' ? 'Diameter (mm)' : 'Width (mm)'} value={sheetDims.w} onChange={(event) => setSheetDims((d) => ({ ...d, w: event.target.value }))} />
               {runMaterial !== 'spiral' && (
                 <>
@@ -4258,6 +4264,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 </>
               )}
               {runMaterial === 'spiral' && 'Ø'}
+              </span>
             </span>
           )}
           <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" title="Transition: fit one on the open end of the selected run (or add one to drag onto a run end)  ·  X" onClick={() => addTransitionToRun(selectedSketch?.kind === 'smduct' ? selectedSketch : null)}>
