@@ -1666,8 +1666,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const restoringRef = useRef(false);
   const [wire, setWire] = useState(null); // live duct being dragged from a port
   const [showKeys, setShowKeys] = useState(false);
-  const [compact, setCompact] = useState(() => { try { return localStorage.getItem('dp-compact') === '1'; } catch { return false; } });
-  useEffect(() => { try { localStorage.setItem('dp-compact', compact ? '1' : '0'); } catch { /* ignore */ } }, [compact]);
+  // Panels always start shown; H / the toolbar button hides them for this visit only.
+  const [compact, setCompact] = useState(false);
+  useEffect(() => { try { localStorage.removeItem('dp-compact'); } catch { /* ignore */ } }, []);
   const [printMode, setPrintMode] = useState(null); // 'plan' | 'pick'
   const [printOpts, setPrintOpts] = useState({ paper: 'A3', scale: 'fit' });
   const [printDialog, setPrintDialog] = useState(false);
@@ -1749,6 +1750,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }, []);
 
   const ppm = scale?.pxPerM || DEFAULT_PPM;
+  // A plan sheet should be a few metres to ~100 m across; outside that the reference was entered wrong.
+  const scaleOff = !!scale && (WORLD_W / scale.pxPerM > 120 || WORLD_W / scale.pxPerM < 2);
   PLAN_MIN.px = scale ? 6 : MIN_PX;
   const smCtx = { sketch, items, ppm }; // for the sheet metal network helpers
   // Cooling load (kW) for a room from its heat-load inputs and this drawing's climate.
@@ -2865,10 +2868,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const dist = Math.hypot(scaleDraft.b.x - scaleDraft.a.x, scaleDraft.b.y - scaleDraft.a.y);
     if (!mm || mm <= 0) { toast.error('Enter the real length in millimetres.'); return; }
     if (dist < 10) { toast.error('Those two points are too close together — pick a longer dimension.'); return; }
-    setScale({ pxPerM: dist / (mm / 1000), a: scaleDraft.a, b: scaleDraft.b, mm });
+    const pxPerM = dist / (mm / 1000);
+    setScale({ pxPerM, a: scaleDraft.a, b: scaleDraft.b, mm });
     setScaleDraft(null);
     markDirty('Scale set · unsaved changes');
-    toast.success('Scale set', { description: `${mm.toLocaleString()} mm reference applied. Units now draw to size and duct lengths are measured.` });
+    const sheetM = WORLD_W / pxPerM;
+    if (sheetM > 120 || sheetM < 2) {
+      toast.warning('That scale looks wrong', { description: `It makes the whole sheet ${Math.round(sheetM)} m wide, so ducts will draw ${sheetM > 120 ? 'as thin lines' : 'huge'}. Check the length is in millimetres (e.g. 3600 for 3.6 m) and that both clicks sit on the ends of the same dimension. Press K to set it again.`, duration: 15000 });
+    } else {
+      toast.success('Scale set', { description: `${mm.toLocaleString()} mm reference applied. Units now draw to size and duct lengths are measured.` });
+    }
   }
 
   // ---- Pointer handling ----
@@ -4200,9 +4209,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               <Button variant="ghost" size="sm" className="h-7 px-1.5" title="Cancel (Esc)" onClick={() => setScaleDraft(null)}><ApperIcon name="X" size={14} /></Button>
             </div>
           ) : (
-            <Button variant={scale ? 'outline' : 'default'} size="sm" className="h-8 px-2" title={`${scale ? `Scale set from a ${Number(scale.mm).toLocaleString()} mm reference — click to reset` : 'Set the scale: mark a known dimension so everything draws to size'}  ·  K`} onClick={startScale}>
-              <ApperIcon name="Ruler" size={15} />
-              <span className="text-xs">{scale ? 'Scale ✓' : 'Set scale'}</span>
+            <Button variant={scale && !scaleOff ? 'outline' : scaleOff ? 'destructive' : 'default'} size="sm" className="h-8 px-2" title={`${scaleOff ? `Scale looks wrong: the sheet works out ${Math.round(WORLD_W / scale.pxPerM)} m wide, so ducts draw too ${WORLD_W / scale.pxPerM > 120 ? 'thin' : 'big'}. Click to set it again.` : scale ? `Scale set from a ${Number(scale.mm).toLocaleString()} mm reference (sheet ≈ ${Math.round(WORLD_W / scale.pxPerM)} m wide) — click to reset` : 'Set the scale: mark a known dimension so everything draws to size'}  ·  K`} onClick={startScale}>
+              <ApperIcon name={scaleOff ? 'TriangleAlert' : 'Ruler'} size={15} />
+              <span className="text-xs">{scaleOff ? 'Check scale' : scale ? 'Scale ✓' : 'Set scale'}</span>
             </Button>
           )}
           <div className="h-6 w-px bg-border mx-0.5" />
@@ -4284,8 +4293,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             </Button>
           )}
           <div className="ml-auto flex items-center gap-1">
-            <Button variant={compact ? 'default' : 'ghost'} size="sm" className="h-8 px-2" title={`${compact ? 'Show' : 'Hide'} the parts library and side panel for a bigger drawing  ·  H`} onClick={() => setCompact((c) => !c)}>
-              <ApperIcon name={compact ? 'PanelsLeftRight' : 'Maximize2'} size={15} />
+            <Button variant={compact ? 'default' : 'ghost'} size="sm" className="h-8 gap-1 px-2" title={`${compact ? 'Show' : 'Hide'} the parts library and side panel  ·  H`} onClick={() => setCompact((c) => !c)}>
+              <ApperIcon name={compact ? 'PanelLeftOpen' : 'Maximize2'} size={15} />
+              {compact && <span className="text-xs">Show parts</span>}
             </Button>
             <Button variant="ghost" size="sm" className="h-8 px-2" title="Keyboard shortcuts  ·  ?" onClick={() => setShowKeys((v) => !v)}>
               <ApperIcon name="Keyboard" size={15} />
