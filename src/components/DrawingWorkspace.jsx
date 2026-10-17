@@ -4532,7 +4532,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const P = smPts(s, smCtx);
                     const mm = ppm / 1000;
                     const lay = smLayout(P, s, mm);
-                    const dw = lay.W;
+                    // Pen: ~1 screen px outline. Below ~6 px on screen the run is drawn at 6 px
+                    // so it always reads as a double-line duct with its fill, never a black line.
+                    const pen = Math.min(1.6, 0.9 * inv);
+                    const dw = Math.max(lay.W, 6 * inv);
                     const hw = dw / 2;
                     const dpath = lay.d;
                     const seg = longestSeg(P);
@@ -4607,16 +4610,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       <g key={s.id}>
                         <path d={dpath} fill="none" stroke="transparent" strokeWidth={Math.max(22 * inv, dw + 12 * inv)} strokeLinejoin="miter" style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} onDoubleClick={(event) => { event.stopPropagation(); addSmPoint(s, toWorld(event.clientX, event.clientY)); }} />
                         <path d={dpath} fill="none" stroke={edge} strokeWidth={dw} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
-                        <path d={dpath} fill="none" stroke={fillC} strokeWidth={Math.max(1, dw - 2.5)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
+                        <path d={dpath} fill="none" stroke={fillC} strokeWidth={Math.max(0.5, dw - 2 * pen)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                         {mat === 'board' && dw - 2 * BOARD_MM * mm > 3 && (
                           <>
                             <path d={dpath} fill="none" stroke={edge} strokeWidth={dw - 2 * BOARD_MM * mm} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                             <path d={dpath} fill="none" stroke="#ffffff" strokeWidth={Math.max(1, dw - 2 * BOARD_MM * mm - 1.6)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                           </>
                         )}
-                        <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.8} strokeDasharray={mat === 'spiral' ? '14 4 2 4' : '6 4'} style={{ pointerEvents: 'none' }} />
+                        <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.6 * pen} strokeDasharray={mat === 'spiral' ? `${14 * pen} ${4 * pen} ${2 * pen} ${4 * pen}` : `${8 * pen} ${4 * pen}`} style={{ pointerEvents: 'none' }} />
                         {seams.length > 0 && <path d={seams.join(' ')} fill="none" stroke={edge} strokeOpacity={0.55} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />}
-                        {ticks.length > 0 && <path d={ticks.join(' ')} fill="none" stroke={edge} strokeWidth={1.4} style={{ pointerEvents: 'none' }} />}
+                        {ticks.length > 0 && <path d={ticks.join(' ')} fill="none" stroke={edge} strokeWidth={pen} style={{ pointerEvents: 'none' }} />}
                         {[[0, 1, s.capA && !s.a], [P.length - 1, P.length - 2, s.capB && !s.b]].map(([i, j, on]) => {
                           if (!on || !P[j]) return null;
                           const L = Math.hypot(P[i].x - P[j].x, P[i].y - P[j].y) || 1;
@@ -4630,7 +4633,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                             </g>
                           );
                         })}
-                        {vanes.length > 0 && <path d={vanes.join(' ')} fill="none" stroke={edge} strokeWidth={1} style={{ pointerEvents: 'none' }} />}
+                        {vanes.length > 0 && <path d={vanes.join(' ')} fill="none" stroke={edge} strokeWidth={0.8 * pen} style={{ pointerEvents: 'none' }} />}
                         {fits.filter((f) => f.type !== 'bend').map((f, i) => {
                           const n = { x: -f.u.y, y: f.u.x };
                           const wA = Math.max(3, f.from.w * mm) / 2;
@@ -4640,7 +4643,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                             const L = Math.max(4, 120 * mm);
                             const flare = wB + Math.max(2, 75 * mm);
                             const q = `${f.at.x + n.x * flare},${f.at.y + n.y * flare} ${f.at.x - n.x * flare},${f.at.y - n.y * flare} ${f.at.x + f.u.x * L - n.x * wB},${f.at.y + f.u.y * L - n.y * wB} ${f.at.x + f.u.x * L + n.x * wB},${f.at.y + f.u.y * L + n.y * wB}`;
-                            return <polygon key={i} points={q} fill={fillC} stroke={edge} strokeWidth={1.4} style={{ pointerEvents: 'none' }} />;
+                            return <polygon key={i} points={q} fill={fillC} stroke={edge} strokeWidth={pen} style={{ pointerEvents: 'none' }} />;
                           }
                           const L = Math.max(5, (f.lenMm || Math.max(250, Math.abs(f.from.w - f.to.w) * 1.2)) * mm);
                           const o = { x: f.at.x - (f.shift?.x || 0), y: f.at.y - (f.shift?.y || 0) };
@@ -4651,7 +4654,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           const ty = f.at.y + f.u.y * (L / 2);
                           return (
                             <g key={i} style={{ pointerEvents: 'none' }}>
-                              <polygon points={q} fill="#ffffff" stroke={edge} strokeWidth={1.4} />
+                              <polygon points={q} fill="#ffffff" stroke={edge} strokeWidth={pen} />
                               {f.type === 'transition' && scale && (
                                 <text x={tx} y={ty} transform={`rotate(${ta} ${tx} ${ty})`} dy={Math.max(wA, wB) + 11 * k} textAnchor="middle" fontSize={8.5 * k} fontWeight="600" fill={edge} stroke="#fff" strokeWidth={2.5} paintOrder="stroke">
                                   {`${f.from.w}/${f.from.h} → ${f.to.w}/${f.to.h}`}
