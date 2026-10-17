@@ -4634,7 +4634,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                             <path d={dpath} fill="none" stroke="#ffffff" strokeWidth={Math.max(1, dw - 2 * BOARD_MM * mm - 1.6)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                           </>
                         )}
-                        {pieces.filter((q) => q.no % 2 === 0).map((q) => <polygon key={`pc${q.no}`} points={q.poly} fill={edge} fillOpacity={0.13} style={{ pointerEvents: 'none' }} />)}
+                        {pieces.filter((q) => q.no % 2 === 0).map((q) => <polygon key={`pc${q.no}`} points={q.poly} fill={edge} fillOpacity={0.3} style={{ pointerEvents: 'none' }} />)}
                         <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.6 * pen} strokeDasharray={mat === 'spiral' ? `${14 * pen} ${4 * pen} ${2 * pen} ${4 * pen}` : `${8 * pen} ${4 * pen}`} style={{ pointerEvents: 'none' }} />
                         {seams.length > 0 && <path d={seams.join(' ')} fill="none" stroke={edge} strokeOpacity={0.55} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />}
                         {ticks.length > 0 && <path d={ticks.join(' ')} fill="none" stroke={edge} strokeWidth={pen} style={{ pointerEvents: 'none' }} />}
