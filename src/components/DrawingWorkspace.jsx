@@ -4562,6 +4562,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         }
                       });
                     }
+                    // Each stock length drawn as its own piece: alternate pieces shaded and numbered
+                    // along the run, the balance (short) piece labelled with its length, so pieces can be counted.
+                    const pieces = [];
+                    if (scale && sheetW > 2 && mat !== 'spiral') {
+                      let no = 0;
+                      lay.segs.forEach((g) => {
+                        const { u } = g;
+                        for (let at = g.from; at < g.to - 20 * mm; at += sheetW) {
+                          const end = Math.min(g.to, at + sheetW);
+                          no += 1;
+                          const lenMm = Math.round((end - at) / mm / 5) * 5;
+                          const p = (t, side) => `${g.a.x + u.x * t - u.y * hw * side},${g.a.y + u.y * t + u.x * hw * side}`;
+                          const mid = (at + end) / 2;
+                          pieces.push({ no, full: end - at >= sheetW - 1e-6 || lenMm >= (Number(s.sheetLen) || SM_DEFAULT_SHEET) - 5, lenMm, poly: `${p(at, 1)} ${p(end, 1)} ${p(end, -1)} ${p(at, -1)}`, cx: g.a.x + u.x * mid, cy: g.a.y + u.y * mid, ang: (Math.atan2(u.y, u.x) * 180) / Math.PI, room: (end - at) / inv });
+                        }
+                      });
+                    }
                     if (scale && sheetW > 2 && mat === 'sheet') {
                       const ov = Math.max(1.2, 35 * mm);
                       const gap = Math.max(0.8, 20 * mm);
@@ -4617,6 +4634,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                             <path d={dpath} fill="none" stroke="#ffffff" strokeWidth={Math.max(1, dw - 2 * BOARD_MM * mm - 1.6)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                           </>
                         )}
+                        {pieces.filter((q) => q.no % 2 === 0).map((q) => <polygon key={`pc${q.no}`} points={q.poly} fill={edge} fillOpacity={0.13} style={{ pointerEvents: 'none' }} />)}
                         <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.6 * pen} strokeDasharray={mat === 'spiral' ? `${14 * pen} ${4 * pen} ${2 * pen} ${4 * pen}` : `${8 * pen} ${4 * pen}`} style={{ pointerEvents: 'none' }} />
                         {seams.length > 0 && <path d={seams.join(' ')} fill="none" stroke={edge} strokeOpacity={0.55} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />}
                         {ticks.length > 0 && <path d={ticks.join(' ')} fill="none" stroke={edge} strokeWidth={pen} style={{ pointerEvents: 'none' }} />}
@@ -4631,6 +4649,17 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                               <line x1={c.x - u.y * (hw + 1)} y1={c.y + u.x * (hw + 1)} x2={c.x + u.y * (hw + 1)} y2={c.y - u.x * (hw + 1)} stroke={edge} strokeWidth={t} />
                               <line x1={P[i].x - u.y * hw * 0.6} y1={P[i].y + u.x * hw * 0.6} x2={P[i].x + u.y * hw * 0.6} y2={P[i].y - u.x * hw * 0.6} stroke="#fff" strokeWidth={Math.max(0.6, t * 0.25)} />
                             </g>
+                          );
+                        })}
+                        {pieces.map((q) => {
+                          if (q.room < 16 || dw / inv < 9) return null;
+                          let a = q.ang;
+                          if (a > 90 || a < -90) a += 180;
+                          const txt = q.full ? String(q.no) : `${q.no}·${q.lenMm}`;
+                          if (!q.full && q.room < 34) return null;
+                          const fs = Math.min(9 * k, dw * 0.8);
+                          return (
+                            <text key={`pn${q.no}`} x={q.cx} y={q.cy} transform={`rotate(${a} ${q.cx} ${q.cy})`} textAnchor="middle" dominantBaseline="central" fontSize={fs} fontWeight="700" fill={edge} stroke={fillC} strokeWidth={fs * 0.25} paintOrder="stroke" style={{ pointerEvents: 'none' }}>{txt}</text>
                           );
                         })}
                         {vanes.length > 0 && <path d={vanes.join(' ')} fill="none" stroke={edge} strokeWidth={0.8 * pen} style={{ pointerEvents: 'none' }} />}
@@ -4666,7 +4695,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         })}
                         {seg.x != null && (
                           <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={-(hw + 4)} textAnchor="middle" fontSize={10 * k} fontWeight="700" fill={edge} stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>
-                            {`${DUCT_PREFIX[s.air] || ''}${mat === 'spiral' ? `${smDims(s).w}Ø SPIRAL` : `${smDims(s).w}/${smDims(s).h}${mat === 'board' ? ' DB' : ''}`}${scale || sketch.length ? ` · ${fmtM(lenM)}m` : ''}`}
+                            {`${DUCT_PREFIX[s.air] || ''}${mat === 'spiral' ? `${smDims(s).w}Ø SPIRAL` : `${smDims(s).w}/${smDims(s).h}${mat === 'board' ? ' DB' : ''}`}${scale || sketch.length ? ` · ${fmtM(lenM)}m` : ''}${pieces.length ? ` · ${pieces.length} pcs` : ''}`}
                           </text>
                         )}
                         {seg.x != null && (String(s.ls || '').trim() || String(s.elev || '').trim()) && (
