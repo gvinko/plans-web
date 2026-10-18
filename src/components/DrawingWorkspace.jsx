@@ -1677,6 +1677,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [sketch, setSketch] = useState([]);
   const [sketchTool, setSketchTool] = useState(null); // null | 'wall' | 'room' | 'text'
   const [sketchDraft, setSketchDraft] = useState(null);
+  // Sheet metal run still being drawn: where the next segment starts. Each tap adds a bend
+  // to the same run; Esc / Enter / a second tap on the same spot / ending on a connection finishes it.
+  const [smChain, setSmChain] = useState(null); // null | {kind:'end', id, end} | {kind:'port', itemId, portId} | {kind:'free', x, y}
+  useEffect(() => { if (sketchTool !== 'smduct') { setSmChain(null); } }, [sketchTool]);
   const [selectedSketchId, setSelectedSketchId] = useState(null);
   const [redForm, setRedForm] = useState({ at: '', w: '', h: '', kind: 'con' });
   useEffect(() => { if (selectedId || selectedConnId) setSelectedSketchId(null); }, [selectedId, selectedConnId]);
@@ -1754,6 +1758,36 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const scaleOff = !!scale && (WORLD_W / scale.pxPerM > 120 || WORLD_W / scale.pxPerM < 2);
   PLAN_MIN.px = scale ? 6 : MIN_PX;
   const smCtx = { sketch, items, ppm }; // for the sheet metal network helpers
+  // Live start point of the run being drawn (null once it's tied off or gone).
+  const smChainAt = (ch = smChain) => {
+    if (!ch) return null;
+    if (ch.kind === 'end') {
+      const r = sketch.find((x) => x.id === ch.id);
+      if (!r || r.kind !== 'smduct' || r[ch.end === 'start' ? 'a' : 'b']) return null;
+      const P = smPts(r, smCtx);
+      const q = ch.end === 'start' ? P[0] : P[P.length - 1];
+      return q ? { ...ch, x: q.x, y: q.y } : null;
+    }
+    if (ch.kind === 'port') {
+      const it = items.find((i) => i.id === ch.itemId);
+      if (!it) return null;
+      const q = portInfo(it, ch.portId, ppm);
+      return { ...ch, x: q.x, y: q.y };
+    }
+    return ch;
+  };
+  // Where a sheet metal segment from (x1, y1) ends for pointer p: on a connection it snaps to,
+  // otherwise at 0 / 45 / 90° (any angle with Shift), in 50 mm steps.
+  const smDraftEnd = (x1, y1, p, free, selfId) => {
+    const hit = smFindSnap(p, SM_SNAP_PX / (viewRef.current?.z || 1), smCtx, selfId);
+    if (hit && Math.hypot(hit.x - x1, hit.y - y1) > 4) return { x2: hit.x, y2: hit.y, target: hit };
+    if (free) return { x2: skSnap(p.x), y2: skSnap(p.y), target: null };
+    const len = Math.hypot(p.x - x1, p.y - y1);
+    const ang = Math.round(Math.atan2(p.y - y1, p.x - x1) / (Math.PI / 4)) * (Math.PI / 4);
+    const g = (ppm * 50) / 1000;
+    const l = Math.round(len / g) * g;
+    return { x2: x1 + Math.cos(ang) * l, y2: y1 + Math.sin(ang) * l, target: null };
+  };
   // Cooling load (kW) for a room from its heat-load inputs and this drawing's climate.
   const roomLoadKw = (areaM2, room = null) => calcRoomLoad(room?.hl, Math.abs(areaM2), climate, room?.name || room?.room || '').coolKw;
 
@@ -2708,6 +2742,30 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     markDirty();
   }
 
+  // Turn a squared-off part-to-part sheet metal duct into a free run: same path and ends,
+  // but its bends can be dragged to 45° and it carries the run fittings and pieces.
+  function convertConnToRun() {
+    const r = selectedRun;
+    if (!r) return;
+    const c = r.conn;
+    const round = c.shape === 'round';
+    const w = round ? Number(c.size || c.w) || 200 : Number(c.w) || 300;
+    const h = round ? w : Number(c.h) || 150;
+    const pts = r.pts.map((q) => ({ x: q.x, y: q.y }));
+    const el = {
+      id: crypto.randomUUID(), kind: 'smduct', pts, x1: pts[0].x, y1: pts[0].y, x2: pts[pts.length - 1].x, y2: pts[pts.length - 1].y,
+      w, h, air: ['supply', 'return', 'exhaust', 'oa'].includes(c.type) ? c.type : 'supply', mat: round ? 'spiral' : 'sheet',
+      a: { kind: 'port', itemId: c.from.itemId, portId: c.from.portId }, b: { kind: 'port', itemId: c.to.itemId, portId: c.to.portId },
+    };
+    setConnections((current) => current.filter((x) => x.id !== c.id));
+    setSketch((current) => [...current, el]);
+    setSelectedConnId(null);
+    setSelectedSketchId(el.id);
+    setRightTab('selection');
+    markDirty();
+    toast.message('Now a sheet metal run — drag its bend points to 45° or 90°');
+  }
+
   function updateSelectedConnection(patch) {
     if (!selectedConn) return;
     if (patch.type) {
@@ -2779,6 +2837,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         if (selected) deleteSelectedItem();
         else if (selectedConn) deleteSelectedConnection();
         else if (selectedSketchId) deleteSketch();
+      } else if ((event.key === 'Escape' || event.key === 'Enter') && smChain) {
+        // Finish the run being drawn; the SM duct tool stays on for the next one.
+        setSmChain(null);
+        setSketchDraft(null);
       } else if (event.key === 'Escape') {
         setPendingPort(null);
         setScaleDraft(null);
@@ -2886,6 +2948,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (scaleDraft) return;
     event.stopPropagation();
     const p = toWorld(event.clientX, event.clientY);
+    if (sketchTool === 'smduct' && smChainAt()) {
+      // Mid-run: a press on a part is the next point of the run (it snaps to the part's connection if near one).
+      event.preventDefault();
+      startSketch(event);
+      return;
+    }
     if (sketchTool === 'smduct') {
       // SM duct tool on: pressing a free duct connection of this part (e.g. a transition outlet) starts a run;
       // pressing the part itself moves it, the same as in Select.
@@ -2932,23 +3000,15 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         else x2 = drag.x1;
       }
       if (drag.tool === 'smduct') {
+        // Sheet metal runs snap to 0 / 45 / 90° so bends come out as standard 45s and 90s.
         const selfId = drag.startTarget?.kind === 'end' ? drag.startTarget.id : null;
-        const hit = smFindSnap(p, SM_SNAP_PX / (viewRef.current?.z || 1), smCtx, selfId);
-        drag.endTarget = hit && Math.hypot(hit.x - drag.x1, hit.y - drag.y1) > 4 ? hit : null;
-        if (drag.endTarget) {
-          x2 = drag.endTarget.x;
-          y2 = drag.endTarget.y;
-        } else if (!event.shiftKey) {
-          // Sheet metal runs snap to 0 / 45 / 90° so bends come out as standard 45s and 90s.
-          const len = Math.hypot(p.x - drag.x1, p.y - drag.y1);
-          const ang = Math.round(Math.atan2(p.y - drag.y1, p.x - drag.x1) / (Math.PI / 4)) * (Math.PI / 4);
-          const g = (ppm * 50) / 1000;
-          const l = Math.round(len / g) * g;
-          x2 = drag.x1 + Math.cos(ang) * l;
-          y2 = drag.y1 + Math.sin(ang) * l;
-        }
+        const r = smDraftEnd(drag.x1, drag.y1, p, event.shiftKey, selfId);
+        drag.endTarget = r.target;
+        x2 = r.x2;
+        y2 = r.y2;
       }
-      setSketchDraft({ kind: drag.tool, x1: drag.x1, y1: drag.y1, x2, y2, snapA: drag.startTarget, snapB: drag.endTarget });
+      drag.draft = { kind: drag.tool, x1: drag.x1, y1: drag.y1, x2, y2, snapA: drag.startTarget, snapB: drag.endTarget };
+      setSketchDraft(drag.draft);
       return;
     }
     if (drag.kind === 'smpoint') {
@@ -3044,7 +3104,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const drag = dragRef.current;
     dragRef.current = null;
     if (drag?.kind === 'sketch') {
-      const d = sketchDraft;
+      const d = drag.draft || sketchDraft;
       setSketchDraft(null);
       if (!drag.moved && drag.tool === 'smduct') {
         // A tap with SM duct on selects the run or part under it, so it can be edited or deleted.
@@ -3055,14 +3115,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           setSelectedConnId(null);
           setRightTab('selection');
         } else if (t?.kind === 'port') {
-          setSelectedId(t.itemId);
-          setSelectedSketchId(null);
-          setSelectedConnId(null);
-          setRightTab('selection');
+          if (drag.fromWire) setSmChain({ kind: 'port', itemId: t.itemId, portId: t.portId }); // tap a connection: draw from it, tap by tap
+          else {
+            setSelectedId(t.itemId);
+            setSelectedSketchId(null);
+            setSelectedConnId(null);
+            setRightTab('selection');
+          }
+        } else if (!t) {
+          // Tap on open floor: start a run here and lay it out tap by tap.
+          setSmChain({ kind: 'free', x: drag.x1, y: drag.y1 });
         }
         return;
       }
-      if (!drag.moved || !d || Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 6) return;
+      if (!drag.moved || !d || Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 6) {
+        if (drag.chain) setSmChain(null); // second tap on the same spot = done
+        return;
+      }
       if (d.kind === 'smduct') {
         let W = Number(sheetDims.w) || 300;
         let H = Number(sheetDims.h) || 150;
@@ -3087,6 +3156,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         const notes = [];
         let next = sketch;
         let selId;
+        let chain = null; // where the next tap carries on from
         const ra = runOf(A);
         if (ra && freeEnd(ra, A.end) && fits(ra)) {
           // Carry on from a free end of a same-size run: one run, with a bend.
@@ -3102,19 +3172,21 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             notes.push('Joined into one run');
           } else if (B) {
             next = next.map((x) => (x.id === ra.id ? { ...x, [A.end === 'start' ? 'a' : 'b']: smLinkFrom(B) } : x));
-          }
+          } else chain = { kind: 'end', id: ra.id, end: A.end };
         } else {
           const el = { id: crypto.randomUUID(), kind: 'smduct', pts: [{ x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 }], x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2, w: W, h: H, air, mat: runMat, a: smLinkFrom(A), b: smLinkFrom(B) };
           if (!el.a) delete el.a;
           if (!el.b) delete el.b;
           next = [...next, el];
           selId = el.id;
+          if (!el.b) chain = { kind: 'end', id: el.id, end: 'end' };
           const rb = runOf(B);
           if (rb && freeEnd(rb, B.end) && fits(rb) && !el.a) {
             // Ran into the free end of a same-size run: make it one run.
             delete el.b;
             next = smMerge(next.map((x) => (x.id === el.id ? { ...x, b: undefined } : x)), rb.id, B.end, el.id, 'end', { ...smCtx, sketch: next });
             selId = rb.id;
+            chain = null;
             notes.push('Joined into one run');
           }
         }
@@ -3125,6 +3197,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         }
         setSketch(next);
         setSelectedSketchId(selId);
+        setSmChain(chain);
         if (notes.length) toast.message([...new Set(notes)].join(' · '));
         setRightTab('selection');
         markDirty();
@@ -3290,6 +3363,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
   function onCanvasPointerMove(event) {
     if (dragRef.current) { moveDrag(event); return; }
+    if (sketchTool === 'smduct' && smChain && event.pointerType !== 'touch') {
+      // Show the next segment of the run being drawn following the pointer.
+      const at = smChainAt();
+      if (!at) { setSmChain(null); setSketchDraft(null); return; }
+      const st = at.kind === 'free' ? null : at;
+      const r = smDraftEnd(at.x, at.y, toWorld(event.clientX, event.clientY), event.shiftKey, st?.kind === 'end' ? st.id : null);
+      setSketchDraft({ kind: 'smduct', x1: at.x, y1: at.y, x2: r.x2, y2: r.y2, snapA: st, snapB: r.target });
+    }
     if (!pointersRef.current.has(event.pointerId)) return;
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     const g = gestureRef.current;
@@ -3408,7 +3489,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     return Math.round(v / g) * g;
   }
 
-  function startSketch(event) {
+  function startSketch(event, opts = {}) {
     const p = toWorld(event.clientX, event.clientY);
     const x = skSnap(p.x);
     const y = skSnap(p.y);
@@ -3428,12 +3509,25 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     let sx = x;
     let sy = y;
     let startTarget = null;
-    if (sketchTool === 'smduct') {
+    const tool = opts.tool || sketchTool;
+    if (tool === 'smduct') {
+      const at = smChainAt();
+      if (at) {
+        // Mid-run: this tap is the next bend (or the end, if it lands on a connection).
+        const st = at.kind === 'free' ? null : at;
+        const r = smDraftEnd(at.x, at.y, p, event.shiftKey, st?.kind === 'end' ? st.id : null);
+        const draft = { kind: 'smduct', x1: at.x, y1: at.y, x2: r.x2, y2: r.y2, snapA: st, snapB: r.target };
+        dragRef.current = { kind: 'sketch', tool, chain: true, x1: at.x, y1: at.y, startTarget: st, endTarget: r.target, draft, sx: event.clientX, sy: event.clientY, moved: true };
+        setSketchDraft(draft);
+        canvasRef.current.setPointerCapture(event.pointerId);
+        return;
+      }
+      if (smChain) setSmChain(null);
       // Start on a run end, a part's duct connection or the side of a run (branch).
-      startTarget = smFindSnap(p, SM_SNAP_PX / (viewRef.current?.z || 1), smCtx);
+      startTarget = opts.target || smFindSnap(p, SM_SNAP_PX / (viewRef.current?.z || 1), smCtx);
       if (startTarget) { sx = startTarget.x; sy = startTarget.y; }
     }
-    dragRef.current = { kind: 'sketch', tool: sketchTool, x1: sx, y1: sy, startTarget, endTarget: null, sx: event.clientX, sy: event.clientY, moved: false };
+    dragRef.current = { kind: 'sketch', tool, x1: sx, y1: sy, startTarget, endTarget: null, fromWire: !!opts.fromWire, sx: event.clientX, sy: event.clientY, moved: false };
     canvasRef.current.setPointerCapture(event.pointerId);
   }
 
@@ -3873,6 +3967,19 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   function startWire(event, itemId, portId) {
     if (fingerOnly(event)) return; // pen mode: fingers pan
     event.stopPropagation();
+    const it = items.find((i) => i.id === itemId);
+    const pd = it && portDefs(it).find((d) => d.id === portId);
+    if (it && pd && !pd.service && !pd.joinOnly && ductMaterial === 'sheet' && ductType !== 'flex' && !pendingPort) {
+      // Sheet metal from a part: draw a free run (45° / 90° bends, laid out tap by tap) rather than
+      // a squared-off duct that has to join to another part.
+      event.preventDefault();
+      const q = portInfo(it, portId, ppm);
+      setSketchTool('smduct');
+      setSelectedId(null);
+      setSelectedConnId(null);
+      startSketch(event, { tool: 'smduct', target: { kind: 'port', itemId, portId, x: q.x, y: q.y }, fromWire: true });
+      return;
+    }
     dragRef.current = { kind: 'wire', itemId, portId, prevPending: pendingPort, sx: event.clientX, sy: event.clientY, moved: false };
     setSelectedId(null);
     setSelectedConnId(null);
@@ -4309,7 +4416,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             {sketchTool === 'wall' && 'Drag to draw a wall (stays square; Shift for angles). Esc when done.'}
             {sketchTool === 'room' && 'Drag a box over each room. Name it and set its zone in the panel. Esc when done.'}
             {sketchTool === 'text' && 'Tap where the label goes, then type it in the panel.'}
-            {sketchTool === 'smduct' && `${SM_MATS[runMaterial]} ${runMaterial === 'spiral' ? `${Number(sheetDims.w) || 300}Ø` : `${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}`} ${AIR_NAME[ductType] || 'supply'} — drag to draw, tap to select; ends snap to run ends, part connections or a run side (branch). Start on a run end to bend. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
+            {sketchTool === 'smduct' && `${SM_MATS[runMaterial]} ${runMaterial === 'spiral' ? `${Number(sheetDims.w) || 300}Ø` : `${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}`} ${AIR_NAME[ductType] || 'supply'} — ${smChain ? 'tap each bend (45° / 90°), finish on a connection, or tap the same spot / Enter to stop' : 'tap or drag from a connection or open floor, then tap each bend — one run, no joining; tap a run to select'}. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
             {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type in the panel.'}
             {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
             {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}
@@ -5716,6 +5823,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   </button>
                 ))}
               </div>
+              {isSheet(selectedConn) && selectedRun && (
+                <Button size="sm" variant="outline" className="w-full" onClick={convertConnToRun} title="Same duct, but as a free run with 45° / 90° bend points">
+                  Make free run (45° bends)
+                </Button>
+              )}
               {isSheet(selectedConn) ? (
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-1">
