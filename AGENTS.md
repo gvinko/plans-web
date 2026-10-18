@@ -81,5 +81,5 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 
 ## Tap-by-tap sheet metal runs (19 Oct 2026)
 
-- `smChain` holds where the next segment of the run being drawn starts (`end` of a run, a `port`, or a `free` point). Each tap adds a bend to the same run (no joining separate runs); `smChainAt()` gives its live point and `smDraftEnd()` the 0/45/90° snap. Esc / Enter / a second tap on the same spot / ending on a connection finishes it.
+- `smChain` holds where the next segment of the run being drawn starts (`end` of a run, a `port`, or a `free` point). Each tap adds a bend to the same run (no joining separate runs); `smChainAt()` gives its live point and `smDraftEnd()` the 0/45/90° snap. Clicking back on the run (last point or anywhere along it), a double-click, Esc / Enter, or ending on a connection finishes it and returns to Select (D to draw the next run) — don't make it keep drawing after a finish.
 - With Material set to sheet metal, spiral or duct board, dragging or tapping a part's duct connection draws one of these free runs (not a squared-off part-to-part duct). Old squared-off sheet ducts have "Make free run (45° bends)" in their panel (`convertConnToRun`).
