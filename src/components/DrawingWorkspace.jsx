@@ -3513,7 +3513,30 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (tool === 'smduct') {
       const at = smChainAt();
       if (at) {
-        // Mid-run: this tap is the next bend (or the end, if it lands on a connection).
+        // Mid-run: clicking back on the run (its last point or anywhere along it) finishes it,
+        // so does a double-click; any other tap is the next bend (or the end, on a connection).
+        const z = viewRef.current?.z || 1;
+        const near = 14 / z;
+        let done = Math.hypot(p.x - at.x, p.y - at.y) < near;
+        if (!done && at.kind === 'end') {
+          const r0 = sketch.find((x) => x.id === at.id);
+          const P = r0 ? smPts(r0, smCtx) : [];
+          const half = r0 ? ((smDims(r0).w / 1000) * ppm) / 2 : 0;
+          for (let i = 0; i < P.length - 1 && !done; i += 1) {
+            const a0 = P[i];
+            const b0 = P[i + 1];
+            const dx = b0.x - a0.x;
+            const dy = b0.y - a0.y;
+            const L2 = dx * dx + dy * dy || 1;
+            const t = clamp(((p.x - a0.x) * dx + (p.y - a0.y) * dy) / L2, 0, 1);
+            if (Math.hypot(p.x - (a0.x + dx * t), p.y - (a0.y + dy * t)) < half + near) done = true;
+          }
+        }
+        if (done || event.detail >= 2) {
+          setSmChain(null);
+          setSketchDraft(null);
+          return;
+        }
         const st = at.kind === 'free' ? null : at;
         const r = smDraftEnd(at.x, at.y, p, event.shiftKey, st?.kind === 'end' ? st.id : null);
         const draft = { kind: 'smduct', x1: at.x, y1: at.y, x2: r.x2, y2: r.y2, snapA: st, snapB: r.target };
@@ -4416,7 +4439,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             {sketchTool === 'wall' && 'Drag to draw a wall (stays square; Shift for angles). Esc when done.'}
             {sketchTool === 'room' && 'Drag a box over each room. Name it and set its zone in the panel. Esc when done.'}
             {sketchTool === 'text' && 'Tap where the label goes, then type it in the panel.'}
-            {sketchTool === 'smduct' && `${SM_MATS[runMaterial]} ${runMaterial === 'spiral' ? `${Number(sheetDims.w) || 300}Ø` : `${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}`} ${AIR_NAME[ductType] || 'supply'} — ${smChain ? 'tap each bend (45° / 90°), finish on a connection, or tap the same spot / Enter to stop' : 'tap or drag from a connection or open floor, then tap each bend — one run, no joining; tap a run to select'}. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
+            {sketchTool === 'smduct' && `${SM_MATS[runMaterial]} ${runMaterial === 'spiral' ? `${Number(sheetDims.w) || 300}Ø` : `${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}`} ${AIR_NAME[ductType] || 'supply'} — ${smChain ? 'tap each bend (45° / 90°) — click back on the run, double-click, Enter or Esc to finish (or end on a connection)' : 'tap or drag from a connection or open floor, then tap each bend — one run, no joining; tap a run to select'}. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
             {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type in the panel.'}
             {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
             {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}
