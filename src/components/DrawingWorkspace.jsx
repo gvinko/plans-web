@@ -2838,9 +2838,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         else if (selectedConn) deleteSelectedConnection();
         else if (selectedSketchId) deleteSketch();
       } else if ((event.key === 'Escape' || event.key === 'Enter') && smChain) {
-        // Finish the run being drawn; the SM duct tool stays on for the next one.
+        // Finish the run being drawn and go back to Select (D to draw another).
         setSmChain(null);
         setSketchDraft(null);
+        setSketchTool(null);
       } else if (event.key === 'Escape') {
         setPendingPort(null);
         setScaleDraft(null);
@@ -3129,7 +3130,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         return;
       }
       if (!drag.moved || !d || Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 6) {
-        if (drag.chain) setSmChain(null); // second tap on the same spot = done
+        if (drag.chain) { setSmChain(null); setSketchTool(null); } // second tap on the same spot = done
         return;
       }
       if (d.kind === 'smduct') {
@@ -3198,6 +3199,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setSketch(next);
         setSelectedSketchId(selId);
         setSmChain(chain);
+        if (!chain) setSketchTool(null); // ended on a connection or another run: finished
         if (notes.length) toast.message([...new Set(notes)].join(' · '));
         setRightTab('selection');
         markDirty();
@@ -3533,8 +3535,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           }
         }
         if (done || event.detail >= 2) {
+          // Finished: back to Select so the next click doesn't start another run (D to draw again).
           setSmChain(null);
           setSketchDraft(null);
+          setSketchTool(null);
           return;
         }
         const st = at.kind === 'free' ? null : at;
@@ -4439,7 +4443,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             {sketchTool === 'wall' && 'Drag to draw a wall (stays square; Shift for angles). Esc when done.'}
             {sketchTool === 'room' && 'Drag a box over each room. Name it and set its zone in the panel. Esc when done.'}
             {sketchTool === 'text' && 'Tap where the label goes, then type it in the panel.'}
-            {sketchTool === 'smduct' && `${SM_MATS[runMaterial]} ${runMaterial === 'spiral' ? `${Number(sheetDims.w) || 300}Ø` : `${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}`} ${AIR_NAME[ductType] || 'supply'} — ${smChain ? 'tap each bend (45° / 90°) — click back on the run, double-click, Enter or Esc to finish (or end on a connection)' : 'tap or drag from a connection or open floor, then tap each bend — one run, no joining; tap a run to select'}. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
+            {sketchTool === 'smduct' && `${SM_MATS[runMaterial]} ${runMaterial === 'spiral' ? `${Number(sheetDims.w) || 300}Ø` : `${Number(sheetDims.w) || 300}×${Number(sheetDims.h) || 150}`} ${AIR_NAME[ductType] || 'supply'} — ${smChain ? 'tap each bend (45° / 90°) — click back on the run, double-click, Enter or Esc to finish (or end on a connection). Then press D for the next run' : 'tap or drag from a connection or open floor, then tap each bend — one run, no joining; tap a run to select'}. Shift = free angle · Ctrl+drag = disconnect · Esc = done.`}
             {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type in the panel.'}
             {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
             {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}
