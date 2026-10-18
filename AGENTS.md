@@ -78,3 +78,8 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - The toolbar and the hint line under it keep the same height whatever is selected (controls go `invisible`, not removed), so the drawing doesn't jump under the pointer.
 - The Rotate button and connection dots on a selected part sit clear of it, so small parts (transitions) can still be grabbed.
 - To test a branch before it goes live: run the "Build Ductplanner" workflow on that branch (Actions → Run workflow). It publishes the build to the `build-check` branch.
+
+## Tap-by-tap sheet metal runs (19 Oct 2026)
+
+- `smChain` holds where the next segment of the run being drawn starts (`end` of a run, a `port`, or a `free` point). Each tap adds a bend to the same run (no joining separate runs); `smChainAt()` gives its live point and `smDraftEnd()` the 0/45/90° snap. Esc / Enter / a second tap on the same spot / ending on a connection finishes it.
+- With Material set to sheet metal, spiral or duct board, dragging or tapping a part's duct connection draws one of these free runs (not a squared-off part-to-part duct). Old squared-off sheet ducts have "Make free run (45° bends)" in their panel (`convertConnToRun`).
