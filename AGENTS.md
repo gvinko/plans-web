@@ -106,4 +106,5 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - Page layout in Export PDF (`layout`: orient, side beside/below/none, title, page2), plan window from `planBox()`. Pick slip editor (`pickEdit`: rows, deliver, needed, po, notes; Reset from drawing). Both saved with the drawing.
 - Title bar is sticky under the app bar; toolbar + hint line are sticky below it (one row, scrolls sideways when narrow).
 - PDF legend: top of `.dp-side-list`, only the part types and duct services used.
+- Title block: `DESIGNER` details, `DRAWING_KINDS` issue stamp + note (`layout.kind`), `layout.dwgNo`, `layout.refs` ("Read with"). Logo is `src/assets/echo-logo.png` via `ECHO_LOGO` (the old inline base64 was corrupt); also shown in the app bar.
 - Eraser tool (Q, `eraseAt`). Select all (Ctrl+A, `allSel`) + `rotateAll` (R / Shift+R) turns everything 90° about the drawing centre; the plan image stays put.
