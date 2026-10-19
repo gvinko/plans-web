@@ -1672,6 +1672,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [scaleDraft, setScaleDraft] = useState(null);
   const [showLabels, setShowLabels] = useState(true);
   const [showFab, setShowFab] = useState(false); // shop detail: sheet pieces, joints, centre line
+  // Plan text: size multiplier and colour ('' = the default black / duct colour). Saved with the drawing.
+  const [textStyle, setTextStyle] = useState({ size: 0.7, color: '' });
+  const [textMenu, setTextMenu] = useState(false);
   // Which phase of the job to show: everything, the site as it stands, or the finished proposal.
   const [phaseView, setPhaseView] = useState('all');
   const inView = (x) => {
@@ -1771,7 +1774,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const t = setTimeout(() => {
       if (!dirtyRef.current) return; // already saved
       try {
-        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, showFab, sketch, climate }) }));
+        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, sketch, climate }) }));
       } catch { /* storage full or blocked */ }
     }, 800);
     return () => clearTimeout(t);
@@ -1940,6 +1943,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setScale(saved.scale ?? null);
         setShowLabels(saved.showLabels ?? true);
         setShowFab(!!saved.showFab);
+        setTextStyle({ size: 0.7, color: '', ...(saved.textStyle || {}) });
         setClimate(saved.climate && CLIMATES[saved.climate] ? saved.climate : DEFAULT_CLIMATE);
         // planFile_c (a real Files field) is the source of truth; an old drawing's inline
         // base64 background is shown as a last resort but won't be re-saved as such.
@@ -4178,7 +4182,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return;
     }
     setStatus('Saving…');
-    const payload = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, sketch, climate });
+    const payload = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, sketch, climate });
     lastSavedRef.current = payload;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos); } catch { ok = false; }
@@ -4233,7 +4237,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // Annotation height in world units: paper mm at the print scale (1:50 unless a print scale is picked),
   // so labels sit in proportion to the ducts and print the same size they show. No scale yet: old screen size.
   const annN = Number(printOpts.scale) || 50;
-  const ann = (paperMm, px) => (scale ? (paperMm * annN / 1000) * ppm : px * Math.min(inv, 2.5));
+  const tSize = Number(textStyle.size) || 0.7;
+  const ann = (paperMm, px) => (scale ? (paperMm * annN / 1000) * ppm : px * Math.min(inv, 2.5)) * tSize;
   const selectedMm = selected ? footprintMm(selected) : null;
 
   function printHeader(title) {
@@ -4882,7 +4887,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           const inside = fs <= dw * 0.62 && !pieces.length;
                           const txt = `${DUCT_PREFIX[s.air] || ''}${mat === 'spiral' ? `${smDims(s).w}Ø` : `${smDims(s).w}×${smDims(s).h}${mat === 'board' ? ' DB' : ''}`}`;
                           return (
-                            <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={inside ? 0 : -(hw + fs * 0.45)} dominantBaseline={inside ? 'central' : 'auto'} textAnchor="middle" fontSize={fs} fontWeight="600" fill={edge} stroke={inside ? fillC : '#fff'} strokeWidth={fs * 0.22} paintOrder="stroke" style={{ pointerEvents: 'none', letterSpacing: '0.02em' }}>
+                            <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={inside ? 0 : -(hw + fs * 0.45)} dominantBaseline={inside ? 'central' : 'auto'} textAnchor="middle" fontSize={fs} fontWeight="600" fill={textStyle.color || edge} stroke={inside ? fillC : '#fff'} strokeWidth={fs * 0.22} paintOrder="stroke" style={{ pointerEvents: 'none', letterSpacing: '0.02em' }}>
                               {showFab && scale ? `${txt} · ${fmtM(lenM)}m${pieces.length ? ` · ${pieces.length} pcs` : ''}` : txt}
                             </text>
                           );
@@ -5260,8 +5265,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   <div
                     key={`${item.id}-tag`}
                     title="Drag to move this label"
-                    className={`absolute whitespace-nowrap touch-none cursor-move leading-none font-bold tracking-wide ${isSel ? 'text-primary' : 'text-slate-900'}`}
-                    style={{ left: item.cx + off.dx, top: item.cy + off.dy, fontSize: scale ? ann(2.5, 9) : 9, transform: 'translate(-50%, -50%)', textShadow: '0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff' }}
+                    className={`absolute whitespace-nowrap touch-none cursor-move leading-none font-bold tracking-wide ${isSel ? 'text-primary' : textStyle.color ? '' : 'text-slate-900'}`}
+                    style={{ left: item.cx + off.dx, top: item.cy + off.dy, fontSize: scale ? ann(2.5, 9) : 9 * tSize, color: !isSel && textStyle.color ? textStyle.color : undefined, transform: 'translate(-50%, -50%)', textShadow: '0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff' }}
                     onPointerDown={(event) => startLabelDrag(event, item)}
                   >
                     {item.type === 'zonearea' ? (
@@ -5273,7 +5278,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         {zoneColor(item.spec?.zone) && <span className="inline-block size-2 rounded-full mr-0.5 align-middle" style={{ backgroundColor: zoneColor(item.spec.zone) }} />}
                         {item.remove ? <span className="text-red-600">RM </span> : item.existing ? <span className="text-slate-500">EX </span> : null}
                         {tags[item.id]}
-                        {sub && <span className="font-medium text-slate-600" style={{ fontSize: '0.85em' }}>{` ${sub}`}</span>}
+                        {sub && <span className={`font-medium ${textStyle.color ? 'opacity-75' : 'text-slate-600'}`} style={{ fontSize: '0.85em' }}>{` ${sub}`}</span>}
                         {item.type === 'zone' && zoneColor(item.spec?.zone) && <span className="font-bold" style={{ color: zoneColor(item.spec.zone) }}>{` ${item.spec.zone.replace('Zone ', 'Z')}`}</span>}
                       </>
                     )}
@@ -5411,6 +5416,40 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 <ApperIcon name="Scissors" size={15} />
                 SHOP
               </Button>
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  className={`h-11 w-full px-2 shadow-sm flex-col gap-0 text-[9px] font-bold leading-none ${textMenu ? 'bg-primary/10 border-primary text-primary' : 'bg-card'}`}
+                  title="Plan text size and colour"
+                  aria-label="Plan text size and colour"
+                  onClick={() => setTextMenu((v) => !v)}
+                >
+                  <ApperIcon name="Type" size={15} style={textStyle.color ? { color: textStyle.color } : undefined} />
+                  TEXT
+                </Button>
+                {textMenu && (
+                  <div className="absolute right-full top-0 mr-2 w-52 rounded-lg border border-border bg-card p-3 shadow-lg space-y-3 text-xs" onPointerDown={(event) => event.stopPropagation()}>
+                    <div>
+                      <div className="mb-1 font-semibold text-muted-foreground">Text size</div>
+                      <div className="grid grid-cols-4 gap-1">
+                        {[[0.5, 'XS'], [0.7, 'S'], [0.85, 'M'], [1, 'L']].map(([v, label]) => (
+                          <button key={label} type="button" onClick={() => { setTextStyle((t) => ({ ...t, size: v })); markDirty(); }} className={`rounded-md border px-1 py-1.5 font-semibold ${tSize === v ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1 font-semibold text-muted-foreground">Text colour</div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[['', 'Default'], ['#0f172a', 'Black'], ['#475569', 'Grey'], ['#1d4ed8', 'Blue'], ['#15803d', 'Green'], ['#b91c1c', 'Red'], ['#7e22ce', 'Purple']].map(([c, label]) => (
+                          <button key={label} type="button" title={label} aria-label={`${label} text`} onClick={() => { setTextStyle((t) => ({ ...t, color: c })); markDirty(); }} className={`size-6 rounded-full border-2 ${textStyle.color === c ? 'border-primary ring-2 ring-primary/30' : 'border-border'}`} style={{ background: c || 'conic-gradient(#0f172a 0 50%, #16a34a 0)' }} />
+                        ))}
+                        <input type="color" aria-label="Custom text colour" title="Any colour" value={textStyle.color || '#0f172a'} onChange={(event) => { setTextStyle((t) => ({ ...t, color: event.target.value })); markDirty(); }} className="size-6 cursor-pointer rounded border border-border bg-transparent p-0" />
+                      </div>
+                      <div className="mt-1 text-[10px] text-muted-foreground">Default = black tags, duct sizes in the duct colour.</div>
+                    </div>
+                  </div>
+                )}
+              </div>
               <Button
                 variant="outline"
                 className={`h-11 px-2 shadow-sm flex-col gap-0 text-[9px] font-bold leading-none ${phaseView === 'all' ? 'bg-card' : 'bg-primary/10 border-primary text-primary'}`}
