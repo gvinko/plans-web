@@ -88,3 +88,11 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 
 - `src/data/unitDims.js` holds spec-sheet H x W x D (mm) for the costing-sheet ducted units, indoor and outdoor, matched by regex on the model name (first match wins). `indoorPreset()` and `pairOutdoor()` use it, and fall back to the series outline when a model isn't listed (ActronAir Aires 10/20/23, Braemar, old R410a Fujitsu big units).
 - `src/data/ductedModels.js` was refreshed from Echo DOMESTIC costings 11-10-26 (Ducted tab, unit groups only). Model names in saved drawings are unchanged.
+
+## Drawing style (19 Oct 2026 review) — keep it like a CAD mechanical plan
+
+- Annotation is sized in paper mm at the print scale: `ann(paperMm, fallbackPx)` (print scale picked in Export PDF, else 1:50). Tags 2.5 mm, duct sizes 2 mm. Don't go back to fixed screen-pixel text that balloons or shrinks with zoom.
+- Design view (default) shows a run as tinted fill + edge with one size tag `300×200` (RA/EA/OA prefix), centred in the duct in the longest stretch clear of parts (`clearSeg`). No length, piece count, piece numbers, shading, centre line or TDF ticks there.
+- SHOP toggle (`showFab`, saved with the drawing) turns on sheet pieces, numbers, TDF joints, centre line, lengths and transition sizes.
+- Parts draw as plain white outlines once the plan is to scale (no app-tile shadow / rounding).
+- Known gap: parts rotate in 90° steps, so a transition or fan on a sloped run won't line up. Keep runs at 0/45/90 near parts.
