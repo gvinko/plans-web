@@ -744,7 +744,7 @@ function itemBox(item, ppm) {
   const [wmm, dmm] = footprintMm(item);
   const uw = Math.max(PLAN_MIN.px, (wmm / 1000) * ppm);
   const uh = Math.max(PLAN_MIN.px, (dmm / 1000) * ppm);
-  const turned = ((item.rot || 0) / 90) % 2 === 1;
+  const turned = Math.round((item.rot || 0) / 90) % 2 !== 0 && (item.rot || 0) % 90 === 0;
   return { uw, uh, w: turned ? uh : uw, h: turned ? uw : uh };
 }
 
@@ -755,7 +755,7 @@ function portInfo(item, portId, ppm) {
   const b = itemBox(item, ppm);
   const lx = (def.fx - 0.5) * b.uw;
   const ly = (def.fy - 0.5) * b.uh;
-  const r = (((item.rot || 0) % 360) + 360) % 360;
+  const r = ((Math.round((item.rot || 0) / 90) * 90) % 360 + 360) % 360;
   const [x, y] = r === 90 ? [-ly, lx] : r === 180 ? [-lx, -ly] : r === 270 ? [ly, -lx] : [lx, ly];
   const dir = DIR_ORDER[(DIR_ORDER.indexOf(def.dir) + r / 90) % 4];
   return { x: item.cx + x, y: item.cy + y, dir, air: def.air || null, service: def.service || null, joinOnly: !!def.joinOnly, id: def.id };
@@ -1135,7 +1135,7 @@ function smDetachOthers(sketch, id, ctx) {
 // Parts that drop onto a sheet metal run: in-line ones sit in it, spigots sit on its side.
 const SM_INLINE = new Set(['flexconn', 'exhfan', 'vcd', 'firedamper', 'motdamper', 'backdraft', 'attenuator']);
 const SM_SIDE = new Set(['spigot']);
-const SM_INLINE_LEN = { vcd: 250, firedamper: 300, motdamper: 300, backdraft: 250, attenuator: 900 }; // mm along the run
+const SM_INLINE_LEN = { vcd: 150, firedamper: 300, motdamper: 300, backdraft: 250, attenuator: 900 }; // mm along the run
 
 // A transition dropped near the open end of a run snaps onto it: inlet on the run end,
 // pointing on along the run, inlet sized to the duct. Draw on from its outlet.
@@ -1182,7 +1182,7 @@ function smSeat(item, ctx, reach) {
       if (L < 1) continue;
       const ux = dx / L;
       const uy = dy / L;
-      if (Math.abs(ux) > 0.01 && Math.abs(uy) > 0.01) continue; // parts turn in 90° steps: straight runs only
+      if (!inline && Math.abs(ux) > 0.01 && Math.abs(uy) > 0.01) continue; // side parts turn in 90° steps: square runs only
       const t = clamp(((item.cx - a.x) * ux + (item.cy - a.y) * uy) / L, 0, 1);
       const px = a.x + dx * t;
       const py = a.y + dy * t;
@@ -1196,7 +1196,7 @@ function smSeat(item, ctx, reach) {
         const dims = item.type === 'exhfan' ? null : { w: along, d: d.w };
         const size = `${d.w}x${d.h}mm`;
         const sizeOpts = getTool(item.type).specs?.find((f) => f.key === 'size')?.options || [];
-        best = { dist, cx: px, cy: py, rot: Math.abs(ux) > 0.5 ? 0 : 90, onRun: { id: s.id, seg: i, t }, dims, spec: sizeOpts.includes(size) ? { size } : null, ductSize: `${d.w}x${d.h}` };
+        best = { dist, cx: px, cy: py, rot: Math.round((((Math.atan2(uy, ux) * 180) / Math.PI) + 360) % 180), onRun: { id: s.id, seg: i, t }, dims, spec: sizeOpts.includes(size) ? { size } : null, ductSize: `${d.w}x${d.h}` };
       } else {
         const side = off >= 0 ? 1 : -1;
         const nx = -uy * side;
@@ -1778,7 +1778,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       } catch { /* storage full or blocked */ }
     }, 800);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, showLabels, sketch, climate, draftKey]);
+  }, [items, connections, joins, scale, showLabels, showFab, textStyle, sketch, climate, draftKey]);
 
   // Saving is on this device now, so losing signal no longer matters.
   // Autosave: a couple of seconds after any change (drawing, plan, photos), save it.
@@ -1786,7 +1786,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (!dirtyRef.current || planBusy) return undefined;
     const t = setTimeout(() => { if (dirtyRef.current) saveRef.current?.({ auto: true }); }, 1500);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, showLabels, sketch, climate, planFile, photos, planBusy]);
+  }, [items, connections, joins, scale, showLabels, showFab, textStyle, sketch, climate, planFile, photos, planBusy]);
   // Leaving the tab or closing the window: save straight away.
   useEffect(() => {
     const flush = () => { if (dirtyRef.current) saveRef.current?.({ auto: true }); };
@@ -2025,6 +2025,39 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     return { conn, a, b, pts, metres, ends, mismatch };
   }).filter(Boolean), [connections, items, scale, ppm, sketch.length]);
 
+  // Canvas connections on fans in sheet metal: either side of a fan fitted in a run,
+  // and wherever a run ends on a fan's connection. Fan panel's canvas switch turns them off.
+  const canvasJoints = useMemo(() => {
+    const out = [];
+    const L = (150 / 1000) * ppm;
+    const ctxNow = { sketch, items, ppm };
+    items.forEach((it) => {
+      if (it.type !== 'exhfan' || it.canvas === false) return;
+      if (it.onRun) {
+        const run = sketch.find((x) => x.id === it.onRun.id);
+        if (!run) return;
+        const a = ((it.rot || 0) * Math.PI) / 180;
+        const half = itemBox(it, ppm).uw / 2;
+        [-1, 1].forEach((sg) => out.push({ key: `${it.id}${sg}`, itemId: it.id, run, w: smDims(run).w, ang: it.rot || 0, x: it.cx + Math.cos(a) * sg * (half + L / 2), y: it.cy + Math.sin(a) * sg * (half + L / 2) }));
+      }
+      sketch.forEach((r) => {
+        if (r.kind !== 'smduct') return;
+        [['a', 0, 1], ['b', -1, -2]].forEach(([k, i0, j0]) => {
+          const link = r[k];
+          if (link?.kind !== 'port' || link.itemId !== it.id) return;
+          const P = smPts(r, ctxNow);
+          if (P.length < 2) return;
+          const p = P[i0 < 0 ? P.length + i0 : i0];
+          const q = P[j0 < 0 ? P.length + j0 : j0];
+          const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+          const u = { x: (q.x - p.x) / len, y: (q.y - p.y) / len };
+          out.push({ key: `${r.id}${k}`, itemId: it.id, run: r, w: smDims(r).w, ang: (Math.atan2(u.y, u.x) * 180) / Math.PI, x: p.x + u.x * L / 2, y: p.y + u.y * L / 2 });
+        });
+      });
+    });
+    return out;
+  }, [items, sketch, ppm]);
+
   const takeoff = useMemo(() => {
     const lines = new Map();
     const add = (name, qty = 1) => lines.set(name, (lines.get(name) || 0) + qty);
@@ -2203,11 +2236,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       sheet.set(nm, cur);
       smEndFittings(s, ctxNow).forEach((f) => add('Ductwork', f.label, 1));
     });
-    // Inline fans fitted in a run get a flexible canvas connection each side.
-    items.forEach((it) => {
-      if (it.type !== 'exhfan' || !it.onRun || it.canvas === false) return;
-      const run = sketch.find((x) => x.id === it.onRun.id);
-      if (run) add('Ductwork', `Flexible canvas connection — ${smSizeText(run)}${smMat(run) === 'spiral' ? '' : ' mm'}`, 2, { note: `either side of ${tags[it.id] || 'the fan'}` });
+    // Fans in sheet metal get a flexible canvas connection each side they meet the duct.
+    canvasJoints.forEach((cj) => {
+      add('Ductwork', `Flexible canvas connection — ${smSizeText(cj.run)}${smMat(cj.run) === 'spiral' ? '' : ' mm'}`, 1, { note: `at ${tags[cj.itemId] || 'the fan'}` });
     });
     sheet.forEach(({ count, metres, tally }, nm) => {
       const cut = tally?.size ? ` · pieces: ${smPiecesText(tally)}` : '';
@@ -2242,7 +2273,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       { name: 'Existing — strip out / remove', rows: siteRows(strip) },
     ].filter((g) => g.rows.length);
     return { groups: list, site: siteGroups, total: list.reduce((n, g) => n + g.rows.reduce((m, r) => m + r.qty, 0), 0) };
-  }, [items, runs, scale, sketch, ppm]);
+  }, [items, runs, scale, sketch, ppm, canvasJoints]);
 
   const pinNo = useMemo(() => {
     const m = {};
@@ -2493,6 +2524,21 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
 
   // Add a part at a world point (drop / right-click) or the centre of the view.
+  // A part fitted into (or onto the side of) a sheet metal run: sits on the run, turned with it,
+  // dampers sized to the duct, fans with canvas connections on by default.
+  function seated(item, seat) {
+    return {
+      ...item,
+      cx: seat.cx,
+      cy: seat.cy,
+      rot: seat.rot,
+      onRun: seat.onRun,
+      ...(seat.dims ? { dims: seat.dims, ductSize: seat.ductSize } : {}),
+      ...(seat.spec ? { spec: { ...item.spec, ...seat.spec } } : {}),
+      ...(item.type === 'exhfan' && item.canvas === undefined ? { canvas: true } : {}),
+    };
+  }
+
   function addItem(type, at = null) {
     const el = canvasRef.current;
     const v = viewRef.current;
@@ -2505,6 +2551,18 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       draft.spec.zone = ZONE_NAMES.find((z) => !used.includes(z)) || ZONE_NAMES[0];
     }
     const b = itemBox(draft, ppm);
+    // Dropped on a sheet metal run: dampers, fans and spigots fit straight into it.
+    const seat = at && (SM_INLINE.has(type) || SM_SIDE.has(type)) ? smSeat(draft, smCtx, JOIN_SCREEN_PX / viewRef.current.z) : null;
+    if (seat) {
+      const next = seated(draft, seat);
+      setItems((current) => [...current, next]);
+      setSelectedId(next.id);
+      setSelectedConnId(null);
+      setPendingPort(null);
+      markDirty();
+      toast.message(SM_SIDE.has(type) ? 'Fitted to the duct side — run flex from its outlet' : `Fitted in the duct run${type === 'exhfan' ? ' with canvas connections' : ''}`);
+      return;
+    }
     const spot = type === 'zonearea' ? { x: cx, y: cy } : findFreeCenter(cx, cy, b.w, b.h, boxesExcept(items, []), at ? 0 : 10);
     const next = { ...draft, cx: spot.x, cy: spot.y };
     setItems((current) => [...current, next]);
@@ -3341,15 +3399,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (SM_INLINE.has(me.type) || SM_SIDE.has(me.type)) {
       const seat = smSeat(me, smCtx, reach);
       if (seat) {
-        setItems((current) => current.map((item) => (item.id === me.id ? {
-          ...item,
-          cx: seat.cx,
-          cy: seat.cy,
-          rot: seat.rot,
-          onRun: seat.onRun,
-          ...(seat.dims ? { dims: seat.dims, ductSize: seat.ductSize } : {}),
-          ...(seat.spec ? { spec: { ...item.spec, ...seat.spec } } : {}),
-        } : item)));
+        setItems((current) => current.map((item) => (item.id === me.id ? seated(item, seat) : item)));
         markDirty();
         toast.message(SM_SIDE.has(me.type) ? `${tags[me.id]} fitted to the duct side — run flex from its outlet` : `${tags[me.id]} fitted in the duct run`);
         return;
@@ -4967,31 +5017,18 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   );
                 })}
                 {/* Flexible canvas connections either side of inline fans fitted in a run */}
-                {items.filter((it) => it.type === 'exhfan' && it.onRun && it.canvas !== false).map((it) => {
-                  const run = sketch.find((x) => x.id === it.onRun.id);
-                  if (!run) return null;
-                  const mm = ppm / 1000;
-                  const box = itemBox(it, ppm);
-                  const horiz = ((it.rot || 0) / 90) % 2 === 0;
-                  const half = (horiz ? box.w : box.h) / 2;
-                  const L = Math.max(3, 150 * mm);
-                  const W = Math.max(4, smDims(run).w * mm);
-                  return [-1, 1].map((sgn) => {
-                    const c = horiz ? { x: it.cx + sgn * (half + L / 2), y: it.cy } : { x: it.cx, y: it.cy + sgn * (half + L / 2) };
-                    const w = horiz ? L : W;
-                    const h = horiz ? W : L;
-                    const zig = [];
-                    for (let k2 = 0; k2 <= 6; k2 += 1) {
-                      const f = k2 / 6;
-                      zig.push(horiz ? `${c.x - w / 2 + (k2 % 2 ? w : 0)},${c.y - h / 2 + h * f}` : `${c.x - w / 2 + w * f},${c.y - h / 2 + (k2 % 2 ? h : 0)}`);
-                    }
-                    return (
-                      <g key={`${it.id}${sgn}`} style={{ pointerEvents: 'none' }}>
-                        <rect x={c.x - w / 2} y={c.y - h / 2} width={w} height={h} fill="#fff7ed" stroke="#7c2d12" strokeWidth={1} />
-                        <polyline points={zig.join(' ')} fill="none" stroke="#7c2d12" strokeWidth={0.7} />
-                      </g>
-                    );
-                  });
+                {canvasJoints.map((cj) => {
+                  // Flexible canvas connection: a 150 mm band across the duct with a zig-zag, at any angle.
+                  const L = Math.max(3, 150 * (ppm / 1000));
+                  const W = Math.max(4, cj.w * (ppm / 1000));
+                  const zig = [];
+                  for (let k2 = 0; k2 <= 6; k2 += 1) zig.push(`${-L / 2 + (k2 % 2 ? L : 0)},${-W / 2 + (W * k2) / 6}`);
+                  return (
+                    <g key={cj.key} transform={`translate(${cj.x} ${cj.y}) rotate(${cj.ang})`} style={{ pointerEvents: 'none' }}>
+                      <rect x={-L / 2} y={-W / 2} width={L} height={W} fill="#fff7ed" stroke="#7c2d12" strokeWidth={1 * Math.min(inv, 1.5)} />
+                      <polyline points={zig.join(' ')} fill="none" stroke="#7c2d12" strokeWidth={0.7 * Math.min(inv, 1.5)} />
+                    </g>
+                  );
                 })}
                 {sketchDraft && (() => {
                   const d = sketchDraft;
@@ -5792,19 +5829,48 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   </label>
                 </div>
               )}
-              {(selected.type === 'indoor' || selected.type === 'outdoor') && selectedMm && (
+              {selected.type !== 'zonearea' && selectedMm && (
                 <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Footprint (mm) – check against the spec sheet</div>
+                  <div className="text-xs text-muted-foreground">Size W × D × H (mm) – check against the spec sheet</div>
                   <div className="flex items-center gap-1.5">
-                    <Input type="number" inputMode="numeric" className="h-9" aria-label="Width in mm" value={selectedMm[0]} onChange={(event) => updateSelectedDims('w', event.target.value)} />
+                    <Input type="number" inputMode="numeric" className="h-9" aria-label="Width in mm" title="Width (plan)" value={selectedMm[0]} onChange={(event) => updateSelectedDims('w', event.target.value)} />
                     <span className="text-xs text-muted-foreground">×</span>
-                    <Input type="number" inputMode="numeric" className="h-9" aria-label="Depth in mm" value={selectedMm[1]} onChange={(event) => updateSelectedDims('d', event.target.value)} />
+                    <Input type="number" inputMode="numeric" className="h-9" aria-label="Depth in mm" title="Depth (plan)" value={selectedMm[1]} onChange={(event) => updateSelectedDims('d', event.target.value)} />
+                    <span className="text-xs text-muted-foreground">×</span>
+                    <Input type="number" inputMode="numeric" className="h-9" aria-label="Height in mm" title="Height" placeholder="H" value={selected.heightMm ?? (selected.type === 'indoor' ? indoorPreset(selected.spec?.model).h ?? '' : '')} onChange={(event) => updateItem(selected.id, { heightMm: event.target.value === '' ? undefined : Number(event.target.value) })} />
                   </div>
                   {selected.type === 'indoor' && (
                     <div className="text-[11px] text-muted-foreground">
                       {(() => { const p = indoorPreset(selected.spec?.model); return p.exact ? `Spec-sheet size ${p.w} W × ${p.d} D × ${p.h} H` : `Approx. ${p.series} outline — no published size for this model, type it in`; })()} · R/A at the rear, S/A at the front.
                     </div>
                   )}
+                </div>
+              )}
+              {selected.type !== 'zonearea' && (
+                <div className="space-y-2 rounded-md border border-border p-2">
+                  <div className="text-xs font-semibold text-muted-foreground">Part data</div>
+                  {!(selected.type === 'indoor' || selected.type === 'coilsection') && (
+                    <label className="flex flex-col gap-1 text-xs">
+                      <span className="text-muted-foreground">Airflow (L/s)</span>
+                      <Input className="h-9" type="number" min="0" inputMode="numeric" placeholder="e.g. 120" value={selected.airflow ?? ''} onChange={(event) => updateItem(selected.id, { airflow: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                    </label>
+                  )}
+                  {!FAN_TYPES.has(selected.type) && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex flex-col gap-1 text-xs">
+                        <span className="text-muted-foreground">Model</span>
+                        <Input className="h-9" placeholder="Model no." value={selected.model || ''} onChange={(event) => updateItem(selected.id, { model: event.target.value })} />
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs">
+                        <span className="text-muted-foreground">Supplier</span>
+                        <Input className="h-9" placeholder="e.g. Holyoake" value={selected.supplier || ''} onChange={(event) => updateItem(selected.id, { supplier: event.target.value })} />
+                      </label>
+                    </div>
+                  )}
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="text-muted-foreground">Notes</span>
+                    <textarea className="min-h-14 rounded-md border border-input bg-background px-2 py-1.5 text-sm" placeholder="Anything for the install or order" value={selected.notes || ''} onChange={(event) => updateItem(selected.id, { notes: event.target.value })} />
+                  </label>
                 </div>
               )}
               <StatusPicker noun="Part" value={statusOf(selected)} onChange={(patch) => updateItem(selected.id, patch)} />
