@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from 'sonner';
 import { sdk } from '@/services/sdk';
 import { DUCTED_MODELS } from '@/data/ductedModels';
+import { unitDims } from '@/data/unitDims';
 import { SPLIT_MODELS } from '@/data/splitModels';
 import { PAIR_COILS, UNIT_COIL } from '@/data/pipeSizing';
 import AutoLayoutDialog from '@/components/AutoLayoutDialog';
@@ -113,6 +114,8 @@ const OUTDOOR_BODIES = [
 // Approximate indoor footprints by series; the user can type the exact spec size.
 function indoorPreset(model) {
   const m = model || '';
+  const spec = unitDims(m)?.indoor;
+  if (spec) return { w: spec.w, d: spec.d, h: spec.h, series: 'Spec-sheet size', exact: true };
   if (/bulkhead|SEZ-|FDYBA|K[SL]LAP/i.test(m)) return { w: 900, d: 450, series: 'Bulkhead' };
   if (/slim|FBA|KMTAP|PEAD|low profile/i.test(m)) return { w: 1100, d: 700, series: 'Slimline' };
   if (/underfloor|FDYU/i.test(m)) return { w: 1200, d: 900, series: 'Underfloor' };
@@ -130,7 +133,11 @@ const CODE_RE = /^[A-Z]{2,}[A-Z0-9-]*\d[A-Z0-9-]*$/;
 function modelCodes(model) {
   if (!model || model === 'Choose a model') return { indoor: '', outdoor: '' };
   const codes = String(model).replace(/\(.*?\)/g, ' ').split(/[\s/]+/).filter((t) => CODE_RE.test(t));
-  if (/\s\/\s/.test(model) && codes.length >= 2) return { indoor: codes[1], outdoor: codes[0] };
+  if (/\s\/\s/.test(model) && codes.length >= 2) {
+    // 'Actron CRS10AS / EVA10AS' lists the outdoor first; 'Mitsubishi PEAD-M71 / PUZ-ZM71' the indoor first.
+    const outFirst = !/^(PUZ|SUZ|PUHZ|AOT|RZA|SCH|KCH)/.test(codes[1]);
+    return outFirst ? { indoor: codes[1], outdoor: codes[0] } : { indoor: codes[0], outdoor: codes[1] };
+  }
   return { indoor: codes[0] || '', outdoor: '' };
 }
 const indoorShort = (v) => [modelCodes(v).indoor, kwShort(v)].filter(Boolean).join(' · ');
@@ -2560,7 +2567,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // unpaired condenser, or add a new one beside the FCU.
   function pairOutdoor(fcu, model, target = null) {
     const codes = modelCodes(model);
-    const body = outdoorBodyForKw(parseFloat(kwShort(model)) || 0);
+    const spec = unitDims(model);
+    // Spec-sheet size when known; the body preset (for the symbol) is the nearest one by width.
+    const near = spec?.outdoor && OUTDOOR_BODIES.reduce((best, o) => (Math.abs(o.w - spec.outdoor.w) < Math.abs(best.w - spec.outdoor.w) ? o : best));
+    const body = spec?.outdoor ? { label: near.label, w: spec.outdoor.w, d: spec.outdoor.d } : outdoorBodyForKw(parseFloat(kwShort(model)) || 0);
+    if (!codes.outdoor && spec?.outdoorCode) codes.outdoor = spec.outdoorCode;
     const existing = target
       || items.find((i) => i.type === 'outdoor' && i.pairedWith === fcu.id)
       || items.find((i) => i.type === 'outdoor' && !i.pairedWith);
@@ -5697,7 +5708,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     <Input type="number" inputMode="numeric" className="h-9" aria-label="Depth in mm" value={selectedMm[1]} onChange={(event) => updateSelectedDims('d', event.target.value)} />
                   </div>
                   {selected.type === 'indoor' && (
-                    <div className="text-[11px] text-muted-foreground">{indoorPreset(selected.spec?.model).series} outline · R/A at the rear, S/A at the front.</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {(() => { const p = indoorPreset(selected.spec?.model); return p.exact ? `Spec-sheet size ${p.w} W × ${p.d} D × ${p.h} H` : `Approx. ${p.series} outline — no published size for this model, type it in`; })()} · R/A at the rear, S/A at the front.
+                    </div>
                   )}
                 </div>
               )}
