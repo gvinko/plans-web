@@ -1639,6 +1639,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [scale, setScale] = useState(null);
   const [scaleDraft, setScaleDraft] = useState(null);
   const [showLabels, setShowLabels] = useState(true);
+  const [showFab, setShowFab] = useState(false); // shop detail: sheet pieces, joints, centre line
   // Which phase of the job to show: everything, the site as it stands, or the finished proposal.
   const [phaseView, setPhaseView] = useState('all');
   const inView = (x) => {
@@ -1738,7 +1739,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const t = setTimeout(() => {
       if (!dirtyRef.current) return; // already saved
       try {
-        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, sketch, climate }) }));
+        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, showFab, sketch, climate }) }));
       } catch { /* storage full or blocked */ }
     }, 800);
     return () => clearTimeout(t);
@@ -1906,6 +1907,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setSketch(saved.sketch ?? []);
         setScale(saved.scale ?? null);
         setShowLabels(saved.showLabels ?? true);
+        setShowFab(!!saved.showFab);
         setClimate(saved.climate && CLIMATES[saved.climate] ? saved.climate : DEFAULT_CLIMATE);
         // planFile_c (a real Files field) is the source of truth; an old drawing's inline
         // base64 background is shown as a last resort but won't be re-saved as such.
@@ -4144,7 +4146,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return;
     }
     setStatus('Saving…');
-    const payload = JSON.stringify({ items, connections, joins, scale, showLabels, sketch, climate });
+    const payload = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, sketch, climate });
     lastSavedRef.current = payload;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos); } catch { ok = false; }
@@ -4196,6 +4198,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const sizeOptions = SIZES.some((s) => s.mm === sizeValue) || sizeValue == null ? SIZES : [...SIZES, { mm: sizeValue, label: `${sizeValue}mm` }];
   const bar = scale ? niceScaleBar(scale.pxPerM, view.z) : null;
   const inv = 1 / view.z;
+  // Annotation height in world units: paper mm at the print scale (1:50 unless a print scale is picked),
+  // so labels sit in proportion to the ducts and print the same size they show. No scale yet: old screen size.
+  const annN = Number(printOpts.scale) || 50;
+  const ann = (paperMm, px) => (scale ? (paperMm * annN / 1000) * ppm : px * Math.min(inv, 2.5));
   const selectedMm = selected ? footprintMm(selected) : null;
 
   function printHeader(title) {
@@ -4710,7 +4716,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     // Each stock length drawn as its own piece: alternate pieces shaded and numbered
                     // along the run, the balance (short) piece labelled with its length, so pieces can be counted.
                     const pieces = [];
-                    if (scale && sheetW > 2 && mat !== 'spiral') {
+                    if (showFab && scale && sheetW > 2 && mat !== 'spiral') {
                       let no = 0;
                       lay.segs.forEach((g) => {
                         const { u } = g;
@@ -4724,7 +4730,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         }
                       });
                     }
-                    if (scale && sheetW > 2 && mat === 'sheet') {
+                    if (showFab && scale && sheetW > 2 && mat === 'sheet') {
                       const ov = Math.max(1.2, 35 * mm);
                       const gap = Math.max(0.8, 20 * mm);
                       lay.segs.forEach((g) => {
@@ -4780,7 +4786,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           </>
                         )}
                         {pieces.filter((q) => q.no % 2 === 0).map((q) => <polygon key={`pc${q.no}`} points={q.poly} fill={edge} fillOpacity={0.3} style={{ pointerEvents: 'none' }} />)}
-                        <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.6 * pen} strokeDasharray={mat === 'spiral' ? `${14 * pen} ${4 * pen} ${2 * pen} ${4 * pen}` : `${8 * pen} ${4 * pen}`} style={{ pointerEvents: 'none' }} />
+                        {showFab && <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.6 * pen} strokeDasharray={mat === 'spiral' ? `${14 * pen} ${4 * pen} ${2 * pen} ${4 * pen}` : `${8 * pen} ${4 * pen}`} style={{ pointerEvents: 'none' }} />}
                         {seams.length > 0 && <path d={seams.join(' ')} fill="none" stroke={edge} strokeOpacity={0.55} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />}
                         {ticks.length > 0 && <path d={ticks.join(' ')} fill="none" stroke={edge} strokeWidth={pen} style={{ pointerEvents: 'none' }} />}
                         {[[0, 1, s.capA && !s.a], [P.length - 1, P.length - 2, s.capB && !s.b]].map(([i, j, on]) => {
@@ -4802,7 +4808,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           if (a > 90 || a < -90) a += 180;
                           const txt = q.full ? String(q.no) : `${q.no}·${q.lenMm}`;
                           if (!q.full && q.room < 34) return null;
-                          const fs = Math.min(9 * k, dw * 0.8);
+                          const fs = Math.min(ann(1.8, 9), dw * 0.8);
                           return (
                             <text key={`pn${q.no}`} x={q.cx} y={q.cy} transform={`rotate(${a} ${q.cx} ${q.cy})`} textAnchor="middle" dominantBaseline="central" fontSize={fs} fontWeight="700" fill={edge} stroke={fillC} strokeWidth={fs * 0.25} paintOrder="stroke" style={{ pointerEvents: 'none' }}>{txt}</text>
                           );
@@ -4828,23 +4834,29 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           const ty = f.at.y + f.u.y * (L / 2);
                           return (
                             <g key={i} style={{ pointerEvents: 'none' }}>
-                              <polygon points={q} fill="#ffffff" stroke={edge} strokeWidth={pen} />
-                              {f.type === 'transition' && scale && (
-                                <text x={tx} y={ty} transform={`rotate(${ta} ${tx} ${ty})`} dy={Math.max(wA, wB) + 11 * k} textAnchor="middle" fontSize={8.5 * k} fontWeight="600" fill={edge} stroke="#fff" strokeWidth={2.5} paintOrder="stroke">
-                                  {`${f.from.w}/${f.from.h} → ${f.to.w}/${f.to.h}`}
+                              <polygon points={q} fill={fillC} stroke={edge} strokeWidth={pen} />
+                              {f.type === 'transition' && scale && showFab && (
+                                <text x={tx} y={ty} transform={`rotate(${ta} ${tx} ${ty})`} dy={Math.max(wA, wB) + ann(2.2, 11)} textAnchor="middle" fontSize={ann(1.6, 8.5)} fontWeight="600" fill={edge} stroke="#fff" strokeWidth={2.5} paintOrder="stroke">
+                                  {`${f.from.w}×${f.from.h} → ${f.to.w}×${f.to.h}`}
                                 </text>
                               )}
                               {f.type === 'sq2round' && <line x1={f.at.x + n.x * wA} y1={f.at.y + n.y * wA} x2={f.at.x + f.u.x * L + n.x * wB} y2={f.at.y + f.u.y * L + n.y * wB} stroke={edge} strokeWidth={0.6} strokeDasharray="2 2" />}
                             </g>
                           );
                         })}
-                        {seg.x != null && (
-                          <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={-(hw + 4)} textAnchor="middle" fontSize={10 * k} fontWeight="700" fill={edge} stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>
-                            {`${DUCT_PREFIX[s.air] || ''}${mat === 'spiral' ? `${smDims(s).w}Ø SPIRAL` : `${smDims(s).w}/${smDims(s).h}${mat === 'board' ? ' DB' : ''}`}${scale || sketch.length ? ` · ${fmtM(lenM)}m` : ''}${pieces.length ? ` · ${pieces.length} pcs` : ''}`}
-                          </text>
-                        )}
+                        {seg.x != null && (() => {
+                          // Drafting style: just the size, centred in the duct when it fits (like a CAD duct tag).
+                          const fs = ann(2, 10);
+                          const inside = fs <= dw * 0.62 && !pieces.length;
+                          const txt = `${DUCT_PREFIX[s.air] || ''}${mat === 'spiral' ? `${smDims(s).w}Ø` : `${smDims(s).w}×${smDims(s).h}${mat === 'board' ? ' DB' : ''}`}`;
+                          return (
+                            <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={inside ? 0 : -(hw + fs * 0.45)} dominantBaseline={inside ? 'central' : 'auto'} textAnchor="middle" fontSize={fs} fontWeight="600" fill={edge} stroke={inside ? fillC : '#fff'} strokeWidth={fs * 0.22} paintOrder="stroke" style={{ pointerEvents: 'none', letterSpacing: '0.02em' }}>
+                              {showFab && scale ? `${txt} · ${fmtM(lenM)}m${pieces.length ? ` · ${pieces.length} pcs` : ''}` : txt}
+                            </text>
+                          );
+                        })()}
                         {seg.x != null && (String(s.ls || '').trim() || String(s.elev || '').trim()) && (
-                          <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={hw + 11 * k} textAnchor="middle" fontSize={9.5 * k} fontWeight="600" fill={edge} stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>
+                          <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={hw + ann(2.4, 11)} textAnchor="middle" fontSize={ann(1.8, 9.5)} fontWeight="600" fill={edge} stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>
                             {[String(s.ls || '').trim() && `${String(s.ls).trim()} L/s`, String(s.elev || '').trim()].filter(Boolean).join(' · ')}
                           </text>
                         )}
@@ -5167,7 +5179,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     type="button"
                     title={`${tags[item.id]} · ${tool.label}`}
                     aria-label={`${tags[item.id]} ${tool.label}`}
-                    className={`absolute rounded-sm touch-none transition-shadow bg-white/85 ${item.remove ? 'opacity-55 grayscale outline-2 outline-dashed outline-red-600' : item.existing ? 'opacity-65 grayscale outline-2 outline-dashed outline-slate-500' : ''} shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_1px_4px_rgba(0,0,0,0.35)] ${isSel ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent' : 'hover:ring-1 hover:ring-primary/40'}`}
+                    className={`absolute touch-none transition-shadow ${scale ? 'bg-white' : 'rounded-sm bg-white/85 shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_1px_4px_rgba(0,0,0,0.35)]'} ${item.remove ? 'opacity-55 grayscale outline-2 outline-dashed outline-red-600' : item.existing ? 'opacity-65 grayscale outline-2 outline-dashed outline-slate-500' : ''} ${isSel ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent' : 'hover:ring-1 hover:ring-primary/40'}`}
                     style={{ left: item.cx - box.w / 2, top: item.cy - box.h / 2, width: box.w, height: box.h }}
                     onPointerDown={(event) => startItemDrag(event, item)}
                   >
@@ -5216,8 +5228,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   <div
                     key={`${item.id}-tag`}
                     title="Drag to move this label"
-                    className={`absolute whitespace-nowrap touch-none cursor-move text-[9px] leading-none font-bold tracking-wide ${isSel ? 'text-primary' : 'text-slate-900'}`}
-                    style={{ left: item.cx + off.dx, top: item.cy + off.dy, transform: 'translate(-50%, -50%)', textShadow: '0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff' }}
+                    className={`absolute whitespace-nowrap touch-none cursor-move leading-none font-bold tracking-wide ${isSel ? 'text-primary' : 'text-slate-900'}`}
+                    style={{ left: item.cx + off.dx, top: item.cy + off.dy, fontSize: scale ? ann(2.5, 9) : 9, transform: 'translate(-50%, -50%)', textShadow: '0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff' }}
                     onPointerDown={(event) => startLabelDrag(event, item)}
                   >
                     {item.type === 'zonearea' ? (
@@ -5229,7 +5241,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         {zoneColor(item.spec?.zone) && <span className="inline-block size-2 rounded-full mr-0.5 align-middle" style={{ backgroundColor: zoneColor(item.spec.zone) }} />}
                         {item.remove ? <span className="text-red-600">RM </span> : item.existing ? <span className="text-slate-500">EX </span> : null}
                         {tags[item.id]}
-                        {sub && <span className="font-semibold text-slate-600">{` ${sub}`}</span>}
+                        {sub && <span className="font-medium text-slate-600" style={{ fontSize: '0.85em' }}>{` ${sub}`}</span>}
                         {item.type === 'zone' && zoneColor(item.spec?.zone) && <span className="font-bold" style={{ color: zoneColor(item.spec.zone) }}>{` ${item.spec.zone.replace('Zone ', 'Z')}`}</span>}
                       </>
                     )}
@@ -5356,6 +5368,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 onClick={() => { setShowLabels((s) => !s); markDirty(); }}
               >
                 <ApperIcon name={showLabels ? 'Tag' : 'EyeOff'} size={15} />
+              </Button>
+              <Button
+                variant="outline"
+                className={`h-11 px-2 shadow-sm flex-col gap-0 text-[9px] font-bold leading-none ${showFab ? 'bg-primary/10 border-primary text-primary' : 'bg-card'}`}
+                title="Shop detail: sheet pieces, TDF joints, centre lines and lengths on the runs (off = clean design drawing)"
+                aria-label={showFab ? 'Hide shop detail' : 'Show shop detail'}
+                onClick={() => { setShowFab((v) => !v); markDirty(); }}
+              >
+                <ApperIcon name="Scissors" size={15} />
+                SHOP
               </Button>
               <Button
                 variant="outline"
