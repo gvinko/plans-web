@@ -541,6 +541,21 @@ const COMPANY = {
   name: 'Echo Air Conditioning Pty. Ltd.',
   line: '4/63 Smeaton Grange Road, Smeaton Grange NSW 2567 · (02) 9792 1200',
 };
+// Designer details printed in the title block.
+const DESIGNER = {
+  name: 'Gerad Vinko',
+  role: 'Air Conditioning Sales and Design',
+  mobile: '0418 223 073',
+  email: 'gerad@echoairconditioning.com.au',
+  accounts: 'accounts@echoairconditioning.com.au',
+};
+// What the drawing is issued as, with the note printed under the title block.
+const DRAWING_KINDS = {
+  concept: { label: 'Concept design', note: 'Concept only — not for construction or fabrication.' },
+  workshop: { label: 'Workshop drawing', note: 'Workshop drawing — for coordination and fabrication. Check all dimensions on site before fabricating. Refer to the consultant’s mechanical drawings and specification.' },
+  construction: { label: 'For construction', note: 'Issued for construction. Report any discrepancy before proceeding.' },
+  asbuilt: { label: 'As installed', note: 'As-installed record of the mechanical services.' },
+};
 
 const SHORTCUTS = [
   ['D', 'Draw sheet metal / spiral / duct board run (snaps to 45° / 90°, joins and branches)'],
@@ -1724,7 +1739,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [printMode, setPrintMode] = useState(null); // 'plan' | 'pick'
   const [printOpts, setPrintOpts] = useState({ paper: 'A3', scale: 'fit' });
   // Page layout for the PDF: orientation, where the schedule goes, title. Saved with the drawing.
-  const [layout, setLayout] = useState({ orient: 'landscape', side: 'beside', page2: false, title: '' });
+  const [layout, setLayout] = useState({ orient: 'landscape', side: 'beside', page2: false, title: '', kind: 'concept', dwgNo: '', refs: '' });
   // Edited pick slip (null = straight from the drawing). Saved with the drawing.
   const [pickEdit, setPickEdit] = useState(null);
   const [pickOpen, setPickOpen] = useState(false);
@@ -1960,7 +1975,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setShowLabels(saved.showLabels ?? true);
         setShowFab(!!saved.showFab);
         setTextStyle({ size: 0.7, color: '', ...(saved.textStyle || {}) });
-        setLayout({ orient: 'landscape', side: 'beside', page2: false, title: '', ...(saved.layout || {}) });
+        setLayout({ orient: 'landscape', side: 'beside', page2: false, title: '', kind: 'concept', dwgNo: '', refs: '', ...(saved.layout || {}) });
         setPickEdit(saved.pickEdit || null);
         setClimate(saved.climate && CLIMATES[saved.climate] ? saved.climate : DEFAULT_CLIMATE);
         // planFile_c (a real Files field) is the source of truth; an old drawing's inline
@@ -4407,19 +4422,36 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const selectedMm = selected ? footprintMm(selected) : null;
 
   function printHeader(title) {
+    const kind = DRAWING_KINDS[layout.kind] || null;
+    const refs = (layout.refs || '').trim();
     return (
-      <div className="flex items-start justify-between border-b-2 border-black pb-2 mb-2">
-        <div className="flex items-center gap-2">
-          <img src={ECHO_LOGO} alt="Echo Air Conditioning" className="h-12 w-auto shrink-0" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
-          <div>
-            <div className="text-base font-bold">{COMPANY.name}</div>
-            <div className="text-[10px]">{COMPANY.line}</div>
+      <div className="border-b-2 border-black pb-2 mb-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <img src={ECHO_LOGO} alt="Echo Air Conditioning" className="h-12 w-auto shrink-0" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
+            <div>
+              <div className="text-base font-bold">{COMPANY.name}</div>
+              <div className="text-[10px]">{COMPANY.line}</div>
+            </div>
+          </div>
+          <div className="text-[9px] leading-tight border-l border-black pl-2">
+            <div className="font-bold text-[10px]">{`Drawn: ${DESIGNER.name}`}</div>
+            <div>{DESIGNER.role}</div>
+            <div>{`m ${DESIGNER.mobile}`}</div>
+            <div>{DESIGNER.email}</div>
+          </div>
+          <div className="text-right">
+            {kind && printMode !== 'pick' && <div className="inline-block border-2 border-black px-1.5 text-[10px] font-bold uppercase tracking-wider mb-0.5">{kind.label}</div>}
+            <div className="text-base font-bold uppercase tracking-wide">{title}</div>
+            <div className="text-[10px]">{`${new Date().toLocaleDateString('en-AU')} · ${page.Name}${(layout.dwgNo || '').trim() ? ` · Dwg ${layout.dwgNo.trim()}` : ''} · Rev ${project?.revision_c || 'A'}`}</div>
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-base font-bold uppercase tracking-wide">{title}</div>
-          <div className="text-[10px]">{`${new Date().toLocaleDateString('en-AU')} · ${page.Name} · Rev ${project?.revision_c || 'A'}`}</div>
-        </div>
+        {printMode !== 'pick' && (kind || refs) && (
+          <div className="mt-1 text-[9px]">
+            {kind && <span className="font-semibold">{kind.note}</span>}
+            {refs && <span>{`${kind ? ' ' : ''}Read with: ${refs}`}</span>}
+          </div>
+        )}
       </div>
     );
   }
@@ -6871,6 +6903,21 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 <option value="below">Below the plan</option>
                 <option value="none">Not on the plan page</option>
               </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Issued as</span>
+              <select value={layout.kind || ''} onChange={(event) => { setLayout((l) => ({ ...l, kind: event.target.value })); markDirty(); }} className="h-9 rounded-md border border-input bg-background px-2">
+                <option value="">(not stated)</option>
+                {Object.entries(DRAWING_KINDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Drawing no.</span>
+              <Input className="h-9" placeholder="e.g. M-WD-01" value={layout.dwgNo || ''} onChange={(event) => { setLayout((l) => ({ ...l, dwgNo: event.target.value })); markDirty(); }} />
+            </label>
+            <label className="col-span-2 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Read with (consultant drawings / spec)</span>
+              <Input className="h-9" placeholder="e.g. EngCore M-005 Rev B, spec A006291-S-M01" value={layout.refs || ''} onChange={(event) => { setLayout((l) => ({ ...l, refs: event.target.value })); markDirty(); }} />
             </label>
             <label className="col-span-2 flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">Drawing title</span>

@@ -4,6 +4,7 @@ import BackupMenu from '@/components/BackupMenu';
 import ThemeToggle from '@/components/ThemeToggle';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { APP_CONFIG } from '@/config/app.config';
+import { ECHO_LOGO } from '@/assets/echoLogo';
 
 export default function OwnerLayout() {
   return (
@@ -16,6 +17,8 @@ export default function OwnerLayout() {
             </span>
             <span className="font-heading text-base font-semibold text-foreground">{APP_CONFIG.name}</span>
           </Link>
+          <span className="hidden sm:block h-6 w-px bg-border" aria-hidden="true" />
+          <img src={ECHO_LOGO} alt="Echo Air Conditioning" className="hidden sm:block h-8 w-auto rounded-sm bg-white px-1" />
           <div className="ml-auto flex items-center gap-2">
             <BackupMenu />
             <ThemeToggle />
