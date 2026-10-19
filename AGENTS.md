@@ -83,3 +83,8 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 
 - `smChain` holds where the next segment of the run being drawn starts (`end` of a run, a `port`, or a `free` point). Each tap adds a bend to the same run (no joining separate runs); `smChainAt()` gives its live point and `smDraftEnd()` the 0/45/90° snap. Clicking back on the run (last point or anywhere along it), a double-click, Esc / Enter, or ending on a connection finishes it and returns to Select (D to draw the next run) — don't make it keep drawing after a finish.
 - With Material set to sheet metal, spiral or duct board, dragging or tapping a part's duct connection draws one of these free runs (not a squared-off part-to-part duct). Old squared-off sheet ducts have "Make free run (45° bends)" in their panel (`convertConnToRun`).
+
+## Unit sizes (19 Oct 2026)
+
+- `src/data/unitDims.js` holds spec-sheet H x W x D (mm) for the costing-sheet ducted units, indoor and outdoor, matched by regex on the model name (first match wins). `indoorPreset()` and `pairOutdoor()` use it, and fall back to the series outline when a model isn't listed (ActronAir Aires 10/20/23, Braemar, old R410a Fujitsu big units).
+- `src/data/ductedModels.js` was refreshed from Echo DOMESTIC costings 11-10-26 (Ducted tab, unit groups only). Model names in saved drawings are unchanged.
