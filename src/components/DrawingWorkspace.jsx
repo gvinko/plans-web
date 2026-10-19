@@ -4409,8 +4409,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   #dp-print-root [data-drawing-canvas] { width: ${planBox(printOpts.paper, layout).w}mm !important; flex: none !important; height: ${planBox(printOpts.paper, layout).h}mm !important; min-height: 0 !important; border: 1px solid #000 !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; }
   .dp-page-break { break-before: page; }
 }`}</style>
-      <div className="dp-noprint sticky top-11 z-30 bg-card">
-      <header className="dp-noprint border-b border-border bg-card px-2 py-1 flex items-center gap-2 min-h-11 [&_button]:h-8">
+      <header className="dp-noprint sticky top-11 z-30 border-b border-border bg-card px-2 py-1 flex items-center gap-2 h-[46px] [&_button]:h-8">
         <Button variant="ghost" size="sm" onClick={async () => { if (dirtyRef.current && !planBusy) await save({ quiet: true }); onBack(); }} className="shrink-0">
           <ApperIcon name="ArrowLeft" size={16} />
           <span className="hidden sm:inline">Projects</span>
@@ -4463,6 +4462,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </div>
 
       <div className="flex flex-col flex-1 min-h-0 pb-20 sm:pb-0">
+        <div className="dp-noprint sticky top-[90px] z-20 bg-card">
         <div className="dp-noprint border-b border-border bg-card px-2 py-1 flex flex-nowrap items-center gap-1.5 shrink-0 overflow-x-auto [&_button]:shrink-0 [&>*]:shrink-0">
           <input ref={fileRef} type="file" accept="image/*,.pdf,application/pdf" className="hidden" onChange={loadPlan} />
           <Button variant="outline" size="sm" className="h-8 px-2" disabled={planBusy} title="Load a plan (PDF or image)  ·  O" onClick={() => fileRef.current?.click()}>
