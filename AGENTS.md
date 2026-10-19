@@ -93,6 +93,7 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 
 - Annotation is sized in paper mm at the print scale: `ann(paperMm, fallbackPx)` (print scale picked in Export PDF, else 1:50). Tags 2.5 mm, duct sizes 2 mm. Don't go back to fixed screen-pixel text that balloons or shrinks with zoom.
 - Design view (default) shows a run as tinted fill + edge with one size tag `300×200` (RA/EA/OA prefix), centred in the duct in the longest stretch clear of parts (`clearSeg`). No length, piece count, piece numbers, shading, centre line or TDF ticks there.
+- TEXT control: `textStyle` {size multiplier (default 0.7), color ('' = default)} saved with the drawing; `ann()` applies the size, labels and duct tags use the colour.
 - SHOP toggle (`showFab`, saved with the drawing) turns on sheet pieces, numbers, TDF joints, centre line, lengths and transition sizes.
 - Parts draw as plain white outlines once the plan is to scale (no app-tile shadow / rounding).
 - Known gap: parts rotate in 90° steps, so a transition or fan on a sloped run won't line up. Keep runs at 0/45/90 near parts.
