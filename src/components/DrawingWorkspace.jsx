@@ -5757,6 +5757,34 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
           {/* Equipment list printed beside the plan on PDF page 1 */}
           <div className="dp-print-only dp-side-list text-black text-[9px] leading-tight">
+            {(() => {
+              // Symbol legend: only what's on this drawing.
+              const types = [...new Set(items.filter((i) => i.type !== 'zonearea').map((i) => i.type))];
+              const airs = [...new Set(sketch.filter((x) => x.kind === 'smduct').map((x) => x.air || 'supply'))];
+              if (!types.length && !airs.length) return null;
+              return (
+                <div className="mb-2">
+                  <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Legend</div>
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+                    {airs.map((a) => (
+                      <div key={`air-${a}`} className="flex items-center gap-1">
+                        <span className="inline-block h-2.5 w-5 shrink-0 border" style={{ background: SM_FILL[a] || SM_FILL.supply, borderColor: CASING[a] || CASING.supply }} />
+                        <span>{`${(AIR_NAME[a] || a).replace(/^./, (c) => c.toUpperCase())} duct`}</span>
+                      </div>
+                    ))}
+                    {types.map((t) => {
+                      const tool = getTool(t);
+                      return (
+                        <div key={t} className="flex items-center gap-1">
+                          <span className="inline-flex size-4 shrink-0 items-center justify-center"><HvacSymbol type={t} size={14} /></span>
+                          <span className="truncate">{`${tool?.tag || ''} ${tool?.label || t}`.trim()}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
             {fanSchedule.length > 0 && (
               <div className="mb-2">
                 <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Fan schedule</div>
