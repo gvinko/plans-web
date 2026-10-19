@@ -4721,7 +4721,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const dw = Math.max(lay.W, 6 * inv);
                     const hw = dw / 2;
                     const dpath = lay.d;
-                    const seg = clearSeg(P, items.filter((it) => it.onRun?.id === s.id).map((it) => { const b = itemBox(it, ppm); return { x: it.cx, y: it.cy, r: Math.max(b.w, b.h) / 2 + 4 * inv }; }));
+                    const seg = clearSeg(P, items.filter((it) => it.type !== 'zonearea').map((it) => { const b = itemBox(it, ppm); return { x: it.cx, y: it.cy, r: Math.max(b.w, b.h) / 2 + 4 * inv }; }));
                     let ang = seg.ang ?? 0;
                     if (ang > 90 || ang < -90) ang += 180;
                     const lenM = smLenOf(P) / ppm;
