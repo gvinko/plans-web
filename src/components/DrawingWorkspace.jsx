@@ -2942,6 +2942,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (key === 'a') { setSketchTool('callout'); return; }
       if (key === 'm') { setSketchTool('measure'); return; }
       if (key === 'n') { setSketchTool('pin'); return; }
+      if (key === 'q') { setSketchTool('erase'); return; }
       if (key === 'v') { setSketchTool(null); setPendingPort(null); setSketchDraft(null); return; }
       if (key === 'k') { startScale(); return; }
       if (key === 'o') { fileRef.current?.click(); return; }
@@ -3072,6 +3073,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (scaleDraft) return;
     event.stopPropagation();
     const p = toWorld(event.clientX, event.clientY);
+    if (sketchTool === 'erase') {
+      event.preventDefault();
+      startSketch(event);
+      return;
+    }
     if (sketchTool === 'smduct' && smChainAt()) {
       // Mid-run: a press on a part is the next point of the run (it snaps to the part's connection if near one).
       event.preventDefault();
@@ -3157,6 +3163,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       }
       setSketch((current) => current.map((r) => (r.id === drag.id ? { ...r, pts: r.pts.map((q, i) => (i === drag.idx ? { x, y } : q)) } : r)));
       markDirty();
+      return;
+    }
+    if (drag.kind === 'erase') {
+      const now = Date.now();
+      if (now - drag.last > 60) { drag.last = now; eraseAt(p); }
       return;
     }
     if (drag.kind === 'sketchmove') {
@@ -3610,6 +3621,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const p = toWorld(event.clientX, event.clientY);
     const x = skSnap(p.x);
     const y = skSnap(p.y);
+    if (sketchTool === 'erase') {
+      eraseAt(p);
+      dragRef.current = { kind: 'erase', sx: event.clientX, sy: event.clientY, moved: false, last: 0 };
+      canvasRef.current.setPointerCapture(event.pointerId);
+      return;
+    }
     if (sketchTool === 'text' || sketchTool === 'pin') {
       const el = sketchTool === 'pin'
         ? { id: crypto.randomUUID(), kind: 'pin', x1: p.x, y1: p.y, text: '' }
@@ -3985,6 +4002,57 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   function removePhoto(pin) {
     setPhotos((cur) => cur.filter((f) => !photoMatches(f, pin.photo)));
     updateSketch(pin.id, { photo: undefined });
+  }
+
+  // Eraser: remove whatever is under the pointer (a part, a run, a wall, text, a flex duct...).
+  function eraseAt(p) {
+    const tol = 10 / (viewRef.current?.z || 1);
+    const segDist = (q, a, b) => {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const L2 = dx * dx + dy * dy || 1;
+      const t = clamp(((q.x - a.x) * dx + (q.y - a.y) * dy) / L2, 0, 1);
+      return Math.hypot(q.x - (a.x + dx * t), q.y - (a.y + dy * t));
+    };
+    const onPath = (pts, reach) => pts.some((a, i) => i > 0 && segDist(p, pts[i - 1], a) <= reach);
+    // Parts first (smallest on top), zone colour areas last.
+    const hitItems = items.filter((it) => { const b = itemBox(it, ppm); return Math.abs(p.x - it.cx) <= b.w / 2 + 2 && Math.abs(p.y - it.cy) <= b.h / 2 + 2; })
+      .sort((a, b) => (a.type === 'zonearea') - (b.type === 'zonearea') || itemBox(a, ppm).w * itemBox(a, ppm).h - itemBox(b, ppm).w * itemBox(b, ppm).h);
+    const it = hitItems[0];
+    if (it && it.type !== 'zonearea') {
+      setItems((cur) => cur.filter((x) => x.id !== it.id).map((x) => (x.pairedWith === it.id ? { ...x, pairedWith: undefined, suits: '' } : x)));
+      setConnections((cur) => cur.filter((c) => c.from.itemId !== it.id && c.to.itemId !== it.id));
+      setJoins((cur) => cur.filter((j) => j.a.itemId !== it.id && j.b.itemId !== it.id));
+      if (selectedId === it.id) setSelectedId(null);
+      markDirty();
+      return true;
+    }
+    const sk = [...sketch].reverse().find((x) => {
+      if (x.kind === 'smduct') return onPath(smPts(x, smCtx), (smDims(x).w / 1000) * ppm / 2 + tol);
+      if (x.kind === 'wall' || x.kind === 'dim' || x.kind === 'callout') return segDist(p, { x: x.x1, y: x.y1 }, { x: x.x2, y: x.y2 }) <= tol;
+      if (x.kind === 'room') return [[x.x1, x.y1, x.x2, x.y1], [x.x2, x.y1, x.x2, x.y2], [x.x2, x.y2, x.x1, x.y2], [x.x1, x.y2, x.x1, x.y1]].some(([a, b, c, d]) => segDist(p, { x: a, y: b }, { x: c, y: d }) <= tol);
+      return Math.hypot(p.x - x.x1, p.y - x.y1) <= tol * 2.5; // text, note pins
+    });
+    if (sk) {
+      if (sk.photo) setPhotos((cur) => cur.filter((f) => !photoMatches(f, sk.photo)));
+      setSketch((cur) => smDetachOthers(cur, sk.id, { ...smCtx, sketch: cur }).filter((x) => x.id !== sk.id));
+      if (selectedSketchId === sk.id) setSelectedSketchId(null);
+      markDirty();
+      return true;
+    }
+    const run = runs.find((r) => r && onPath(r.pts, tol));
+    if (run) {
+      setConnections((cur) => cur.filter((c) => c.id !== run.conn.id));
+      if (selectedConnId === run.conn.id) setSelectedConnId(null);
+      markDirty();
+      return true;
+    }
+    if (it) { // a zone colour area, only when nothing else is under the pointer
+      setItems((cur) => cur.filter((x) => x.id !== it.id));
+      markDirty();
+      return true;
+    }
+    return false;
   }
 
   function deleteSketch() {
@@ -4495,7 +4563,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             </Button>
           )}
           <div className="h-6 w-px bg-border mx-0.5" />
-          {[[null, 'MousePointer2', 'Select', 'V'], ['smduct', 'RectangleHorizontal', 'SM duct', 'D'], ['wall', 'PenLine', 'Wall', 'W'], ['room', 'Square', 'Room', 'B'], ['text', 'Type', 'Text', 'T'], ['callout', 'MessageSquareText', 'Callout', 'A'], ['measure', 'Ruler', 'Measure', 'M'], ['pin', 'MapPin', 'Note', 'N']].map(([tool, icon, label, key]) => (
+          {[[null, 'MousePointer2', 'Select', 'V'], ['smduct', 'RectangleHorizontal', 'SM duct', 'D'], ['wall', 'PenLine', 'Wall', 'W'], ['room', 'Square', 'Room', 'B'], ['text', 'Type', 'Text', 'T'], ['callout', 'MessageSquareText', 'Callout', 'A'], ['measure', 'Ruler', 'Measure', 'M'], ['pin', 'MapPin', 'Note', 'N'], ['erase', 'Eraser', 'Eraser', 'Q']].map(([tool, icon, label, key]) => (
             <Button
               key={label}
               variant={sketchTool === tool ? 'default' : 'ghost'}
@@ -4587,6 +4655,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type in the panel.'}
             {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
             {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}
+            {sketchTool === 'erase' && 'Eraser: tap or drag over parts, runs, walls, text or notes to remove them. Ctrl+Z undoes. Esc when done.'}
           </div>
         )}
       </div>
@@ -6701,8 +6770,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             <label className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">Sheet</span>
               <select value={printOpts.paper} onChange={(event) => setPrintOpts((o) => ({ ...o, paper: event.target.value }))} className="h-9 rounded-md border border-input bg-background px-2">
-                <option value="A3">A3 landscape</option>
-                <option value="A4">A4 landscape</option>
+                <option value="A3">A3</option>
+                <option value="A4">A4</option>
               </select>
             </label>
             <label className="flex flex-col gap-1">
