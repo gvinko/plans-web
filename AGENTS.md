@@ -97,3 +97,12 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - SHOP toggle (`showFab`, saved with the drawing) turns on sheet pieces, numbers, TDF joints, centre line, lengths and transition sizes.
 - Parts draw as plain white outlines once the plan is to scale (no app-tile shadow / rounding).
 - Known gap: parts rotate in 90° steps, so a transition or fan on a sloped run won't line up. Keep runs at 0/45/90 near parts.
+
+## Parts, layout and tools (19 Oct 2026 evening)
+
+- Dampers / fans / flex connections fit into sheet metal runs at any angle (`smSeat`, rot in degrees) and also when first dropped on a run (`addItem` → `seated()`). `portInfo` and `itemBox` round rot to 90° steps; angled parts rotate as a whole box. VCD casing is 150 mm along the run.
+- Canvas connections: `canvasJoints` (either side of a fan fitted in a run, and where a run ends on a fan's port), on by default, counted in the BOM.
+- Every part panel: W × D × H (`dims`, `heightMm`), `airflow`, `model`, `supplier`, `notes`, and `hideLabel`. Runs: `hideTag` hides the size tag.
+- Page layout in Export PDF (`layout`: orient, side beside/below/none, title, page2), plan window from `planBox()`. Pick slip editor (`pickEdit`: rows, deliver, needed, po, notes; Reset from drawing). Both saved with the drawing.
+- Title bar is sticky under the app bar; toolbar + hint line are sticky below it (one row, scrolls sideways when narrow).
+- Eraser tool (Q, `eraseAt`). Select all (Ctrl+A, `allSel`) + `rotateAll` (R / Shift+R) turns everything 90° about the drawing centre; the plan image stays put.
