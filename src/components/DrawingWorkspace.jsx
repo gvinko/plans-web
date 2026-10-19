@@ -1004,6 +1004,15 @@ const PAPER = {
   A3: { w: 420, h: 297, plan: { w: 323, h: 236 } },
 };
 const PRINT_SCALES = [20, 25, 50, 100, 200];
+// Plan window (mm) on the sheet: 8 mm margins, ~45 mm for the title rows, and room for the
+// schedule beside (81 mm) or below (55 mm) the plan.
+function planBox(paperKey, layout) {
+  const P = PAPER[paperKey] || PAPER.A4;
+  const portrait = layout?.orient === 'portrait';
+  const W = (portrait ? P.h : P.w) - 16 - (layout?.side === 'beside' ? 81 : 0);
+  const H = (portrait ? P.w : P.h) - 16 - 45 - (layout?.side === 'below' ? 55 : 0);
+  return { w: W, h: H };
+}
 
 // ---- Sheet metal network: snapping, joins and automatic fittings ----
 // A run (sketch kind 'smduct') keeps its own points plus optional end links:
@@ -1714,6 +1723,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   useEffect(() => { try { localStorage.removeItem('dp-compact'); } catch { /* ignore */ } }, []);
   const [printMode, setPrintMode] = useState(null); // 'plan' | 'pick'
   const [printOpts, setPrintOpts] = useState({ paper: 'A3', scale: 'fit' });
+  // Page layout for the PDF: orientation, where the schedule goes, title. Saved with the drawing.
+  const [layout, setLayout] = useState({ orient: 'landscape', side: 'beside', page2: false, title: '' });
+  // Edited pick slip (null = straight from the drawing). Saved with the drawing.
+  const [pickEdit, setPickEdit] = useState(null);
+  const [pickOpen, setPickOpen] = useState(false);
   const [printDialog, setPrintDialog] = useState(false);
   const [printScaleUsed, setPrintScaleUsed] = useState(null);
   // Free sketch for jobs with no plan: walls, room boxes and text labels.
@@ -1774,11 +1788,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const t = setTimeout(() => {
       if (!dirtyRef.current) return; // already saved
       try {
-        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, sketch, climate }) }));
+        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
       } catch { /* storage full or blocked */ }
     }, 800);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, showLabels, showFab, textStyle, sketch, climate, draftKey]);
+  }, [items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, draftKey]);
 
   // Saving is on this device now, so losing signal no longer matters.
   // Autosave: a couple of seconds after any change (drawing, plan, photos), save it.
@@ -1786,7 +1800,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (!dirtyRef.current || planBusy) return undefined;
     const t = setTimeout(() => { if (dirtyRef.current) saveRef.current?.({ auto: true }); }, 1500);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, showLabels, showFab, textStyle, sketch, climate, planFile, photos, planBusy]);
+  }, [items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy]);
   // Leaving the tab or closing the window: save straight away.
   useEffect(() => {
     const flush = () => { if (dirtyRef.current) saveRef.current?.({ auto: true }); };
@@ -1944,6 +1958,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setShowLabels(saved.showLabels ?? true);
         setShowFab(!!saved.showFab);
         setTextStyle({ size: 0.7, color: '', ...(saved.textStyle || {}) });
+        setLayout({ orient: 'landscape', side: 'beside', page2: false, title: '', ...(saved.layout || {}) });
+        setPickEdit(saved.pickEdit || null);
         setClimate(saved.climate && CLIMATES[saved.climate] ? saved.climate : DEFAULT_CLIMATE);
         // planFile_c (a real Files field) is the source of truth; an old drawing's inline
         // base64 background is shown as a last resort but won't be re-saved as such.
@@ -4049,9 +4065,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const prev = viewRef.current;
     setPrintScaleUsed(null);
     if (mode === 'plan') {
-      const paper = PAPER[printOpts.paper] || PAPER.A4;
-      const W = paper.plan.w * PX_PER_MM;
-      const H = paper.plan.h * PX_PER_MM;
+      const pb = planBox(printOpts.paper, layout);
+      const W = pb.w * PX_PER_MM;
+      const H = pb.h * PX_PER_MM;
       const bx = drawingBounds();
       const N = Number(printOpts.scale);
       if (N && scale) {
@@ -4232,7 +4248,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return;
     }
     setStatus('Saving…');
-    const payload = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, sketch, climate });
+    const payload = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
     lastSavedRef.current = payload;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos); } catch { ok = false; }
@@ -4309,6 +4325,31 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     );
   }
 
+  // Pick slip rows: the edited copy if there is one, otherwise straight from the drawing.
+  const pickRowsFromDrawing = () => equipment.groups.flatMap((g) => g.rows.map((r) => ({ group: g.name, qty: r.qty, name: r.name, note: r.note || '' })));
+  const pickRows = pickEdit?.rows || pickRowsFromDrawing();
+  const pickGroups = [...new Set(pickRows.map((r) => r.group || 'Other'))].map((name) => ({ name, rows: pickRows.filter((r) => (r.group || 'Other') === name && String(r.name || '').trim()) })).filter((g) => g.rows.length);
+  function setPickRows(fn) {
+    setPickEdit((cur) => ({ ...(cur || {}), rows: fn(cur?.rows || pickRowsFromDrawing()) }));
+    markDirty();
+  }
+  function pickHead() {
+    const cells = [['Job', project?.Name || '—'], ['Deliver to', (pickEdit?.deliver || '').trim() || [project?.address_c, project?.suburb_c].filter(Boolean).join(', ') || '—'], ['Needed by', (pickEdit?.needed || '').trim() || '—'], ['Order / PO', (pickEdit?.po || '').trim() || '—']];
+    return (
+      <div className="mb-2 space-y-2">
+        <div className="grid grid-cols-4 gap-2 text-[10px]">
+          {cells.map(([k, v]) => (
+            <div key={k} className="border border-black px-2 py-1">
+              <div className="uppercase tracking-wider text-[8px] text-gray-600">{k}</div>
+              <div className="font-semibold text-[11px]">{v}</div>
+            </div>
+          ))}
+        </div>
+        {(pickEdit?.notes || '').trim() && <div className="border border-black px-2 py-1 text-[11px] whitespace-pre-wrap"><span className="uppercase tracking-wider text-[8px] text-gray-600 block">Notes</span>{pickEdit.notes}</div>}
+      </div>
+    );
+  }
+
   function printCustomer() {
     const cells = [
       ['Customer', project?.Name || '—'],
@@ -4357,18 +4398,18 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       <style>{'.nss .sym svg *{vector-effect:non-scaling-stroke}'}</style>
       <style>{`@media screen { .dp-print-only { display: none !important; } }
 @media print {
-  @page { size: ${printMode === 'pick' ? 'A4 portrait' : `${printOpts.paper} landscape`}; margin: 8mm; }
+  @page { size: ${printMode === 'pick' ? 'A4 portrait' : `${printOpts.paper} ${layout.orient === 'portrait' ? 'portrait' : 'landscape'}`}; margin: 8mm; }
   html, body { background: #fff !important; }
   body * { visibility: hidden !important; }
   #dp-print-root, #dp-print-root * { visibility: visible !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   #dp-print-root { position: absolute !important; left: 0; top: 0; width: 100% !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; color: #000 !important; }
   #dp-print-root .dp-noprint { display: none !important; }
-  #dp-print-root .dp-print-plan { padding: 0 !important; background: #fff !important; flex: none !important; display: flex !important; align-items: flex-start; gap: 4mm; }
-  #dp-print-root .dp-side-list { display: block !important; width: 77mm; flex: none; }
-  #dp-print-root [data-drawing-canvas] { width: ${(PAPER[printOpts.paper] || PAPER.A4).plan.w}mm !important; flex: none !important; height: ${(PAPER[printOpts.paper] || PAPER.A4).plan.h}mm !important; min-height: 0 !important; border: 1px solid #000 !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; }
+  #dp-print-root .dp-print-plan { padding: 0 !important; background: #fff !important; flex: none !important; display: flex !important; flex-direction: ${layout.side === 'below' ? 'column' : 'row'}; align-items: flex-start; gap: 4mm; }
+  #dp-print-root .dp-side-list { display: ${layout.side === 'none' ? 'none' : 'block'} !important; width: ${layout.side === 'below' ? `${planBox(printOpts.paper, layout).w}mm` : '77mm'}; flex: none; ${layout.side === 'below' ? 'columns: 3; column-gap: 6mm;' : ''} }
+  #dp-print-root [data-drawing-canvas] { width: ${planBox(printOpts.paper, layout).w}mm !important; flex: none !important; height: ${planBox(printOpts.paper, layout).h}mm !important; min-height: 0 !important; border: 1px solid #000 !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; }
   .dp-page-break { break-before: page; }
 }`}</style>
-      <div className="dp-noprint sticky top-[var(--spacing-header)] z-30 bg-card">
+      <div className="dp-noprint sticky top-11 z-30 bg-card">
       <header className="dp-noprint border-b border-border bg-card px-2 py-1 flex items-center gap-2 min-h-11 [&_button]:h-8">
         <Button variant="ghost" size="sm" onClick={async () => { if (dirtyRef.current && !planBusy) await save({ quiet: true }); onBack(); }} className="shrink-0">
           <ApperIcon name="ArrowLeft" size={16} />
@@ -4406,7 +4447,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <ApperIcon name="FileCode2" size={15} />
           <span className="hidden md:inline">DXF</span>
         </Button>
-        <Button variant="outline" size="sm" className="shrink-0" onClick={() => exportPdf('pick')} title="Print a pick slip for the store">
+        <Button variant="outline" size="sm" className="shrink-0" onClick={() => setPickOpen(true)} title="Check and edit the pick slip, then print it for the store">
           <ApperIcon name="ClipboardList" size={15} />
           <span className="hidden md:inline">Pick slip</span>
         </Button>
@@ -4417,7 +4458,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </header>
 
       <div className="dp-print-only text-black px-1">
-        {printHeader(printMode === 'pick' ? 'Pick slip' : 'Duct layout')}
+        {printHeader(printMode === 'pick' ? 'Pick slip' : (layout.title || '').trim() || 'Duct layout')}
         {printCustomer()}
       </div>
 
@@ -6563,10 +6604,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </div>
 
       {/* Printed schedule (PDF page 2) / pick slip */}
-      <div className={`dp-print-only text-black px-1 ${printMode === 'plan' ? 'dp-noprint' : ''}`}>
+      <div className={`dp-print-only text-black px-1 ${printMode === 'plan' && !layout.page2 ? 'dp-noprint' : printMode === 'plan' ? 'dp-page-break' : ''}`}>
         {printMode === 'plan' && printHeader('Equipment schedule')}
         {printMode === 'plan' && printCustomer()}
-        {equipment.groups.length === 0 ? (
+        {printMode === 'pick' && pickHead()}
+        {(printMode === 'pick' ? pickGroups.length === 0 : equipment.groups.length === 0) ? (
           <p className="text-xs">Nothing drawn yet.</p>
         ) : (
           <table className="w-full text-[11px] border-collapse">
@@ -6579,13 +6621,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               </tr>
             </thead>
             <tbody>
-              {equipment.groups.map((g) => (
+              {(printMode === 'pick' ? pickGroups : equipment.groups).map((g) => (
                 <Fragment key={g.name}>
                   <tr>
                     <td colSpan={4} className="pt-3 pb-1 font-bold uppercase text-[10px] tracking-wider">{g.name}</td>
                   </tr>
-                  {g.rows.map((r) => (
-                    <tr key={r.name} className="border-b border-gray-300 align-top">
+                  {g.rows.map((r, ri) => (
+                    <tr key={`${r.name}-${ri}`} className="border-b border-gray-300 align-top">
                       {printMode === 'pick' && (
                         <td className="py-1.5 pr-2"><span className="inline-block size-4 border-2 border-black align-middle" /></td>
                       )}
@@ -6671,12 +6713,95 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               </select>
             </label>
           </div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Orientation</span>
+              <select value={layout.orient} onChange={(event) => { setLayout((l) => ({ ...l, orient: event.target.value })); markDirty(); }} className="h-9 rounded-md border border-input bg-background px-2">
+                <option value="landscape">Landscape</option>
+                <option value="portrait">Portrait</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Equipment list</span>
+              <select value={layout.side} onChange={(event) => { setLayout((l) => ({ ...l, side: event.target.value })); markDirty(); }} className="h-9 rounded-md border border-input bg-background px-2">
+                <option value="beside">Beside the plan</option>
+                <option value="below">Below the plan</option>
+                <option value="none">Not on the plan page</option>
+              </select>
+            </label>
+            <label className="col-span-2 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Drawing title</span>
+              <Input className="h-9" placeholder="Duct layout" value={layout.title || ''} onChange={(event) => { setLayout((l) => ({ ...l, title: event.target.value })); markDirty(); }} />
+            </label>
+            <label className="col-span-2 flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={!!layout.page2} onChange={(event) => { setLayout((l) => ({ ...l, page2: event.target.checked })); markDirty(); }} />
+              Add a full equipment schedule as page 2
+            </label>
+          </div>
+          <p className="text-[11px] text-muted-foreground">{`Plan window on the sheet: ${Math.round(planBox(printOpts.paper, layout).w)} × ${Math.round(planBox(printOpts.paper, layout).h)} mm.`}</p>
           {!scale && <p className="text-xs text-amber-700">Set the plan scale to print at 1:50, 1:100 etc.</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPrintDialog(false)}>Cancel</Button>
             <Button onClick={() => { setPrintDialog(false); setTimeout(() => exportPdf('plan'), 50); }}>
               <ApperIcon name="FileDown" size={15} />
               Make PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={pickOpen} onOpenChange={setPickOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Pick slip</DialogTitle>
+            <DialogDescription>Edit what the store picks. Changes are saved with this drawing; Reset brings it back to what's drawn.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-3 gap-2 text-sm">
+            {[['deliver', 'Deliver to', 'Site address'], ['needed', 'Needed by', 'e.g. Thu 22 Oct, 7am'], ['po', 'Order / PO', 'e.g. PO 1234']].map(([k, label, ph]) => (
+              <label key={k} className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">{label}</span>
+                <Input className="h-9" placeholder={ph} value={pickEdit?.[k] || ''} onChange={(event) => { const v = event.target.value; setPickEdit((cur) => ({ ...(cur || {}), [k]: v })); markDirty(); }} />
+              </label>
+            ))}
+          </div>
+          <div className="max-h-[50svh] overflow-y-auto rounded-md border border-border">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-card text-left text-xs text-muted-foreground">
+                <tr><th className="p-1.5 w-16">Qty</th><th className="p-1.5">Item</th><th className="p-1.5 w-40">Notes</th><th className="p-1.5 w-8" /></tr>
+              </thead>
+              <tbody>
+                {pickRows.map((r, i) => (
+                  <tr key={i} className="border-t border-border">
+                    <td className="p-1"><Input className="h-8 px-1.5" inputMode="decimal" value={r.qty ?? ''} onChange={(event) => { const v = event.target.value; setPickRows((rows) => rows.map((x, j) => (j === i ? { ...x, qty: v } : x))); }} /></td>
+                    <td className="p-1">
+                      <Input className="h-8 px-1.5" value={r.name || ''} onChange={(event) => { const v = event.target.value; setPickRows((rows) => rows.map((x, j) => (j === i ? { ...x, name: v } : x))); }} />
+                      <div className="px-1 text-[10px] text-muted-foreground">{r.group || 'Other'}</div>
+                    </td>
+                    <td className="p-1"><Input className="h-8 px-1.5" value={r.note || ''} onChange={(event) => { const v = event.target.value; setPickRows((rows) => rows.map((x, j) => (j === i ? { ...x, note: v } : x))); }} /></td>
+                    <td className="p-1"><Button variant="ghost" size="icon" className="size-8" aria-label="Remove line" onClick={() => setPickRows((rows) => rows.filter((_, j) => j !== i))}><ApperIcon name="Trash2" size={14} /></Button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPickRows((rows) => [...rows, { group: 'Extras', qty: 1, name: '', note: '' }])}>
+              <ApperIcon name="Plus" size={14} />
+              Add line
+            </Button>
+            <Button variant="outline" size="sm" disabled={!pickEdit?.rows} onClick={() => { setPickEdit((cur) => (cur ? { ...cur, rows: undefined } : cur)); markDirty(); }}>
+              <ApperIcon name="RotateCcw" size={14} />
+              Reset from drawing
+            </Button>
+          </div>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs text-muted-foreground">Notes for the store</span>
+            <textarea className="min-h-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" value={pickEdit?.notes || ''} onChange={(event) => { const v = event.target.value; setPickEdit((cur) => ({ ...(cur || {}), notes: v })); markDirty(); }} />
+          </label>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPickOpen(false)}>Close</Button>
+            <Button onClick={() => { setPickOpen(false); setTimeout(() => exportPdf('pick'), 50); }}>
+              <ApperIcon name="Printer" size={15} />
+              Print pick slip
             </Button>
           </DialogFooter>
         </DialogContent>
