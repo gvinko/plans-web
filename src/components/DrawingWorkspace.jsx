@@ -1728,6 +1728,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // Edited pick slip (null = straight from the drawing). Saved with the drawing.
   const [pickEdit, setPickEdit] = useState(null);
   const [pickOpen, setPickOpen] = useState(false);
+  const [allSel, setAllSel] = useState(false); // Ctrl+A: everything selected
   const [printDialog, setPrintDialog] = useState(false);
   const [printScaleUsed, setPrintScaleUsed] = useState(null);
   // Free sketch for jobs with no plan: walls, room boxes and text labels.
@@ -1741,6 +1742,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [selectedSketchId, setSelectedSketchId] = useState(null);
   const [redForm, setRedForm] = useState({ at: '', w: '', h: '', kind: 'con' });
   useEffect(() => { if (selectedId || selectedConnId) setSelectedSketchId(null); }, [selectedId, selectedConnId]);
+  useEffect(() => { if (selectedId || selectedConnId || selectedSketchId) setAllSel(false); }, [selectedId, selectedConnId, selectedSketchId]);
   const [jobOpen, setJobOpen] = useState(false);
   const [jobForm, setJobForm] = useState({});
   const [jobSaving, setJobSaving] = useState(false);
@@ -2653,6 +2655,32 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
 
   // Rotate the selected icon (and anything joined to it) 90° clockwise.
+  // Turn the whole drawing (parts, runs, walls, text, ducts) 90° about its centre. The plan underneath stays put.
+  function rotateAll(dir = 1) {
+    const pts = [];
+    items.forEach((i) => { if (i.type !== 'zonearea') pts.push({ x: i.cx, y: i.cy }); });
+    sketch.forEach((x) => { (x.pts || []).forEach((q) => pts.push(q)); if (x.x1 != null) pts.push({ x: x.x1, y: x.y1 }); if (x.x2 != null) pts.push({ x: x.x2, y: x.y2 }); });
+    if (!pts.length) return;
+    const c = { x: (Math.min(...pts.map((q) => q.x)) + Math.max(...pts.map((q) => q.x))) / 2, y: (Math.min(...pts.map((q) => q.y)) + Math.max(...pts.map((q) => q.y))) / 2 };
+    const R = (q) => (dir > 0 ? { x: c.x - (q.y - c.y), y: c.y + (q.x - c.x) } : { x: c.x + (q.y - c.y), y: c.y - (q.x - c.x) });
+    const rv = (v) => (dir > 0 ? { dx: -v.dy, dy: v.dx } : { dx: v.dy, dy: -v.dx });
+    setItems((cur) => cur.map((i) => {
+      const q = R({ x: i.cx, y: i.cy });
+      return { ...i, cx: q.x, cy: q.y, rot: (((i.rot || 0) + 90 * dir) % 360 + 360) % 360, label: i.label ? rv(i.label) : i.label };
+    }));
+    setSketch((cur) => cur.map((x) => {
+      const n = { ...x };
+      if (x.pts) n.pts = x.pts.map(R);
+      if (x.x1 != null) { const a = R({ x: x.x1, y: x.y1 }); n.x1 = a.x; n.y1 = a.y; }
+      if (x.x2 != null) { const b = R({ x: x.x2, y: x.y2 }); n.x2 = b.x; n.y2 = b.y; }
+      if (x.kind === 'room') { const xs = [R({ x: x.x1, y: x.y1 }).x, R({ x: x.x2, y: x.y2 }).x]; const ys = [R({ x: x.x1, y: x.y1 }).y, R({ x: x.x2, y: x.y2 }).y]; n.x1 = Math.min(...xs); n.x2 = Math.max(...xs); n.y1 = Math.min(...ys); n.y2 = Math.max(...ys); }
+      return n;
+    }));
+    setConnections((cur) => cur.map((cn) => (cn.bends?.length ? { ...cn, bends: cn.bends.map(R) } : cn)));
+    markDirty();
+    toast.message(`Drawing turned 90° ${dir > 0 ? 'clockwise' : 'anticlockwise'}`);
+  }
+
   function rotateSelected() {
     if (!selected) return;
     const group = groupOf(selected.id);
@@ -2912,6 +2940,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const key = event.key.toLowerCase();
       if (ctrl && key === 's') { event.preventDefault(); save(); return; }
       if (ctrl && key === 'z') { event.preventDefault(); undo(event.shiftKey ? 1 : -1); return; }
+      if (ctrl && key === 'a') { event.preventDefault(); setSelectedId(null); setSelectedConnId(null); setSelectedSketchId(null); setAllSel(true); setRightTab('selection'); return; }
+      if (allSel && (event.key === 'r' || event.key === 'R')) { rotateAll(event.shiftKey ? -1 : 1); return; }
+      if (allSel && event.key === 'Escape') { setAllSel(false); return; }
       if (ctrl && key === 'y') { event.preventDefault(); undo(1); return; }
       if (ctrl && key === 'c') { if (selected) { clipRef.current = selected; toast.message(`${tags[selected.id]} copied`); } return; }
       if (ctrl && key === 'v') { if (clipRef.current) { event.preventDefault(); pasteItem(clipRef.current); } return; }
@@ -6533,8 +6564,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               </Button>
             </div>
           )}
-          {rightTab === 'selection' && !selected && !selectedConn && !selectedSketch && (
-            <p className="text-xs text-muted-foreground">Select a component or duct run. Drag empty space to pan, pinch or scroll to zoom.</p>
+          {rightTab === 'selection' && !selected && !selectedConn && !selectedSketch && allSel && (
+            <div className="space-y-2">
+              <div className="text-sm font-semibold">Everything selected</div>
+              <div className="text-xs text-muted-foreground">{`${items.length} parts · ${sketch.filter((x) => x.kind === 'smduct').length} runs · ${sketch.filter((x) => x.kind !== 'smduct').length} walls / text / notes · ${connections.length} flex ducts. The plan underneath doesn't turn.`}</div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => rotateAll(1)}><ApperIcon name="RotateCw" size={14} />Rotate 90°</Button>
+                <Button variant="outline" size="sm" onClick={() => rotateAll(-1)}><ApperIcon name="RotateCcw" size={14} />Rotate back</Button>
+                <Button variant="ghost" size="sm" onClick={() => setAllSel(false)}>Done</Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">R / Shift+R rotate · Esc clears.</p>
+            </div>
+          )}
+          {rightTab === 'selection' && !selected && !selectedConn && !selectedSketch && !allSel && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Select a component or duct run. Drag empty space to pan, pinch or scroll to zoom.</p>
+              <Button variant="outline" size="sm" onClick={() => { setAllSel(true); }}><ApperIcon name="BoxSelect" size={14} />Select all (Ctrl+A)</Button>
+            </div>
           )}
 
           {rightTab === 'checks' && (
