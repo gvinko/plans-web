@@ -915,6 +915,38 @@ function longestSeg(pts) {
   return seg;
 }
 
+// Middle of the longest stretch of a run that no fitted part (fan, damper...) covers, for its size label.
+// blocks: [{x, y, r}] centre and half-length of each part on the run.
+function clearSeg(pts, blocks) {
+  let best = null;
+  for (let i = 1; i < pts.length; i += 1) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!len) continue;
+    const ux = (b.x - a.x) / len;
+    const uy = (b.y - a.y) / len;
+    const cuts = blocks
+      .map((k) => ({ t: (k.x - a.x) * ux + (k.y - a.y) * uy, off: Math.abs(-(k.x - a.x) * uy + (k.y - a.y) * ux), r: k.r }))
+      .filter((k) => k.off < k.r + 1 && k.t > -k.r && k.t < len + k.r)
+      .map((k) => [Math.max(0, k.t - k.r), Math.min(len, k.t + k.r)])
+      .sort((p, q) => p[0] - q[0]);
+    let at = 0;
+    const gaps = [];
+    cuts.forEach(([c0, c1]) => { if (c0 > at) gaps.push([at, c0]); at = Math.max(at, c1); });
+    if (at < len) gaps.push([at, len]);
+    gaps.forEach(([g0, g1]) => {
+      if (!best || g1 - g0 > best.len) {
+        const m = (g0 + g1) / 2;
+        let ang = (Math.atan2(uy, ux) * 180) / Math.PI;
+        if (ang > 90 || ang < -90) ang += 180;
+        best = { len: g1 - g0, x: a.x + ux * m, y: a.y + uy * m, ang };
+      }
+    });
+  }
+  return best || longestSeg(pts);
+}
+
 function pathLength(pts) {
   let len = 0;
   for (let i = 1; i < pts.length; i += 1) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
@@ -4689,7 +4721,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const dw = Math.max(lay.W, 6 * inv);
                     const hw = dw / 2;
                     const dpath = lay.d;
-                    const seg = longestSeg(P);
+                    const seg = clearSeg(P, items.filter((it) => it.onRun?.id === s.id).map((it) => { const b = itemBox(it, ppm); return { x: it.cx, y: it.cy, r: Math.max(b.w, b.h) / 2 + 4 * inv }; }));
                     let ang = seg.ang ?? 0;
                     if (ang > 90 || ang < -90) ang += 180;
                     const lenM = smLenOf(P) / ppm;
