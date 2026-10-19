@@ -4353,7 +4353,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
 
   return (
-    <div ref={rootRef} id="dp-print-root" className="min-h-svh bg-background text-foreground flex flex-col overflow-auto">
+    <div ref={rootRef} id="dp-print-root" className="min-h-svh bg-background text-foreground flex flex-col overflow-x-clip">
       <style>{'.nss .sym svg *{vector-effect:non-scaling-stroke}'}</style>
       <style>{`@media screen { .dp-print-only { display: none !important; } }
 @media print {
@@ -4368,6 +4368,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   #dp-print-root [data-drawing-canvas] { width: ${(PAPER[printOpts.paper] || PAPER.A4).plan.w}mm !important; flex: none !important; height: ${(PAPER[printOpts.paper] || PAPER.A4).plan.h}mm !important; min-height: 0 !important; border: 1px solid #000 !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; }
   .dp-page-break { break-before: page; }
 }`}</style>
+      <div className="dp-noprint sticky top-[var(--spacing-header)] z-30 bg-card">
       <header className="dp-noprint border-b border-border bg-card px-2 py-1 flex items-center gap-2 min-h-11 [&_button]:h-8">
         <Button variant="ghost" size="sm" onClick={async () => { if (dirtyRef.current && !planBusy) await save({ quiet: true }); onBack(); }} className="shrink-0">
           <ApperIcon name="ArrowLeft" size={16} />
@@ -4421,7 +4422,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </div>
 
       <div className="flex flex-col flex-1 min-h-0 pb-20 sm:pb-0">
-        <div className="dp-noprint border-b border-border bg-card px-2 py-1 flex flex-wrap items-center gap-1.5 shrink-0 [&_button]:shrink-0">
+        <div className="dp-noprint border-b border-border bg-card px-2 py-1 flex flex-nowrap items-center gap-1.5 shrink-0 overflow-x-auto [&_button]:shrink-0 [&>*]:shrink-0">
           <input ref={fileRef} type="file" accept="image/*,.pdf,application/pdf" className="hidden" onChange={loadPlan} />
           <Button variant="outline" size="sm" className="h-8 px-2" disabled={planBusy} title="Load a plan (PDF or image)  ·  O" onClick={() => fileRef.current?.click()}>
             <ApperIcon name={planBusy ? 'Loader' : 'ImagePlus'} size={15} className={planBusy ? 'animate-spin' : ''} />
@@ -4516,20 +4517,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           )}
           <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" title="Transition: fit one on the open end of the selected run (or add one to drag onto a run end)  ·  X" onClick={() => addTransitionToRun(selectedSketch?.kind === 'smduct' ? selectedSketch : null)}>
             <HvacSymbol type="reducer" size={15} />
-            <span className="text-xs hidden xl:inline">Transition</span>
+            <span className="text-xs hidden 2xl:inline">Transition</span>
             <kbd className="hidden md:inline text-[9px] opacity-60">X</kbd>
           </Button>
           <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" title="End cap: cap the open end(s) of the selected run  ·  E" onClick={() => toggleCaps(selectedSketch)}>
             <ApperIcon name="PanelRightClose" size={15} />
-            <span className="text-xs hidden xl:inline">End cap</span>
+            <span className="text-xs hidden 2xl:inline">End cap</span>
             <kbd className="hidden md:inline text-[9px] opacity-60">E</kbd>
           </Button>
-          {(
-            <Button variant="ghost" size="sm" className={`h-8 px-2 ${pendingPort ? '' : 'invisible'}`} tabIndex={pendingPort ? 0 : -1} onClick={() => setPendingPort(null)}>
-              <ApperIcon name="X" size={14} />
-              <span className="text-xs">Cancel duct</span>
-            </Button>
-          )}
           <div className="ml-auto flex items-center gap-1">
             <Button variant={compact ? 'default' : 'ghost'} size="sm" className="h-8 gap-1 px-2" title={`${compact ? 'Show' : 'Hide'} the parts library and side panel  ·  H`} onClick={() => setCompact((c) => !c)}>
               <ApperIcon name={compact ? 'PanelLeftOpen' : 'Maximize2'} size={15} />
@@ -4543,7 +4538,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         {(
           <div className={`dp-noprint border-b border-border px-3 py-0.5 text-[11px] text-muted-foreground truncate shrink-0 ${sketchTool || pendingPort ? 'bg-primary/5' : 'bg-card'}`}>
             {!sketchTool && !pendingPort && 'Select: tap a part or run to edit it · Delete removes it · drag to move.'}
-            {pendingPort && 'Now tap a port on the component at the other end.'}
+            {pendingPort && <>Now tap a port on the component at the other end. <button type="button" className="ml-1 font-semibold text-primary underline" onClick={() => setPendingPort(null)}>Cancel duct</button></>}
             {sketchTool === 'wall' && 'Drag to draw a wall (stays square; Shift for angles). Esc when done.'}
             {sketchTool === 'room' && 'Drag a box over each room. Name it and set its zone in the panel. Esc when done.'}
             {sketchTool === 'text' && 'Tap where the label goes, then type it in the panel.'}
@@ -4553,6 +4548,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}
           </div>
         )}
+      </div>
         <div className="dp-noprint lg:hidden border-b border-border bg-card px-2 py-1 flex gap-3 overflow-x-auto shrink-0">
           {CATALOG.map((group) => (
             <div key={group.group} className="shrink-0">
