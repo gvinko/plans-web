@@ -4931,7 +4931,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                             </g>
                           );
                         })}
-                        {seg.x != null && (() => {
+                        {seg.x != null && !s.hideTag && (() => {
                           // Drafting style: just the size, centred in the duct when it fits (like a CAD duct tag).
                           const fs = ann(2, 10);
                           const inside = fs <= dw * 0.62 && !pieces.length;
@@ -5071,7 +5071,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   );
                 })()}
                 {showLabels && items.map((item) => {
-                  if (!item.label) return null;
+                  if (!item.label || item.hideLabel) return null;
                   const box = itemBox(item, ppm);
                   const off = item.label;
                   if (Math.abs(off.dx) < box.w / 2 + 6 && Math.abs(off.dy) < box.h / 2 + 16) return null;
@@ -5254,17 +5254,17 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     title={`${tags[item.id]} · ${tool.label}`}
                     aria-label={`${tags[item.id]} ${tool.label}`}
                     className={`absolute touch-none transition-shadow ${scale ? 'bg-white' : 'rounded-sm bg-white/85 shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_1px_4px_rgba(0,0,0,0.35)]'} ${item.remove ? 'opacity-55 grayscale outline-2 outline-dashed outline-red-600' : item.existing ? 'opacity-65 grayscale outline-2 outline-dashed outline-slate-500' : ''} ${isSel ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent' : 'hover:ring-1 hover:ring-primary/40'}`}
-                    style={{ left: item.cx - box.w / 2, top: item.cy - box.h / 2, width: box.w, height: box.h }}
+                    style={(item.rot || 0) % 90 ? { left: item.cx - box.uw / 2, top: item.cy - box.uh / 2, width: box.uw, height: box.uh, transform: `rotate(${item.rot}deg)` } : { left: item.cx - box.w / 2, top: item.cy - box.h / 2, width: box.w, height: box.h }}
                     onPointerDown={(event) => startItemDrag(event, item)}
                   >
                     <span
                       className="sym absolute flex"
                       style={{
-                        left: (box.w - box.uw) / 2,
-                        top: (box.h - box.uh) / 2,
+                        left: (item.rot || 0) % 90 ? 0 : (box.w - box.uw) / 2,
+                        top: (item.rot || 0) % 90 ? 0 : (box.h - box.uh) / 2,
                         width: box.uw,
                         height: box.uh,
-                        transform: `rotate(${item.rot || 0}deg)`,
+                        transform: (item.rot || 0) % 90 ? undefined : `rotate(${item.rot || 0}deg)`,
                       }}
                     >
                       {renderSymbol(item, box)}
@@ -5293,7 +5293,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               })}
 
               {showLabels && items.map((item) => {
-                if (!inView(item)) return null;
+                if (!inView(item) || item.hideLabel) return null;
                 const sub = shortSpec(item);
                 const box = itemBox(item, ppm);
                 const off = labelOffset(item, box);
@@ -5848,7 +5848,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               )}
               {selected.type !== 'zonearea' && (
                 <div className="space-y-2 rounded-md border border-border p-2">
-                  <div className="text-xs font-semibold text-muted-foreground">Part data</div>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-semibold text-muted-foreground">Part data</div>
+                    <button type="button" className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${selected.hideLabel ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`} title="Show or hide this part's label on the plan" onClick={() => updateItem(selected.id, { hideLabel: !selected.hideLabel })}>
+                      <ApperIcon name={selected.hideLabel ? 'EyeOff' : 'Tag'} size={12} />
+                      {selected.hideLabel ? 'Label hidden' : 'Hide label'}
+                    </button>
+                  </div>
                   {!(selected.type === 'indoor' || selected.type === 'coilsection') && (
                     <label className="flex flex-col gap-1 text-xs">
                       <span className="text-muted-foreground">Airflow (L/s)</span>
@@ -6242,6 +6248,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           {`${s[c] && !s[k] ? 'Capped' : 'Cap'} ${label.toLowerCase()}`}
                         </Button>
                       ))}
+                      <Button variant={s.hideTag ? 'default' : 'outline'} size="sm" title="Show or hide this run's size tag on the plan" onClick={() => updateSketch(s.id, { hideTag: !s.hideTag })}>
+                        <ApperIcon name={s.hideTag ? 'EyeOff' : 'Tag'} size={14} />
+                        {s.hideTag ? 'Size tag hidden' : 'Hide size tag'}
+                      </Button>
                       <Button variant="outline" size="sm" disabled={!!(s.a && s.b)} onClick={() => addTransitionToRun(s)} title="Fit a transition on the open end (X)">
                         <HvacSymbol type="reducer" size={14} />
                         Transition
