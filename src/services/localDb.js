@@ -31,7 +31,7 @@ function fileUrl(key, blob) {
   return urlCache.get(key);
 }
 
-const fileFields = ['planFile_c', 'sitePhotos_c'];
+const fileFields = ['planFile_c', 'sitePhotos_c', 'projectDocuments_c'];
 
 // Saved file lists hold only {key, name, size, type}; add a live URL for display.
 async function hydrateFiles(row) {
@@ -41,7 +41,9 @@ async function hydrateFiles(row) {
     if (!Array.isArray(row[f])) continue;
     const list = [];
     for (const meta of row[f]) {
-      if (!meta?.key) continue;
+      // Official references have no local blob. Keep their source URL and version
+      // intact alongside uploaded PDFs.
+      if (!meta?.key) { list.push(meta); continue; }
       const rec = await db.files.get(meta.key);
       if (rec?.blob) list.push({ ...meta, url: fileUrl(meta.key, rec.blob) });
     }
@@ -112,6 +114,11 @@ export const sdk = {
             // Drop the page's image files too.
             const rows = await t.bulkGet(ids);
             const keys = rows.flatMap((r) => fileFields.flatMap((f) => (r?.[f] || []).map((m) => m.key))).filter(Boolean);
+            if (keys.length) await db.files.bulkDelete(keys);
+          }
+          if (name === 'projects_c') {
+            const rows = await t.bulkGet(ids);
+            const keys = rows.flatMap((r) => (r?.projectDocuments_c || []).map((m) => m.key)).filter(Boolean);
             if (keys.length) await db.files.bulkDelete(keys);
           }
           await t.bulkDelete(ids);

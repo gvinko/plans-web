@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-const PROJECT_FIELDS = ['Id', 'Name', 'suburb_c', 'address_c', 'phone_c', 'revision_c', 'ModifiedOn'];
+const PROJECT_FIELDS = ['Id', 'Name', 'suburb_c', 'address_c', 'phone_c', 'revision_c', 'projectDocuments_c', 'ModifiedOn'];
 const PAGE_FIELDS = ['Id', 'Name', 'projectId_c', 'level_c', 'drawingJson_c', 'planFile_c', 'sitePhotos_c', 'ModifiedOn'];
 
 async function fetchProjects() {
@@ -197,6 +197,11 @@ export default function Phase1() {
       address_c: (patch.address_c || '').trim(),
       suburb_c: (patch.suburb_c || '').trim(),
       phone_c: (patch.phone_c || '').trim(),
+      projectDocuments_c: Array.isArray(patch.projectDocuments_c)
+        ? patch.projectDocuments_c.map((doc) => doc?.key
+          ? sdk.storage.toUpdateFormat([doc])[0]
+          : { name: doc?.name, type: doc?.type, sourceUrl: doc?.sourceUrl, url: doc?.url, version: doc?.version, manufacturer: doc?.manufacturer, model: doc?.model })
+        : activeProject.projectDocuments_c || [],
     });
     if (!res.data?.length) {
       if (res.messages?.length) toast.error(res.messages[0]);

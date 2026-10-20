@@ -6,6 +6,8 @@ deployment `09cfaca3-989a-4c73-98ae-5a59b8927160` at that commit. No production 
 
 ## Repairs
 
+- Add curated equipment-document support without a scraper: the selected unit panel shows the manufacturer, exact indoor/outdoor model pairing and a Datasheet link only when a checked official reference exists. The first verified record is Fujitsu General ARTH72KHTA-3PH / AOTH72KRTA. Daikin and Mitsubishi Electric are recognised but deliberately show a clear verification warning until an exact official reference is curated. Users can add a manual PDF. Project documents are local, de-duplicated, survive backup/restore and are included in the existing ZIP format without a database or backup-format migration.
+
 - Lazy-load DrawingWorkspace after opening a level. The projects chunk shrank from
   about 336 KB to 19.65 KB; drawing code remains available to offline precaching.
 - Self-host the existing Geist font (29.4 KB Latin variable font), removing the

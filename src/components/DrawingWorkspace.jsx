@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from 'sonner';
 import { sdk } from '@/services/sdk';
 import { DUCTED_MODELS } from '@/data/ductedModels';
+import { documentWarning, manufacturerForModel, resolveEquipmentDocument } from '@/data/equipmentDocs';
 import { unitDims } from '@/data/unitDims';
 import { SPLIT_MODELS } from '@/data/splitModels';
 import { PAIR_COILS, UNIT_COIL } from '@/data/pipeSizing';
@@ -4131,7 +4132,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
   // ---- Job details, PDF export and pick slip ----
   function openJob() {
-    setJobForm({ Name: project?.Name || '', address_c: project?.address_c || '', suburb_c: project?.suburb_c || '', phone_c: project?.phone_c || '' });
+    setJobForm({ Name: project?.Name || '', address_c: project?.address_c || '', suburb_c: project?.suburb_c || '', phone_c: project?.phone_c || '', projectDocuments_c: project?.projectDocuments_c || [] });
     setJobOpen(true);
   }
 
@@ -4150,6 +4151,33 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     } finally {
       setJobSaving(false);
     }
+  }
+
+  async function attachOfficialDocument(doc) {
+    if (!onSaveProject || !doc) return;
+    const existing = project?.projectDocuments_c || [];
+    if (existing.some((item) => item.sourceUrl === doc.sourceUrl)) {
+      toast.message('That official document is already in this project.');
+      return;
+    }
+    const saved = { name: doc.title, type: 'official-reference', sourceUrl: doc.sourceUrl, url: doc.url, version: doc.version, manufacturer: doc.manufacturer, model: `${doc.indoor} / ${doc.outdoor}` };
+    const ok = await onSaveProject({ Name: project?.Name, address_c: project?.address_c, suburb_c: project?.suburb_c, phone_c: project?.phone_c, projectDocuments_c: [...existing, saved] });
+    if (ok) {
+      setJobForm((form) => ({ ...form, projectDocuments_c: [...existing, saved] }));
+      toast.success('Official document added to Project Documents');
+    } else toast.error('Could not add the official document');
+  }
+
+  async function uploadProjectDocument(file) {
+    if (!file || !onSaveProject) return;
+    if (!(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) { toast.error('Choose a PDF datasheet or manual.'); return; }
+    try {
+      const uploaded = await sdk.storage.upload(file);
+      const existing = project?.projectDocuments_c || [];
+      if (existing.some((item) => item.name === uploaded.name && item.size === uploaded.size)) { toast.message('That file is already in this project.'); return; }
+      setJobForm((form) => ({ ...form, projectDocuments_c: [...(form.projectDocuments_c || existing), uploaded] }));
+      toast.success('PDF ready to save', { description: 'Press Save details to add it to the project.' });
+    } catch (err) { toast.error('Could not store the PDF', { description: err?.message || 'Try again.' }); }
   }
 
   // Fans for the schedule on the PDF and in the list.
@@ -5965,6 +5993,18 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         : selectedTool.label}
                 </div>
               </div>
+              {(() => {
+                const indoor = selected.type === 'outdoor' ? items.find((item) => item.id === selected.pairedWith)?.spec?.model : selected.spec?.model;
+                const outdoor = selected.type === 'outdoor' ? selected.outdoorModel : items.find((item) => item.type === 'outdoor' && item.pairedWith === selected.id)?.outdoorModel;
+                const manufacturer = manufacturerForModel(indoor || outdoor);
+                if (!manufacturer) return null;
+                const doc = resolveEquipmentDocument(modelCodes(indoor).indoor, outdoor);
+                return <div className="space-y-1 rounded-md border border-border p-2 text-xs">
+                  <div className="font-semibold">Equipment documentation</div>
+                  <div className="text-muted-foreground">{manufacturer} · {modelCodes(indoor).indoor || 'Indoor model not set'}{outdoor ? ` / ${outdoor}` : ''}</div>
+                  {doc ? <div className="flex flex-wrap gap-2 pt-1"><a className="text-primary underline" href={doc.url} target="_blank" rel="noreferrer">Datasheet</a><Button type="button" size="sm" variant="outline" onClick={() => attachOfficialDocument(doc)}>Add to project</Button></div> : <div className="text-amber-700">{documentWarning(modelCodes(indoor).indoor, outdoor)}</div>}
+                </div>;
+              })()}
               {(selectedTool.specs || []).map((field) => {
                 const value = getSpec(selected, field);
                 return (
@@ -7075,6 +7115,17 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 />
               </div>
             ))}
+            <div className="space-y-2 rounded-md border border-border p-3">
+              <div className="text-sm font-semibold">Project Documents</div>
+              <p className="text-xs text-muted-foreground">Official links and uploaded PDF data sheets are saved with this project and included in its backup ZIP.</p>
+              {(jobForm.projectDocuments_c || []).map((doc, index) => <div key={`${doc.key || doc.sourceUrl || doc.name}-${index}`} className="flex items-center justify-between gap-2 text-xs">
+                <a className="min-w-0 truncate text-primary underline" href={doc.url || doc.sourceUrl} target="_blank" rel="noreferrer">{doc.name || doc.model || 'Document'}</a>
+                <Button type="button" size="sm" variant="ghost" aria-label={`Remove ${doc.name || 'document'}`} onClick={() => setJobForm((form) => ({ ...form, projectDocuments_c: form.projectDocuments_c.filter((_, i) => i !== index) }))}>Remove</Button>
+              </div>)}
+              <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-primary"><ApperIcon name="Upload" size={14} /> Upload PDF
+                <input className="sr-only" type="file" accept="application/pdf,.pdf" onChange={(event) => { uploadProjectDocument(event.target.files?.[0]); event.target.value = ''; }} />
+              </label>
+            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setJobOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={jobSaving || !onSaveProject}>{jobSaving ? 'Saving…' : 'Save details'}</Button>

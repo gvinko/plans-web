@@ -198,6 +198,13 @@ export async function restoreBackup(file) {
       }
     }
   }
+  for (const project of manifest.projects) {
+    if (project.projectDocuments_c !== undefined && !Array.isArray(project.projectDocuments_c)) throw new Error('Invalid project documents.');
+    for (const meta of project.projectDocuments_c || []) {
+      // Source-only official references are valid; uploaded PDFs must have bytes.
+      if (meta?.key && !fileRows.some((file) => file.key === meta.key)) throw new Error('Backup is missing a referenced project document. Nothing was restored.');
+    }
+  }
   await db.transaction('rw', db.projects, db.plan_pages, db.files, async () => {
     if (manifest.projects?.length) await db.projects.bulkPut(manifest.projects);
     if (manifest.pages?.length) await db.plan_pages.bulkPut(manifest.pages);
