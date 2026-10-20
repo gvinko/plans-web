@@ -1,6 +1,5 @@
 // Backup and restore: every project, level, drawing, plan image and site photo
 // in one zip. Restore merges — it adds or overwrites, it never deletes.
-import JSZip from 'jszip';
 import { db } from '@/services/localDb';
 
 const LAST_KEY = 'ductplanner-last-backup';
@@ -34,7 +33,9 @@ export function backupFileName(d = new Date()) {
 const safe = (s) => String(s || 'untitled').replace(/[\\/:*?"<>|]+/g, '-').trim().slice(0, 60) || 'untitled';
 
 export async function buildBackupZip() {
-  const [projects, pages, files] = await Promise.all([db.projects.toArray(), db.plan_pages.toArray(), db.files.toArray()]);
+  const { default: JSZip } = await import('jszip');
+  const [projects, pages, files] = await db.transaction('r', db.projects, db.plan_pages, db.files,
+    () => Promise.all([db.projects.toArray(), db.plan_pages.toArray(), db.files.toArray()]));
   const manifest = {
     app: 'Ductplanner',
     format: 1,
@@ -148,17 +149,50 @@ export async function autoBackupIfDue() {
 }
 
 export async function restoreBackup(file) {
+  const { default: JSZip } = await import('jszip');
   const z = await JSZip.loadAsync(await file.arrayBuffer());
   const entry = z.file('backup.json');
   if (!entry) throw new Error('This zip is not a Ductplanner backup (no backup.json inside).');
   const manifest = JSON.parse(await entry.async('string'));
   if (manifest.app !== 'Ductplanner') throw new Error('This zip is not a Ductplanner backup.');
+  if (manifest.format !== undefined && manifest.format !== 1) throw new Error('Unsupported backup format. Nothing was restored.');
+  for (const key of ['projects', 'pages', 'files']) {
+    if (!Array.isArray(manifest[key])) throw new Error(`Invalid backup: ${key} must be a list.`);
+  }
+  for (const key of ['projects', 'pages']) {
+    const ids = new Set();
+    for (const row of manifest[key]) {
+      if (!row || !Number.isSafeInteger(row.Id) || row.Id < 1 || ids.has(row.Id)) throw new Error(`Invalid or duplicate ${key} ID.`);
+      ids.add(row.Id);
+      if (key === 'pages') {
+        if (!Number.isSafeInteger(row.projectId_c) || typeof row.drawingJson_c !== 'string') throw new Error('Invalid drawing page.');
+        const drawing = JSON.parse(row.drawingJson_c);
+        if (!drawing || typeof drawing !== 'object') throw new Error('Invalid drawing data.');
+        if (!Array.isArray(drawing)) {
+          for (const field of ['items', 'connections', 'joins', 'sketch']) {
+            if (drawing[field] !== undefined && !Array.isArray(drawing[field])) throw new Error(`Invalid drawing ${field}.`);
+          }
+        }
+      }
+    }
+  }
   const fileRows = [];
+  const fileKeys = new Set();
   for (const f of manifest.files || []) {
+    if (!f || typeof f.key !== 'string' || !f.key || fileKeys.has(f.key)) throw new Error('Invalid or duplicate image key.');
+    fileKeys.add(f.key);
     const zf = z.file(f.path || `files/${f.key}`);
-    if (!zf) continue;
+    if (!f.key || typeof f.key !== 'string' || !zf) throw new Error('Backup is missing an image file. Nothing was restored.');
     const buf = await zf.async('arraybuffer');
     fileRows.push({ key: f.key, name: f.name, type: f.type, size: f.size, addedOn: f.addedOn, blob: new Blob([buf], { type: f.type || 'image/jpeg' }) });
+  }
+  for (const pg of manifest.pages) {
+    for (const field of ['planFile_c', 'sitePhotos_c']) {
+      if (pg[field] !== undefined && !Array.isArray(pg[field])) throw new Error('Invalid image references.');
+      for (const meta of pg[field] || []) {
+        if (!meta?.key || !fileKeys.has(meta.key)) throw new Error('Backup is missing a referenced image. Nothing was restored.');
+      }
+    }
   }
   await db.transaction('rw', db.projects, db.plan_pages, db.files, async () => {
     if (manifest.projects?.length) await db.projects.bulkPut(manifest.projects);

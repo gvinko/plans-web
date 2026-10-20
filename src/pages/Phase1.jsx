@@ -179,12 +179,6 @@ export default function Phase1() {
     if (Array.isArray(planFiles)) record.planFile_c = sdk.storage.toUpdateFormat(planFiles);
     if (Array.isArray(photoFiles)) record.sitePhotos_c = sdk.storage.toUpdateFormat(photoFiles);
     let res = await sdk.table('plan_pages_c').update(record);
-    if (!res.data?.length && (record.planFile_c || record.sitePhotos_c)) {
-      // If the files can't be attached, still save the drawing itself.
-      delete record.planFile_c;
-      delete record.sitePhotos_c;
-      res = await sdk.table('plan_pages_c').update(record);
-    }
     if (res.messages?.length) setMessage(res.messages.join(' '));
     if (!res.data?.length) return false;
     const saved = res.data[0] || {};

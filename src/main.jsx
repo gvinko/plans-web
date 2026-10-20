@@ -18,8 +18,14 @@ window.addEventListener('load', () => {
 
 // Remove any offline service worker left by the old app on this address, plus its caches.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister())).catch(() => {});
-  if (window.caches?.keys) caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
+  navigator.serviceWorker.getRegistrations().then(async (regs) => {
+    for (const r of regs) {
+      const worker = r.active || r.waiting || r.installing;
+      if (worker && new URL(worker.scriptURL).pathname === '/sw.js') await r.unregister();
+    }
+    if (import.meta.env.PROD) await navigator.serviceWorker.register('/offline-sw.js');
+  }).catch(() => {});
+  // Keep origin caches and IndexedDB intact. No replacement worker is registered.
 }
 
 createRoot(document.getElementById('root')).render(<App />);

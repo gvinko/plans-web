@@ -73,6 +73,9 @@ yarn-error.log*
 .tmp
 *.log
 logs
+test-results/
+playwright-report/
+.lighthouseci/
 *.pid
 *.seed
 *.pid.lock

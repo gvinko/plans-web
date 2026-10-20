@@ -1,0 +1,23 @@
+# Release checklist
+
+Run from the repair branch; never use customer browser data for QA.
+
+- [x] Fetch/pull main; confirm production deployment commit matches the source baseline.
+- [x] Keep database/schema/backup format compatible; no user storage reset.
+- [x] Commit lockfile; execute clean npm ci and production build.
+- [x] Validate explicit icons and fallback.
+- [x] Execute disposable mobile Save, autosave/reload, quota failure/retry, empty save, corrupt drawing,
+  PDF loading, ZIP preservation/atomic rejection, axe and offline reload browser checks.
+- [x] Runtime dependency audit: zero vulnerabilities.
+- [ ] Full dependency audit: unresolved development-tool high findings.
+- [ ] Final Lighthouse performance >=80, accessibility >=90, best practices >=90.
+- [ ] Hosted PR build/tests and CodeQL pass; retain artifacts.
+- [ ] Cloudflare preview build and disposable preview checks pass at the exact proposed commit.
+- [ ] Human review of remaining CAD workflows: ports, ties, bends, transitions, stock lengths,
+  labels, BOM, DXF, scale and PDF print layout on representative disposable drawings.
+- [ ] Verify rollback on a disposable deployment, including service worker lifecycle and saved records.
+- [ ] Confirm no unresolved blockers, then merge/deploy production and verify deployment commit.
+
+Cloudflare is connected to GitHub main for production and all other branches for previews. Pushing the
+repair branch can create a preview automatically; do not change Cloudflare's production branch.
+Preview storage is isolated by origin and is not a cloud copy of production drawings.

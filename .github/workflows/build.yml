@@ -1,44 +1,70 @@
-name: Build Ductplanner
-
+﻿name: Build Ductplanner
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
-
 permissions:
-  contents: write
-
+  contents: read
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
+          cache: npm
+      - run: npm ci --ignore-scripts --no-fund
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run build
-      # Publish the built site to the build-preview branch so it can be tested offline.
-      - name: Publish build to build-preview branch
-        if: github.event_name == 'push'
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - run: npm run audit:lighthouse
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-results
+          path: |
+            test-results
+            .lighthouseci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: dist
+  dependency-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --no-fund
+      - run: npm audit --audit-level=high
+  publish-build:
+    needs: [test, dependency-security]
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref_name != 'main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: dist
+      - name: Publish tested build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_BRANCH: ${{ github.event_name == 'push' && 'build-preview' || 'build-check' }}
         run: |
           cd dist
-          git init -q -b build-preview
+          git init -q -b "$TARGET_BRANCH"
           git config user.name "ductplanner-ci"
           git config user.email "ci@users.noreply.github.com"
           git add -A
           git commit -qm "Build of ${GITHUB_SHA}"
-          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" build-preview
-      # Manual run on a work branch: publish that build to build-check so it can be tested before it goes live.
-      - name: Publish branch build to build-check
-        if: github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
-        run: |
-          cd dist
-          git init -q -b build-check
-          git config user.name "ductplanner-ci"
-          git config user.email "ci@users.noreply.github.com"
-          git add -A
-          git commit -qm "Build of ${GITHUB_REF_NAME} ${GITHUB_SHA}"
-          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" build-check
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$TARGET_BRANCH"

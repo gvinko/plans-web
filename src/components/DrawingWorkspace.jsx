@@ -1,5 +1,4 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import ApperIcon from '@/components/ApperIcon';
 import HvacSymbol from '@/components/HvacSymbol';
@@ -47,9 +46,11 @@ const coilShort = (idx) => (idx == null ? 'Pipe' : PAIR_COILS[idx].split(' - ')[
 // older deploy. So fetch the worker ourselves and hand pdf.js a blob URL with the
 // right type, falling back to the public CDN copy of the same pdf.js version.
 let pdfWorkerReady = null;
+let pdfjsLib = null;
 function ensurePdfWorker() {
   if (!pdfWorkerReady) {
     pdfWorkerReady = (async () => {
+      pdfjsLib = await import('pdfjs-dist');
       const sources = [pdfWorkerUrl, `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`];
       for (const src of sources) {
         try {
@@ -1649,6 +1650,7 @@ function ComponentList({ onPick, draggable = false, autoFocus = false, compact =
           onChange={(event) => setQ(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Enter' && groups[0]?.items[0]) onPick(groups[0].items[0].type); }}
           placeholder="Search parts"
+          aria-label="Search parts"
           className="h-8 pl-7 text-sm"
         />
       </div>
@@ -1820,12 +1822,17 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }, [items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy]);
   // Leaving the tab or closing the window: save straight away.
   useEffect(() => {
-    const flush = () => { if (dirtyRef.current) saveRef.current?.({ auto: true }); };
+    const flush = () => {
+      if (!dirtyRef.current) return;
+      // pagehide cannot wait for IndexedDB. Keep the latest drawing synchronously.
+      try { localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: latestPayloadRef.current })); } catch { /* save reports recovery failures */ }
+      saveRef.current?.({ auto: true });
+    };
     const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
     window.addEventListener('pagehide', flush);
     document.addEventListener('visibilitychange', onHide);
     return () => { window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', onHide); };
-  }, []);
+  }, [draftKey]);
 
   const ppm = scale?.pxPerM || DEFAULT_PPM;
   // A plan sheet should be a few metres to ~100 m across; outside that the reference was entered wrong.
@@ -1939,6 +1946,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     // Our own save echoes back through props — keep everything on screen as it is.
     if (page.drawingJson_c && page.drawingJson_c === lastSavedRef.current) return;
     historyRef.current = { stack: [], index: -1 };
+    unreadableRef.current = false;
     const stored = Array.isArray(page.planFile_c) ? page.planFile_c : [];
     setPlanFile(stored);
     setPhotos(Array.isArray(page.sitePhotos_c) ? page.sitePhotos_c : []);
@@ -1994,12 +2002,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setStatus('Loaded saved drawing');
       }
     } catch {
+      unreadableRef.current = true;
       setItems([]);
       setBackground(stored[0]?.url || '');
       setConnections([]);
       setJoins([]);
       setScale(null);
-      setStatus('Drawing data could not be read');
+      setStatus('Drawing data could not be read — saving blocked to protect the original');
     }
   }, [page.Id, page.drawingJson_c, page.planFile_c]);
 
@@ -4355,27 +4364,54 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     markDirty();
   }
 
+  const savingRef = useRef(false);
+  const unreadableRef = useRef(false);
+  const latestPayloadRef = useRef('');
+  latestPayloadRef.current = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
+  const latestFilesRef = useRef(null);
+  latestFilesRef.current = { planFile, photos, pageId: page.Id };
   async function save(opts = {}) {
+    if (savingRef.current || unreadableRef.current) return false;
     if (planBusy) {
       toast.message('Plan still loading — save again in a moment.');
       setStatus('Plan still loading…');
       return;
     }
+    const previousDrawing = (() => { try { return JSON.parse(page.drawingJson_c || '[]'); } catch { return null; } })();
+    const hadObjects = Array.isArray(previousDrawing) ? previousDrawing.length > 0 : ['items', 'connections', 'sketch'].some(k => previousDrawing?.[k]?.length);
+    if (hadObjects && !items.length && !connections.length && !sketch.length) {
+      if (opts.auto || !window.confirm('Replace the saved drawing with an empty canvas?')) {
+        setStatus('Empty canvas not saved — press Save drawing to confirm');
+        return false;
+      }
+    }
     setStatus('Saving…');
     const payload = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
+    savingRef.current = true;
+    const previousSaved = lastSavedRef.current;
     lastSavedRef.current = payload;
+    const savingPageId = page.Id;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos); } catch { ok = false; }
+    savingRef.current = false;
     if (ok) {
+      lastSavedRef.current = payload;
+      // A newer edit or page must keep its dirty flag and recovery draft.
+      if (latestPayloadRef.current !== payload || latestFilesRef.current.pageId !== savingPageId || latestFilesRef.current.planFile !== planFile || latestFilesRef.current.photos !== photos) {
+        setTimeout(() => saveRef.current?.({ auto: true }), 0);
+        return false;
+      }
       dirtyRef.current = false;
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
       setStatus(`${opts.auto ? 'Auto-saved' : 'Saved'} ✓ ${new Date().toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })} · ${items.length} objects · ${connections.length} runs`);
       if (!opts.quiet && !opts.auto) toast.success('Drawing saved', { description: `${items.length} objects and ${connections.length} run(s) saved successfully.` });
       return true;
     }
-    try { localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload })); } catch { /* ignore */ }
-    setStatus('SAVE FAILED — a draft copy is kept');
-    if (!opts.auto || !saveFailToastRef.current) toast.error('Save failed', { description: 'A draft copy is kept. Try Save again.' });
+    lastSavedRef.current = previousSaved;
+    let draftKept = false;
+    try { localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload })); draftKept = true; } catch { /* storage unavailable */ }
+    setStatus(draftKept ? 'SAVE FAILED — a draft copy is kept' : 'SAVE FAILED — recovery storage unavailable; keep this tab open');
+    if (!opts.auto || !saveFailToastRef.current) toast.error('Save failed', { description: draftKept ? 'A draft copy is kept. Try Save again.' : 'Keep this tab open and try Save again.' });
     if (opts.auto) saveFailToastRef.current = true;
     return false;
   }
@@ -4389,7 +4425,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (!name || !name.trim()) return;
       setLevelBusy(true);
       try {
-        if (dirtyRef.current) await save({ quiet: true });
+        if (dirtyRef.current && !(await save({ quiet: true }))) return;
         await onAddLevel?.(name.trim());
       } finally {
         setLevelBusy(false);
@@ -4398,7 +4434,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
     setLevelBusy(true);
     try {
-      if (dirtyRef.current) await save({ quiet: true });
+      if (dirtyRef.current && !(await save({ quiet: true }))) return;
       onSwitchLevel?.(value);
     } finally {
       setLevelBusy(false);
@@ -4540,8 +4576,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   #dp-print-root [data-drawing-canvas] { width: ${planBox(printOpts.paper, layout).w}mm !important; flex: none !important; height: ${planBox(printOpts.paper, layout).h}mm !important; min-height: 0 !important; border: 1px solid #000 !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; }
   .dp-page-break { break-before: page; }
 }`}</style>
-      <header className="dp-noprint sticky top-11 z-30 border-b border-border bg-card px-2 py-1 flex items-center gap-2 h-[46px] [&_button]:h-8">
-        <Button variant="ghost" size="sm" onClick={async () => { if (dirtyRef.current && !planBusy) await save({ quiet: true }); onBack(); }} className="shrink-0">
+      <header className="dp-workspace-header dp-noprint sticky top-11 z-30 border-b border-border bg-card px-2 py-1 flex items-center gap-2 h-[46px] [&_button]:h-8">
+        <Button aria-label="Projects" variant="ghost" size="sm" onClick={async () => { if (planBusy || (dirtyRef.current && !(await save({ quiet: true })))) return; onBack(); }} className="shrink-0">
           <ApperIcon name="ArrowLeft" size={16} />
           <span className="hidden sm:inline">Projects</span>
         </Button>
@@ -4549,14 +4585,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <div className="font-semibold truncate">{project?.Name || page.Name}</div>
           <div className="text-xs text-muted-foreground truncate flex items-center gap-1">
             {!online && <ApperIcon name="WifiOff" size={12} className="text-amber-600 shrink-0" />}
-            <span className="truncate">{status}</span>
+            <span className="truncate" role="status" aria-live="polite">{status}</span>
           </div>
         </div>
         <label className="shrink-0 flex items-center gap-1 text-xs" title="Floor level — each level is its own drawing">
           <ApperIcon name="Layers3" size={15} className="text-muted-foreground" />
           <select
             value={String(page.Id)}
-            disabled={levelBusy || !online}
+            disabled={levelBusy}
             onChange={(event) => switchLevel(event.target.value)}
             className="h-9 max-w-36 rounded-md border border-input bg-background px-2 text-sm"
             aria-label="Floor level"
@@ -4581,9 +4617,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <ApperIcon name="ClipboardList" size={15} />
           <span className="hidden md:inline">Pick slip</span>
         </Button>
-        <Button className="hidden sm:inline-flex shrink-0" onClick={save}>
+        <Button aria-label="Save drawing" className="inline-flex shrink-0" onClick={() => save()} disabled={planBusy}>
           <ApperIcon name="Save" size={16} />
-          Save drawing
+          <span className="sm:hidden">Save</span><span className="hidden sm:inline">Save drawing</span>
         </Button>
       </header>
 

@@ -49,6 +49,7 @@ function Button({
 
   return (
     <Comp
+      aria-label={props['aria-label'] || props.title}
       data-slot="button"
       data-variant={variant}
       data-size={size}
