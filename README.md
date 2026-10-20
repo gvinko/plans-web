@@ -26,6 +26,8 @@ Implemented:
   - Creality Ender 3
   - Creality Ender 3 V2
   - Creality Ender 3 Pro
+  - Bambu Lab P1S (conservative 256 × 256 × 250 mm usable volume)
+  - Bambu Lab P1S + AMS (same print volume; AMS is a filament handling system, not extra printable space)
 - Custom printer profiles.
 - Model-vs-printer build-volume checks.
 - Deterministic oversized-model split planning.
@@ -126,6 +128,7 @@ These capabilities are intentionally **not** presented as finished:
 
 - Unrestricted arbitrary-mesh cutting (concave boundaries, cut surfaces with holes, and multiple disconnected section loops). This release deliberately fails closed on unsupported shapes; it does not export invalid partial STLs.
 - Generated alignment pins, sockets, dovetails, clips, tabs/slots and keys.
+- AMS-coloured 3MF output, in-app material/filament assignments and direct AMS control. Exported STLs are colourless geometry. To print multiple colours, import distinct printable bodies as one multipart object in Bambu Studio and assign AMS slots there.
 - General boolean CSG for arbitrary imported STL geometry.
 - Full solid modelling / constraint solving.
 - Arbitrary text/path extrusion to 3D solids.
