@@ -14,6 +14,26 @@ export interface PrinterProfile {
 
 export const BUILT_IN_PRINTER_PROFILES: PrinterProfile[] = [
   {
+    id: 'bambu-p1s-ams',
+    name: 'Bambu Lab P1S + AMS',
+    manufacturer: 'Bambu Lab',
+    // Physical height is 256 mm; Bambu Studio defaults to 250 mm printable height.
+    // Keep the conservative slicer-ready value until the user opts into full Z travel.
+    buildVolumeMm: { x: 256, y: 256, z: 250 },
+    nozzleDiameterMm: 0.4,
+    defaultFitClearanceMm: 0.25,
+    notes: 'AMS-equipped P1S. STL exports contain geometry only; use Bambu Studio to assign AMS slots/colours. Actual printable XY area can be restricted by cutter/plate clearance.',
+  },
+  {
+    id: 'bambu-p1s',
+    name: 'Bambu Lab P1S',
+    manufacturer: 'Bambu Lab',
+    buildVolumeMm: { x: 256, y: 256, z: 250 },
+    nozzleDiameterMm: 0.4,
+    defaultFitClearanceMm: 0.25,
+    notes: 'Uses conservative 250 mm default printable Z; physical machine volume is 256 mm high.',
+  },
+  {
     id: 'creality-ender-3',
     name: 'Ender 3',
     manufacturer: 'Creality',
