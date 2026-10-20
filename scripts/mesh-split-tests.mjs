@@ -97,6 +97,18 @@ test('split-source key invalidates changed transform or printer', () => {
   assert.notEqual(first, stlSplitSourceKey('asset-2', saved, printer));
   assert.notEqual(first, stlSplitSourceKey('asset-1', saved, { ...printer, buildVolumeMm: { ...printer.buildVolumeMm, x: 200 } }));
 });
+test('Bambu P1S and AMS profiles respect conservative slicer bed and same physical geometry', () => {
+  const { BUILT_IN_PRINTER_PROFILES, modelFitsPrinter } = loadTypescript('src/lib/printers/profiles.ts');
+  const base = BUILT_IN_PRINTER_PROFILES.find((p) => p.id === 'bambu-p1s');
+  const ams = BUILT_IN_PRINTER_PROFILES.find((p) => p.id === 'bambu-p1s-ams');
+  assert.ok(base && ams);
+  assert.deepEqual(base.buildVolumeMm, { x: 256, y: 256, z: 250 });
+  assert.deepEqual(base.buildVolumeMm, ams.buildVolumeMm);
+  assert.equal(modelFitsPrinter({ x: 240, y: 240, z: 249 }, ams), true);
+  assert.equal(modelFitsPrinter({ x: 240, y: 240, z: 251 }, ams), false);
+  assert.equal(isValidProfile(ams), true);
+  assert.match(ams.notes, /Bambu Studio/i);
+});
 test('custom printer dimensions must be positive finite values', () => {
   assert.equal(isValidProfile(printer), true);
   assert.equal(isValidProfile({ ...printer, buildVolumeMm: { ...printer.buildVolumeMm, x: -10 } }), false);
