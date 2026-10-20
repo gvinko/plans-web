@@ -1,4 +1,4 @@
-import * as Icons from "lucide-react";
+import { resolveIcon } from '@/lib/icons';
 import { memo } from 'react';
 
 const toPascal = (s) => (typeof s === 'string' ? s : '')
@@ -7,9 +7,7 @@ const toPascal = (s) => (typeof s === 'string' ? s : '')
   .join('');
 
 function ApperIcon({ name, size = 20, className = '', ...props }) {
-  if (!name) return null;
-  const Icon = Icons[toPascal(name)];
-  if(!Icon) return null;
-  return <Icon size={size} className={className} {...props} />;
+  const Icon = resolveIcon(toPascal(name));
+  return <Icon size={size} className={className} aria-hidden="true" focusable="false" {...props} />;
 }
 export default memo(ApperIcon);

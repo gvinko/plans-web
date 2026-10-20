@@ -65,7 +65,7 @@ export default function BackupMenu() {
     try {
       const f = await chooseBackupFolder();
       setFolder(f);
-      toast.success(`Backups will save to “${f.name}”`, { description: 'Pick your Dropbox folder and every backup is copied to Dropbox automatically.' });
+      toast.success(`Backups will save to “${f.name}”`, { description: 'Backups are written to this folder. Cloud copying depends on your folder sync app.' });
     } catch (err) {
       if (err?.name !== 'AbortError') toast.error('Could not use that folder', { description: err?.message });
     }
@@ -92,7 +92,7 @@ export default function BackupMenu() {
       <input ref={fileRef} type="file" accept=".zip,application/zip" className="hidden" onChange={onRestore} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant={due ? 'default' : 'outline'} size="sm" disabled={busy} className={due ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''}>
+          <Button aria-label={due ? 'Backup due' : 'Backup'} variant={due ? 'default' : 'outline'} size="sm" disabled={busy} className={due ? 'bg-amber-700 hover:bg-amber-800 text-white' : ''}>
             <ApperIcon name={busy ? 'Loader2' : due ? 'TriangleAlert' : 'ShieldCheck'} size={15} className={busy ? 'animate-spin' : ''} />
             <span className="hidden sm:inline">{due ? 'Backup due' : 'Backup'}</span>
           </Button>

@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import ApperIcon from '@/components/ApperIcon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useFetch } from '@/hooks/useFetch';
 import { sdk } from '@/services/sdk';
-import DrawingWorkspace from '@/components/DrawingWorkspace';
+const DrawingWorkspace = lazy(() => import('@/components/DrawingWorkspace'));
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-const PROJECT_FIELDS = ['Id', 'Name', 'suburb_c', 'address_c', 'phone_c', 'revision_c', 'ModifiedOn'];
+const PROJECT_FIELDS = ['Id', 'Name', 'suburb_c', 'address_c', 'phone_c', 'revision_c', 'projectDocuments_c', 'ModifiedOn'];
 const PAGE_FIELDS = ['Id', 'Name', 'projectId_c', 'level_c', 'drawingJson_c', 'planFile_c', 'sitePhotos_c', 'ModifiedOn'];
 
 async function fetchProjects() {
@@ -179,12 +179,6 @@ export default function Phase1() {
     if (Array.isArray(planFiles)) record.planFile_c = sdk.storage.toUpdateFormat(planFiles);
     if (Array.isArray(photoFiles)) record.sitePhotos_c = sdk.storage.toUpdateFormat(photoFiles);
     let res = await sdk.table('plan_pages_c').update(record);
-    if (!res.data?.length && (record.planFile_c || record.sitePhotos_c)) {
-      // If the files can't be attached, still save the drawing itself.
-      delete record.planFile_c;
-      delete record.sitePhotos_c;
-      res = await sdk.table('plan_pages_c').update(record);
-    }
     if (res.messages?.length) setMessage(res.messages.join(' '));
     if (!res.data?.length) return false;
     const saved = res.data[0] || {};
@@ -203,6 +197,11 @@ export default function Phase1() {
       address_c: (patch.address_c || '').trim(),
       suburb_c: (patch.suburb_c || '').trim(),
       phone_c: (patch.phone_c || '').trim(),
+      projectDocuments_c: Array.isArray(patch.projectDocuments_c)
+        ? patch.projectDocuments_c.map((doc) => doc?.key
+          ? sdk.storage.toUpdateFormat([doc])[0]
+          : { name: doc?.name, type: doc?.type, sourceUrl: doc?.sourceUrl, url: doc?.url, version: doc?.version, manufacturer: doc?.manufacturer, model: doc?.model })
+        : activeProject.projectDocuments_c || [],
     });
     if (!res.data?.length) {
       if (res.messages?.length) toast.error(res.messages[0]);
@@ -215,7 +214,7 @@ export default function Phase1() {
 
   if (activePage) {
     return (
-      <DrawingWorkspace
+      <Suspense fallback={<div role="status" className="p-5">Loading drawing…</div>}><DrawingWorkspace
         page={activePage}
         project={activeProject}
         levels={projectPages}
@@ -224,7 +223,7 @@ export default function Phase1() {
         onSave={saveDrawing}
         onSaveProject={saveProject}
         onBack={() => { setActivePage(null); setActiveProject(null); setProjectPages([]); }}
-      />
+      /></Suspense>
     );
   }
 

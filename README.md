@@ -43,6 +43,22 @@ Moved off Apper on 14 Oct 2026. There is no login and no cloud database. Everyth
 
 ## Code map
 
+Repair QA uses Node 22.19+ and disposable browser data:
+
+```sh
+npm ci --ignore-scripts --no-fund
+npx playwright install chromium
+node scripts/fetch-rollback-baseline.mjs
+npm run build
+npm test
+npm run audit:security
+npm run audit:lighthouse
+```
+
+The baseline download is an immutable existing preview, used only for local rollback tests.
+The Lighthouse command retains three mobile reports in `.lighthouseci`; CI uploads them.
+See `docs/RELEASE_CHECKLIST.md` before any production release.
+
 | File | What it is |
 |---|---|
 | `src/components/DrawingWorkspace.jsx` | The whole drawing screen: parts catalogue, ducts, sketch tools, BOM, checks, PDF |
