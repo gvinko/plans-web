@@ -598,6 +598,16 @@ export default function PrintDesignWorkspace() {
               Nozzle: {selectedPrinter.nozzleDiameterMm} mm
               <br />
               Join clearance (future connectors): {selectedPrinter.defaultFitClearanceMm} mm — not applied to plain split parts
+              {selectedPrinter.id === 'bambu-p1s-ams' && (
+                <div className="mt-2 border-t border-slate-800 pt-2 text-sky-300">
+                  AMS workflow: export separate printable STL bodies, import them together into Bambu Studio as parts of one object, then assign each part to an AMS filament slot. Single STL files do not carry filament colours or AMS assignments. Plans to Print does not yet generate coloured 3MF files or control the AMS.
+                </div>
+              )}
+              {selectedPrinter.id.startsWith('bambu-p1s') && (
+                <div className="mt-1 text-amber-200">
+                  P1S physical Z = 256 mm; this profile uses Bambu Studio's safer default 250 mm Z. Verify plate and cutter clearances before printing near the XY limits.
+                </div>
+              )}
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               <button className="rounded bg-slate-800 px-2 py-2 text-xs hover:bg-slate-700"
