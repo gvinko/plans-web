@@ -53,3 +53,17 @@ retry masking or relaxed functional assertion was added.
 Production release is blocked by unresolved development dependency advisories, pending hosted CI
 and preview validation, and an unexecuted production rollback drill. Do not interpret a successful
 build or a zero-runtime-dependency audit as approval to merge.
+
+## Hosted verification
+
+Draft PR: https://github.com/gvinko/plans-web/pull/13. Initial application commit `9eb3482` deployed
+successfully to https://2a3491a6.plans-web.pages.dev. Its hosted CodeQL analysis passed; dependency
+security failed as expected. CI browser tests had 9 passes and one drawing-tool test startup race
+(keypress sent before workspace readiness). The test now waits for Loaded saved drawing and selects
+the tool explicitly before drawing and finishing with Escape.
+
+First preview browser run: 8 passed, 1 failed, 1 skipped (local-source ZIP harness). Actual Cloudflare
+offline navigation failed: `/index.html` redirects to `/`, so a cached redirected response could not
+serve offline navigation. Worker generation now precaches canonical `/` instead. Preview document
+and worker returned HTTP 200 with no-cache, correct JS MIME, nosniff and frame-denial headers.
+Retests are required after this repair; initial preview failure is not counted as a pass.

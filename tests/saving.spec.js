@@ -6,6 +6,7 @@ async function open(page) {
   await page.getByRole('textbox', { name: 'Suburb', exact: true }).fill('Test');
   await page.getByRole('button', { name: 'New project', exact: true }).click();
   await page.getByRole('button', { name: /^Disposable save fixture/ }).click();
+  await expect(page.getByRole('status').filter({hasText:'Loaded saved drawing'})).toBeVisible();
 }
 async function addDamper(page) {
   await page.getByRole('textbox', { name: 'Search parts', exact: true }).first().fill('Volume Control');
@@ -40,12 +41,12 @@ test('part autosaves and survives reload', async ({ page }) => {
 });
 test('tap-by-tap sheet duct keeps bends in one saved run', async ({page}) => {
   await open(page);
-  await page.keyboard.press('d');
+  await page.getByRole('button',{name:'SM duct · D',exact:true}).click();
   const canvas=page.locator('[data-drawing-canvas]');
   await canvas.click({position:{x:150,y:150}});
   await canvas.click({position:{x:300,y:150}});
   await canvas.click({position:{x:400,y:250}});
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('status').filter({hasText:'Auto-saved'})).toBeVisible();
   const drawing=await page.evaluate(async () => {
     const database=await new Promise(resolve=>{const r=indexedDB.open('ductplanner');r.onsuccess=()=>resolve(r.result);});
