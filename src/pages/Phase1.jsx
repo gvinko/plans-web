@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import ApperIcon from '@/components/ApperIcon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useFetch } from '@/hooks/useFetch';
 import { sdk } from '@/services/sdk';
-import DrawingWorkspace from '@/components/DrawingWorkspace';
+const DrawingWorkspace = lazy(() => import('@/components/DrawingWorkspace'));
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -209,7 +209,7 @@ export default function Phase1() {
 
   if (activePage) {
     return (
-      <DrawingWorkspace
+      <Suspense fallback={<div role="status" className="p-5">Loading drawing…</div>}><DrawingWorkspace
         page={activePage}
         project={activeProject}
         levels={projectPages}
@@ -218,7 +218,7 @@ export default function Phase1() {
         onSave={saveDrawing}
         onSaveProject={saveProject}
         onBack={() => { setActivePage(null); setActiveProject(null); setProjectPages([]); }}
-      />
+      /></Suspense>
     );
   }
 

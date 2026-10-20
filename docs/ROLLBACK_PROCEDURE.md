@@ -3,7 +3,8 @@
 Known production baseline: `a794d8f33f15972d4785860ab03805d56faf2c53`, Cloudflare deployment
 `09cfaca3-989a-4c73-98ae-5a59b8927160`, immutable URL `https://09cfaca3.plans-web.pages.dev`.
 Its existence and successful canonical status were verified through Cloudflare's read API.
-No actual rollback was executed; that release gate remains open.
+No actual hosted rollback was executed; that release gate remains open. A local same-origin swap to
+the immutable baseline artifact with a retirement overlay passed; see the rehearsal below.
 
 1. Ask users to keep working tabs open and use Backup > Back up now while the app is available.
    Never clear site data, delete IndexedDB, rename the database or restore into an empty database.
@@ -21,3 +22,17 @@ No actual rollback was executed; that release gate remains open.
 Before release, rehearse the above on a disposable preview and record before/after IDs and drawing
 bytes. A baseline deployment existing is not proof that service-worker rollback was tested. Database
 and backup format were unchanged, so rollback does not require a destructive data migration.
+
+## Executed local rehearsal (continuation)
+
+Run `node scripts/fetch-rollback-baseline.mjs`, `npm run build`, then `npm test`.
+`tests/rollback.spec.js` serves the current build and downloaded immutable baseline at one disposable
+localhost origin. Its populated drawing and PNG records match byte-for-byte after rollback; the
+baseline app reopens and saves them. The waiting worker does not interrupt an active drawing tab.
+Baseline asset hashes and before/after records are attached as `rollback-evidence.json` in CI artifacts.
+
+The tested overlay is `public/offline-sw-retire.js`, served **at `/offline-sw.js`** during rollback
+with JavaScript MIME and `Cache-Control: no-cache`. Its source filename alone does not retire a worker.
+It waits for tabs to close naturally, unregisters on activation, and deletes no caches or records.
+A simple Cloudflare rollback to the original deployment lacks this new worker URL: prepare and verify
+the overlay on a disposable hosted deployment before approving a production rollback plan.

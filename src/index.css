@@ -2,7 +2,8 @@
 
 @import 'tailwindcss' source(none);
 @import 'tw-animate-css';
-@import 'shadcn/tailwind.css';
+/* Vendored MIT utilities; the component-generator CLI is not needed to build. */
+@import './shadcn-utilities.css';
 
 @source "../src";
 

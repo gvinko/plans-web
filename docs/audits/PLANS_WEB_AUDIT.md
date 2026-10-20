@@ -1,5 +1,9 @@
 # Plans Web repair audit — 20 October 2026
 
+Current continuation evidence and blockers: [REPAIR_CONTINUATION.md](REPAIR_CONTINUATION.md).
+The report below records the earlier `d89f7a6` state; its dependency/performance blockers
+are superseded locally by the continuation, pending hosted verification.
+
 Branch: `audit/plans-web-repair-20261020`. Baseline: `a794d8f33f15972d4785860ab03805d56faf2c53`.
 Fetched and fast-forward pulled GitHub main before editing. Cloudflare's canonical deployment
 `09cfaca3-989a-4c73-98ae-5a59b8927160` reports exactly that commit, successfully deployed

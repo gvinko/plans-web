@@ -165,8 +165,10 @@ export async function restoreBackup(file) {
       if (!row || !Number.isSafeInteger(row.Id) || row.Id < 1 || ids.has(row.Id)) throw new Error(`Invalid or duplicate ${key} ID.`);
       ids.add(row.Id);
       if (key === 'pages') {
-        if (!Number.isSafeInteger(row.projectId_c) || typeof row.drawingJson_c !== 'string') throw new Error('Invalid drawing page.');
-        const drawing = JSON.parse(row.drawingJson_c);
+        if (!Number.isSafeInteger(row.projectId_c) || (row.drawingJson_c != null && typeof row.drawingJson_c !== 'string')) throw new Error('Invalid drawing page.');
+        let drawing;
+        try { drawing = JSON.parse(row.drawingJson_c || '[]'); }
+        catch { continue; } // Preserve unreadable original bytes; workspace blocks saving over them.
         if (!drawing || typeof drawing !== 'object') throw new Error('Invalid drawing data.');
         if (!Array.isArray(drawing)) {
           for (const field of ['items', 'connections', 'joins', 'sketch']) {
@@ -180,9 +182,11 @@ export async function restoreBackup(file) {
   const fileKeys = new Set();
   for (const f of manifest.files || []) {
     if (!f || typeof f.key !== 'string' || !f.key || fileKeys.has(f.key)) throw new Error('Invalid or duplicate image key.');
-    fileKeys.add(f.key);
     const zf = z.file(f.path || `files/${f.key}`);
-    if (!f.key || typeof f.key !== 'string' || !zf) throw new Error('Backup is missing an image file. Nothing was restored.');
+    fileKeys.add(f.key);
+    // Legacy exports can list orphan metadata with no blob. Referenced files below
+    // must still have bytes, so a truncated plan/photo backup remains atomic.
+    if (!zf) continue;
     const buf = await zf.async('arraybuffer');
     fileRows.push({ key: f.key, name: f.name, type: f.type, size: f.size, addedOn: f.addedOn, blob: new Blob([buf], { type: f.type || 'image/jpeg' }) });
   }
@@ -190,7 +194,7 @@ export async function restoreBackup(file) {
     for (const field of ['planFile_c', 'sitePhotos_c']) {
       if (pg[field] !== undefined && !Array.isArray(pg[field])) throw new Error('Invalid image references.');
       for (const meta of pg[field] || []) {
-        if (!meta?.key || !fileKeys.has(meta.key)) throw new Error('Backup is missing a referenced image. Nothing was restored.');
+        if (!meta?.key || !fileRows.some(f => f.key === meta.key)) throw new Error('Backup is missing a referenced image. Nothing was restored.');
       }
     }
   }

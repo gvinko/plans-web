@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-async function open(page) {
-  await page.goto('/');
+async function open(page, url = '/') {
+  await page.goto(url);
   await page.getByRole('textbox', { name: 'Customer name', exact: true }).fill('Disposable save fixture');
   await page.getByRole('textbox', { name: 'Suburb', exact: true }).fill('Test');
   await page.getByRole('button', { name: 'New project', exact: true }).click();
@@ -111,4 +111,49 @@ test('unreadable saved drawing is never replaced by a blank save', async ({page}
     database.close(); return value;
   });
   expect(original).toBe('{broken fixture');
+  await addDamper(page);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  expect(await page.evaluate(() => localStorage.getItem('dp-draft-1'))).toBeNull();
+  // Even an old recovery draft cannot make a corrupt original writable on reload.
+  await page.evaluate(() => localStorage.setItem('dp-draft-1', JSON.stringify({ t: Date.now() + 100000, payload: '{"items":[],"sketch":[]}' })));
+  await page.reload();
+  await page.getByRole('button', {name:/^Disposable save fixture/}).click();
+  await expect(page.getByRole('status').filter({hasText:'saving blocked'})).toBeVisible();
+  await addDamper(page);
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'New project' })).toBeVisible();
+});
+
+test('navigation waits for in-flight autosave and writes newer edits', async ({ page }) => {
+  test.skip(!!process.env.TEST_BASE_URL, 'Controlled save delay uses local source module');
+  await open(page, 'http://127.0.0.1:4175/');
+  await page.evaluate(async () => {
+    const moduleUrl = performance.getEntriesByType('resource').map(e => e.name).find(u => /\/src\/services\/sdk(?:\.js)?$/.test(new URL(u).pathname));
+    const { sdk } = await import(moduleUrl);
+    const table = sdk.table.bind(sdk);
+    let first = true;
+    sdk.table = name => {
+      const t = table(name);
+      if (name === 'plan_pages_c') {
+        const update = t.update.bind(t);
+        t.update = async (...args) => {
+          if (first) { first = false; await new Promise(resolve => { window.releaseAuditSave = resolve; }); }
+          return update(...args);
+        };
+      }
+      return t;
+    };
+  });
+  await addDamper(page);
+  await page.waitForFunction(() => !!window.releaseAuditSave);
+  await addDamper(page);
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save drawing', exact: true }).first()).toBeVisible();
+  await page.evaluate(() => window.releaseAuditSave());
+  await expect(page.getByRole('heading', { name: 'New project' })).toBeVisible();
+  const count = await page.evaluate(async () => {
+    const { db } = await import('/src/services/localDb.js');
+    return JSON.parse((await db.plan_pages.get(1)).drawingJson_c).items.length;
+  });
+  expect(count).toBe(2);
 });

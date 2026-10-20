@@ -1803,9 +1803,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
   // Keep a copy of unsaved work on this device.
   useEffect(() => {
-    if (!dirtyRef.current) return undefined;
+    if (!dirtyRef.current || unreadableRef.current) return undefined;
     const t = setTimeout(() => {
-      if (!dirtyRef.current) return; // already saved
+      if (!dirtyRef.current || unreadableRef.current) return; // already saved or original unreadable
       try {
         localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
       } catch { /* storage full or blocked */ }
@@ -1823,7 +1823,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // Leaving the tab or closing the window: save straight away.
   useEffect(() => {
     const flush = () => {
-      if (!dirtyRef.current) return;
+      if (!dirtyRef.current || unreadableRef.current) return;
       // pagehide cannot wait for IndexedDB. Keep the latest drawing synchronously.
       try { localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: latestPayloadRef.current })); } catch { /* save reports recovery failures */ }
       saveRef.current?.({ auto: true });
@@ -1954,7 +1954,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     dirtyRef.current = false;
     let source = page.drawingJson_c || '[]';
     let restored = false;
+    // A recovery draft must never make an unreadable original writable.
     try {
+      const original = JSON.parse(source);
+      if (!original || typeof original !== 'object') throw new Error('Invalid original');
+      if (!Array.isArray(original)) for (const key of ['items', 'connections', 'joins', 'sketch']) {
+        if (original[key] !== undefined && !Array.isArray(original[key])) throw new Error('Invalid original');
+      }
+    } catch { unreadableRef.current = true; }
+    try {
+      if (unreadableRef.current) throw new Error('Protect unreadable original');
       const draft = JSON.parse(localStorage.getItem(`dp-draft-${page.Id}`) || 'null');
       const mod = Date.parse(page.ModifiedOn || '');
       if (draft?.payload && draft.payload !== page.drawingJson_c && (Number.isNaN(mod) || draft.t > mod)) {
@@ -1965,6 +1974,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       }
     } catch { /* no local copy */ }
     try {
+      if (unreadableRef.current) throw new Error('Protect unreadable original');
       const saved = JSON.parse(source);
       if (Array.isArray(saved)) {
         setItems(migrateItems(saved));
@@ -2004,6 +2014,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     } catch {
       unreadableRef.current = true;
       setItems([]);
+      setSketch([]);
       setBackground(stored[0]?.url || '');
       setConnections([]);
       setJoins([]);
@@ -4364,14 +4375,31 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     markDirty();
   }
 
-  const savingRef = useRef(false);
+  const savingRef = useRef(null);
   const unreadableRef = useRef(false);
   const latestPayloadRef = useRef('');
   latestPayloadRef.current = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
   const latestFilesRef = useRef(null);
   latestFilesRef.current = { planFile, photos, pageId: page.Id };
+  const persistRef = useRef(null);
+  persistRef.current = persistDrawing;
   async function save(opts = {}) {
-    if (savingRef.current || unreadableRef.current) return false;
+    if (savingRef.current) return savingRef.current;
+    const pending = (async () => {
+      let result;
+      do {
+        result = await persistRef.current(opts);
+        // Let the saved props echo commit before writing a newer edit, so it
+        // cannot be mistaken for a different drawing and reset the canvas.
+        if (result === 'superseded') await new Promise(resolve => requestAnimationFrame(resolve));
+      } while (result === 'superseded' && dirtyRef.current);
+      return result === 'superseded' ? true : result;
+    })();
+    savingRef.current = pending;
+    try { return await pending; } finally { if (savingRef.current === pending) savingRef.current = null; }
+  }
+  async function persistDrawing(opts) {
+    if (unreadableRef.current) return false;
     if (planBusy) {
       toast.message('Plan still loading — save again in a moment.');
       setStatus('Plan still loading…');
@@ -4387,19 +4415,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
     setStatus('Saving…');
     const payload = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
-    savingRef.current = true;
     const previousSaved = lastSavedRef.current;
     lastSavedRef.current = payload;
     const savingPageId = page.Id;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos); } catch { ok = false; }
-    savingRef.current = false;
     if (ok) {
       lastSavedRef.current = payload;
       // A newer edit or page must keep its dirty flag and recovery draft.
       if (latestPayloadRef.current !== payload || latestFilesRef.current.pageId !== savingPageId || latestFilesRef.current.planFile !== planFile || latestFilesRef.current.photos !== photos) {
-        setTimeout(() => saveRef.current?.({ auto: true }), 0);
-        return false;
+        return 'superseded';
       }
       dirtyRef.current = false;
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
@@ -4425,7 +4450,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (!name || !name.trim()) return;
       setLevelBusy(true);
       try {
-        if (dirtyRef.current && !(await save({ quiet: true }))) return;
+        if (dirtyRef.current && !unreadableRef.current && !(await save({ quiet: true }))) return;
         await onAddLevel?.(name.trim());
       } finally {
         setLevelBusy(false);
@@ -4434,7 +4459,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
     setLevelBusy(true);
     try {
-      if (dirtyRef.current && !(await save({ quiet: true }))) return;
+      if (dirtyRef.current && !unreadableRef.current && !(await save({ quiet: true }))) return;
       onSwitchLevel?.(value);
     } finally {
       setLevelBusy(false);
@@ -4577,7 +4602,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   .dp-page-break { break-before: page; }
 }`}</style>
       <header className="dp-workspace-header dp-noprint sticky top-11 z-30 border-b border-border bg-card px-2 py-1 flex items-center gap-2 h-[46px] [&_button]:h-8">
-        <Button aria-label="Projects" variant="ghost" size="sm" onClick={async () => { if (planBusy || (dirtyRef.current && !(await save({ quiet: true })))) return; onBack(); }} className="shrink-0">
+        <Button aria-label="Projects" variant="ghost" size="sm" onClick={async () => { if (planBusy || (dirtyRef.current && !unreadableRef.current && !(await save({ quiet: true })))) return; onBack(); }} className="shrink-0">
           <ApperIcon name="ArrowLeft" size={16} />
           <span className="hidden sm:inline">Projects</span>
         </Button>
@@ -7067,3 +7092,6 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     </div>
   );
 }
+
+// Named geometry exports support disposable CAD regression fixtures.
+export { smPts, smMerge, smEndFittings, smLayout, smPieces, smNetworks, smEccShift, smTransLenMm, clearSeg, portInfo, resolveDuct, planBox };

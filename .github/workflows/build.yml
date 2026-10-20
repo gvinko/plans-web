@@ -20,10 +20,8 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      - run: node scripts/fetch-rollback-baseline.mjs
       - run: npm test
-      - run: npm run audit:lighthouse
-        env:
-          CHROME_PATH: /usr/bin/google-chrome
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -35,6 +33,24 @@ jobs:
         with:
           name: site
           path: dist
+  performance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --no-fund
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run audit:lighthouse
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-results
+          path: .lighthouseci
+          include-hidden-files: true
   dependency-security:
     runs-on: ubuntu-latest
     steps:
@@ -46,7 +62,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-fund
       - run: npm audit --audit-level=high
   publish-build:
-    needs: [test, dependency-security]
+    needs: [test, dependency-security, performance]
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref_name != 'main')
     runs-on: ubuntu-latest
     permissions:

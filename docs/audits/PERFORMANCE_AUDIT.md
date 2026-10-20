@@ -1,5 +1,11 @@
 # Performance audit
 
+Continuation: Lighthouse 13.5 direct runner replaces vulnerable LHCI. Local serial mobile runs
+scored **93/94/94**, accessibility and best practices **100** throughout; unchanged 80/90/90 gates
+passed. Editor loading is deferred and Geist is self-hosted. CI runs performance separately.
+See [current evidence](REPAIR_CONTINUATION.md) for metrics, tool-version caveats and hosted blockers.
+The remaining paragraphs record earlier runs, not the current runner configuration.
+
 Lighthouse CI is reproducible with `npm run build` then `npm run audit:lighthouse`.
 Gate: performance >=80, accessibility >=90, best practices >=90. One mobile simulated run per invocation;
 results are machine-sensitive, not real-user field metrics. Reports live in `.lighthouseci`.
