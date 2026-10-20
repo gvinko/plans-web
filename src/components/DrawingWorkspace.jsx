@@ -99,6 +99,18 @@ const BTO_SIZES = [...BTO_SHEET, ...BTO_ALL.filter((s) => !BTO_SHEET.includes(s)
 const DBTO_SIZES = [...DBTO_SHEET, ...DBTO_ALL.filter((s) => !DBTO_SHEET.includes(s))];
 const ZONE_SIZES = ['10" (250mm)', '12" (300mm)', '14" (350mm)', '16" (400mm)'];
 const ZONE_NAMES = ['Zone 1', 'Zone 2', 'Zone 3', 'Zone 4', 'Zone 5', 'Zone 6', 'Zone 7', 'Zone 8'];
+// Per-tag colours (part labels and run size tags). '' = follow the TEXT colour.
+const TAG_COLOURS = [['', 'Default'], ['#0f172a', 'Black'], ['#475569', 'Grey'], ['#1d4ed8', 'Blue'], ['#15803d', 'Green'], ['#b91c1c', 'Red'], ['#c2410c', 'Orange'], ['#7e22ce', 'Purple']];
+function TagColourPicker({ value, onChange }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {TAG_COLOURS.map(([c, label]) => (
+        <button key={label} type="button" title={c ? `${label} tag` : 'Default (TEXT colour)'} aria-label={`${label} tag colour`} onClick={() => onChange(c)} className={`size-5 rounded-full border-2 ${(value || '') === c ? 'border-primary ring-2 ring-primary/30' : 'border-border'}`} style={{ background: c || 'conic-gradient(#0f172a 0 50%, #16a34a 0)' }} />
+      ))}
+      <input type="color" aria-label="Custom tag colour" title="Any colour" value={value || '#0f172a'} onChange={(event) => onChange(event.target.value)} className="size-5 cursor-pointer rounded border border-border bg-transparent p-0" />
+    </div>
+  );
+}
 const ZONE_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#14b8a6', '#ec4899', '#84cc16'];
 const zoneColor = (z) => { const i = ZONE_NAMES.indexOf(z); return i >= 0 ? ZONE_COLORS[i] : null; };
 const CHOOSE_MODEL = 'Choose a model';
@@ -1699,6 +1711,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // Plan text: size multiplier and colour ('' = the default black / duct colour). Saved with the drawing.
   const [textStyle, setTextStyle] = useState({ size: 0.7, color: '' });
   const [textMenu, setTextMenu] = useState(false);
+  const [tagErase, setTagErase] = useState(false); // tap a tag to hide just that one
   // Which phase of the job to show: everything, the site as it stands, or the finished proposal.
   const [phaseView, setPhaseView] = useState('all');
   const inView = (x) => {
@@ -3154,6 +3167,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (fingerOnly(event)) return; // pen mode: fingers pan
     if (scaleDraft) return;
     event.stopPropagation();
+    if (tagErase) { updateItem(item.id, { hideLabel: true }); return; }
     const p = toWorld(event.clientX, event.clientY);
     const off = labelOffset(item, itemBox(item, ppm));
     dragRef.current = { kind: 'label', id: item.id, px: p.x, py: p.y, ox: off.dx, oy: off.dy, sx: event.clientX, sy: event.clientY, moved: false };
@@ -5106,7 +5120,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           const inside = fs <= dw * 0.62 && !pieces.length;
                           const txt = `${DUCT_PREFIX[s.air] || ''}${mat === 'spiral' ? `${smDims(s).w}Ø` : `${smDims(s).w}×${smDims(s).h}${mat === 'board' ? ' DB' : ''}`}`;
                           return (
-                            <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={inside ? 0 : -(hw + fs * 0.45)} dominantBaseline={inside ? 'central' : 'auto'} textAnchor="middle" fontSize={fs} fontWeight="600" fill={textStyle.color || edge} stroke={inside ? fillC : '#fff'} strokeWidth={fs * 0.22} paintOrder="stroke" style={{ pointerEvents: 'none', letterSpacing: '0.02em' }}>
+                            <text x={seg.x} y={seg.y} transform={`rotate(${ang} ${seg.x} ${seg.y})`} dy={inside ? 0 : -(hw + fs * 0.45)} dominantBaseline={inside ? 'central' : 'auto'} textAnchor="middle" fontSize={fs} fontWeight="600" fill={s.tagColor || textStyle.color || edge} stroke={inside ? fillC : '#fff'} strokeWidth={fs * 0.22} paintOrder="stroke" style={{ pointerEvents: tagErase ? 'auto' : 'none', cursor: tagErase ? 'not-allowed' : undefined, letterSpacing: '0.02em' }} onPointerDown={tagErase ? (event) => { event.stopPropagation(); updateSketch(s.id, { hideTag: true }); } : undefined}>
                               {showFab && scale ? `${txt} · ${fmtM(lenM)}m${pieces.length ? ` · ${pieces.length} pcs` : ''}` : txt}
                             </text>
                           );
@@ -5470,9 +5484,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 return (
                   <div
                     key={`${item.id}-tag`}
-                    title="Drag to move this label"
-                    className={`absolute whitespace-nowrap touch-none cursor-move leading-none font-bold tracking-wide ${isSel ? 'text-primary' : textStyle.color ? '' : 'text-slate-900'}`}
-                    style={{ left: item.cx + off.dx, top: item.cy + off.dy, fontSize: scale ? ann(2.5, 9) : 9 * tSize, color: !isSel && textStyle.color ? textStyle.color : undefined, transform: 'translate(-50%, -50%)', textShadow: '0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff' }}
+                    className={`absolute whitespace-nowrap touch-none ${tagErase ? 'cursor-not-allowed hover:line-through' : 'cursor-move'} leading-none font-bold tracking-wide ${isSel ? 'text-primary' : (item.labelColor || textStyle.color) ? '' : 'text-slate-900'}`}
+                    title={tagErase ? 'Tap to hide this tag' : 'Drag to move this label'}
+                    style={{ left: item.cx + off.dx, top: item.cy + off.dy, fontSize: scale ? ann(2.5, 9) : 9 * tSize, color: !isSel && (item.labelColor || textStyle.color) ? (item.labelColor || textStyle.color) : undefined, transform: 'translate(-50%, -50%)', textShadow: '0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff' }}
                     onPointerDown={(event) => startLabelDrag(event, item)}
                   >
                     {item.type === 'zonearea' ? (
@@ -5484,7 +5498,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         {zoneColor(item.spec?.zone) && <span className="inline-block size-2 rounded-full mr-0.5 align-middle" style={{ backgroundColor: zoneColor(item.spec.zone) }} />}
                         {item.remove ? <span className="text-red-600">RM </span> : item.existing ? <span className="text-slate-500">EX </span> : null}
                         {tags[item.id]}
-                        {sub && <span className={`font-medium ${textStyle.color ? 'opacity-75' : 'text-slate-600'}`} style={{ fontSize: '0.85em' }}>{` ${sub}`}</span>}
+                        {sub && <span className={`font-medium ${(item.labelColor || textStyle.color) ? 'opacity-75' : 'text-slate-600'}`} style={{ fontSize: '0.85em' }}>{` ${sub}`}</span>}
                         {item.type === 'zone' && zoneColor(item.spec?.zone) && <span className="font-bold" style={{ color: zoneColor(item.spec.zone) }}>{` ${item.spec.zone.replace('Zone ', 'Z')}`}</span>}
                       </>
                     )}
@@ -5651,7 +5665,21 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         ))}
                         <input type="color" aria-label="Custom text colour" title="Any colour" value={textStyle.color || '#0f172a'} onChange={(event) => { setTextStyle((t) => ({ ...t, color: event.target.value })); markDirty(); }} className="size-6 cursor-pointer rounded border border-border bg-transparent p-0" />
                       </div>
-                      <div className="mt-1 text-[10px] text-muted-foreground">Default = black tags, duct sizes in the duct colour.</div>
+                      <div className="mt-1 text-[10px] text-muted-foreground">Default = black tags, duct sizes in the duct colour. Pick a part or run to colour just its tag.</div>
+                    </div>
+                    <div className="space-y-1.5 border-t border-border pt-2">
+                      <div className="font-semibold text-muted-foreground">Remove some tags</div>
+                      <button type="button" onClick={() => setTagErase((v) => !v)} className={`w-full rounded-md border px-2 py-1.5 font-semibold ${tagErase ? 'border-red-500 bg-red-50 text-red-700' : 'border-border'}`}>
+                        {tagErase ? 'Done — stop hiding tags' : 'Tap tags to hide them'}
+                      </button>
+                      {(() => {
+                        const n = items.filter((it) => it.hideLabel).length + sketch.filter((k) => k.hideTag).length;
+                        return n > 0 && (
+                          <button type="button" onClick={() => { setItems((c) => c.map((it) => (it.hideLabel ? { ...it, hideLabel: false } : it))); setSketch((c) => c.map((k) => (k.hideTag ? { ...k, hideTag: false } : k))); markDirty(); }} className="w-full rounded-md border border-border px-2 py-1.5">
+                            {`Show ${n} hidden tag${n === 1 ? '' : 's'}`}
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -6052,6 +6080,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       {selected.hideLabel ? 'Label hidden' : 'Hide label'}
                     </button>
                   </div>
+                  {!selected.hideLabel && (
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-muted-foreground">Tag colour</span>
+                      <TagColourPicker value={selected.labelColor} onChange={(c) => updateItem(selected.id, { labelColor: c || undefined })} />
+                    </div>
+                  )}
                   {!(selected.type === 'indoor' || selected.type === 'coilsection') && (
                     <label className="flex flex-col gap-1 text-xs">
                       <span className="text-muted-foreground">Airflow (L/s)</span>
@@ -6449,6 +6483,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         <ApperIcon name={s.hideTag ? 'EyeOff' : 'Tag'} size={14} />
                         {s.hideTag ? 'Size tag hidden' : 'Hide size tag'}
                       </Button>
+                      {!s.hideTag && (
+                        <div className="flex w-full items-center justify-between gap-2 text-xs">
+                          <span className="text-muted-foreground">Size tag colour</span>
+                          <TagColourPicker value={s.tagColor} onChange={(c) => updateSketch(s.id, { tagColor: c || undefined })} />
+                        </div>
+                      )}
                       <Button variant="outline" size="sm" disabled={!!(s.a && s.b)} onClick={() => addTransitionToRun(s)} title="Fit a transition on the open end (X)">
                         <HvacSymbol type="reducer" size={14} />
                         Transition

@@ -102,7 +102,7 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 
 - Dampers / fans / flex connections fit into sheet metal runs at any angle (`smSeat`, rot in degrees) and also when first dropped on a run (`addItem` → `seated()`). `portInfo` and `itemBox` round rot to 90° steps; angled parts rotate as a whole box. VCD casing is 150 mm along the run.
 - Canvas connections: `canvasJoints` (either side of a fan fitted in a run, and where a run ends on a fan's port), on by default, counted in the BOM.
-- Every part panel: W × D × H (`dims`, `heightMm`), `airflow`, `model`, `supplier`, `notes`, and `hideLabel`. Runs: `hideTag` hides the size tag.
+- Every part panel: W × D × H (`dims`, `heightMm`), `airflow`, `model`, `supplier`, `notes`, and `hideLabel`. Runs: `hideTag` hides the size tag. Per-tag colour: part `labelColor`, run `tagColor` ('' / undefined = follow TEXT colour), picked with `TagColourPicker` in the part / run panel. TEXT menu has "Tap tags to hide them" (`tagErase`, not saved) and "Show N hidden tags".
 - Page layout in Export PDF (`layout`: orient, side beside/below/none, title, page2), plan window from `planBox()`. Pick slip editor (`pickEdit`: rows, deliver, needed, po, notes; Reset from drawing). Both saved with the drawing.
 - Title bar is sticky under the app bar; toolbar + hint line are sticky below it (one row, scrolls sideways when narrow).
 - PDF legend: top of `.dp-side-list`, only the part types and duct services used.
