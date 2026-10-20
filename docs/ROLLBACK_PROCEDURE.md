@@ -3,13 +3,18 @@
 Known production baseline: `a794d8f33f15972d4785860ab03805d56faf2c53`, Cloudflare deployment
 `09cfaca3-989a-4c73-98ae-5a59b8927160`, immutable URL `https://09cfaca3.plans-web.pages.dev`.
 Its existence and successful canonical status were verified through Cloudflare's read API.
-No actual hosted rollback was executed; that release gate remains open. A local same-origin swap to
-the immutable baseline artifact with a retirement overlay passed; see the rehearsal below.
+An actual rollback API rehearsal has since passed on a separate disposable Pages project
+using immutable-build proxies and the retirement overlay. See
+[current evidence and limitations](audits/RELEASE_PREPARATION_20261020.md).
+The real production rollback package/overlay delivery remains unverified. A local same-origin
+swap to the immutable baseline artifact with a retirement overlay also passed; see below.
 
 1. Ask users to keep working tabs open and use Backup > Back up now while the app is available.
    Never clear site data, delete IndexedDB, rename the database or restore into an empty database.
 2. In Cloudflare Pages > plans-web > Deployments, restore the known successful production deployment.
    Alternatively revert the repair merge on main and let the normal build deploy. Do not force-push main.
+   This production step is a future procedure, not authorized by the disposable rehearsal.
+   First prepare and verify step 3's overlay; restoring the old deployment alone lacks it.
 3. Keep `/sw.js` available to retire the legacy worker. For a rollback after the new worker shipped,
    serve a retirement script at `/offline-sw.js` which unregisters itself and does not delete storage,
    navigate tabs, or call skipWaiting during an active drawing session. Existing open tabs can close

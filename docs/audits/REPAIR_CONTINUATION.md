@@ -1,5 +1,9 @@
 # Repair continuation — 20 October 2026
 
+Newer evidence from `3f52542`: [release preparation](RELEASE_PREPARATION_20261020.md).
+The results and remaining-blocker list below describe the earlier continuation;
+they are superseded where the newer report explicitly records fresh verification.
+
 Continues `d89f7a6` on `audit/plans-web-repair-20261020`, PR #13. Fetched current main
 before changes; main remains `a794d8f`. Cloudflare's read API reconfirmed production is
 deployment `09cfaca3-989a-4c73-98ae-5a59b8927160` at that commit. No production action taken.
