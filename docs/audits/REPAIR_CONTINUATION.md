@@ -45,9 +45,9 @@ deployment `09cfaca3-989a-4c73-98ae-5a59b8927160` at that commit. No production 
 - Desktop/mobile screenshots visually inspected. Axe projects/workspace: zero violations.
 - Full npm audit: **zero findings**, including development dependencies; raw report in
   `dependency-audit.json`. Node 24.21 locally; CI uses Node 22 (minimum now 22.19).
-- Lighthouse 13.5 before the final save-only review fixes: **93, 94, 94** performance; **100** accessibility and best practices
-  in every run. Median run: FCP 2284 ms, LCP 2606 ms, TBT 101 ms, CLS 0, SEO 82.
-  Measured 2026-10-20 03:29 UTC. Thresholds unchanged; Lighthouse and Chromium changed,
+- Final application commit 1a874c7, Lighthouse 13.5: **93, 94, 94** performance; **100** accessibility and best practices
+  in every run. Median run: FCP 2290 ms, LCP 2619 ms, TBT 93 ms, CLS 0, SEO 82.
+  Measured 2026-10-20 03:40 UTC. Thresholds unchanged; Lighthouse and Chromium changed,
   so this is not a controlled numerical comparison with the old Lighthouse 12 results.
 
 The controlled save-delay regression first exposed a test-module identity mistake, then a
@@ -61,7 +61,8 @@ serially. Stopped/incomplete runs are not counted as passes.
 
 ## Remaining release blockers
 
-- Hosted CI and fresh Cloudflare preview results for the pushed repair commit must pass.
+- Automated gates and preview passed at application commit `1a874c7`; any later code changes
+  require fresh verification. Subsequent evidence-only commits do not change application assets.
 - Representative HVAC drawing and printed PDF layout still require human review. Geometry
   and DXF assertions do not certify all BOM, angled part, sizing or print workflows.
 - Local rollback proves browser/storage compatibility with the baseline artifact plus
@@ -71,3 +72,21 @@ serially. Stopped/incomplete runs are not counted as passes.
 
 IndexedDB database name, version, tables, field names and backup format are unchanged.
 All fixtures use disposable browser contexts and separate origins; no customer data was read.
+
+## Hosted verification of `1a874c7`
+
+- [Build Ductplanner run 39365516895](https://github.com/gvinko/plans-web/actions/runs/39365516895):
+  clean install/build, full dependency-security and **14 browser tests passed (50.9s)**,
+  including rollback and controlled concurrent-save regressions. PR build publication was
+  correctly skipped. [Browser evidence](https://github.com/gvinko/plans-web/actions/runs/39365516895/artifacts/12239103861).
+- Lighthouse mobile scores: **93, 91, 92**, median **92**; accessibility/best practices **100**
+  throughout. All unchanged release thresholds pass. Seven report files were uploaded:
+  [performance evidence](https://github.com/gvinko/plans-web/actions/runs/39365516895/artifacts/12238739577).
+- [Source security run 39365516853](https://github.com/gvinko/plans-web/actions/runs/39365516853): CodeQL passed.
+- Cloudflare deployment `23a7a0b5-c279-453b-9cc0-9f6aff6488d0` succeeded for exactly this commit:
+  https://23a7a0b5.plans-web.pages.dev. Disposable hosted browser suite: **9 passed, 5 skipped,
+  40.3s**. Skips are CAD/source geometry, legacy ZIP, controlled save delay, source ZIP and the
+  local deployment-swap rollback fixture; all five passed locally and in GitHub CI.
+  Hosted checks include PDF, saving, corrupt-original/draft protection, mobile, axe and offline reload.
+- Production rechecked through Cloudflare after preview tests: still `09cfaca3` / `a794d8f`,
+  production branch `main`. PR remains draft; no merge or production deployment requested or performed.

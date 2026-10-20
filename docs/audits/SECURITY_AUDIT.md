@@ -3,7 +3,8 @@
 Continuation: full npm audit now reports **zero vulnerabilities**, including development tools.
 Removed vulnerable generator/LHCI dependency chains while preserving component CSS and Lighthouse
 score gates. Raw `dependency-audit.json` is updated. See [current evidence](REPAIR_CONTINUATION.md).
-The dependency findings below are historical; hosted security validation of the new commit remains required.
+Hosted full dependency-security and CodeQL both passed at application commit `1a874c7`.
+The dependency findings below are historical.
 
 `npm ci --ignore-scripts --no-fund` succeeded and a lockfile is committed. Node 22 is used in CI;
 local verification used Node 24.21.0 / npm 11.19.0. Dependency scripts are disabled during CI installation.
