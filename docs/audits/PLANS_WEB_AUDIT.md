@@ -67,3 +67,19 @@ offline navigation failed: `/index.html` redirects to `/`, so a cached redirecte
 serve offline navigation. Worker generation now precaches canonical `/` instead. Preview document
 and worker returned HTTP 200 with no-cache, correct JS MIME, nosniff and frame-denial headers.
 Retests are required after this repair; initial preview failure is not counted as a pass.
+
+Retest of application commit `3636ad4ead476d47a41defc133debc1961e4112d`:
+
+- Clean production build passed; local suite: **10 passed, 42.6s**.
+- Cloudflare preview: https://aeb40e50.plans-web.pages.dev, deployment `aeb40e50-0495-4f92-8d07-26efbf974c9d`, successful.
+- Hosted preview suite: **9 passed, 1 intentionally skipped, 40.2s**. The skipped source-module ZIP
+  harness is local-only and passed in the local suite. Offline reload now passes on Cloudflare.
+- Production rechecked through Cloudflare: still deployment `09cfaca3`, main commit `a794d8f`.
+- GitHub Actions at `3636ad4`: all **10 browser tests passed, 32.5s**; CodeQL passed. The combined
+  test job then failed its Lighthouse performance assertion: **52 against 80**. Dependency security
+  failed separately. Build publication was skipped; no gate was bypassed.
+- Subsequent audit documentation commits do not change application assets. This is the immutable
+  preview and exact application commit tested, not a claim that future branch commits were tested.
+
+Remaining release blockers: full dependency security, Lighthouse performance (78 local, 52 CI, gate 80),
+manual representative CAD/export review and rollback rehearsal.

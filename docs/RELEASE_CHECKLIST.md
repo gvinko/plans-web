@@ -12,7 +12,8 @@ Run from the repair branch; never use customer browser data for QA.
 - [ ] Full dependency audit: unresolved development-tool high findings.
 - [ ] Final Lighthouse performance >=80, accessibility >=90, best practices >=90.
 - [ ] Hosted PR build/tests and CodeQL pass; retain artifacts.
-- [ ] Cloudflare preview build and disposable preview checks pass at the exact proposed commit.
+- [x] Cloudflare preview build and disposable checks pass at application commit `3636ad4`:
+  https://aeb40e50.plans-web.pages.dev (9 passed, local-only ZIP harness skipped there).
 - [ ] Human review of remaining CAD workflows: ports, ties, bends, transitions, stock lengths,
   labels, BOM, DXF, scale and PDF print layout on representative disposable drawings.
 - [ ] Verify rollback on a disposable deployment, including service worker lifecycle and saved records.

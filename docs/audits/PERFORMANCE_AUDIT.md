@@ -17,5 +17,8 @@ accessibility 100, best practices 100, SEO 82. The performance gate still failed
 Final measured run at 2026-10-20 02:09:56 UTC reproduced 78/100/100/82: FCP 3510ms,
 LCP 4297ms, TBT 27ms, CLS 0, speed index 3664ms. Deferred loading reduced startup JS,
 but the performance release gate remains open.
+GitHub Actions for application commit `3636ad4` passed all 10 functional tests (32.5s), then
+Lighthouse performance scored **52** and failed the same 80 gate. This hosted result is not
+replaced by the higher local score. See PR #13's Build Ductplanner artifacts for its full report.
 Offline precaching downloads these assets after opening online; offline first visit is unsupported.
 No claim of a production-source baseline comparison: the source baseline was not rebuilt separately.

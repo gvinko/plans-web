@@ -13,7 +13,8 @@ No forced downgrade or untested major dependency replacement was applied. These 
 
 CI has read-only contents by default. Build publishing alone receives contents:write, after tests
 and dependency gates. Pull requests never execute publication. CodeQL gets security-events:write
-only in its analysis job. Hosted CodeQL results remain pending until the workflow executes.
+only in its analysis job. Hosted CodeQL analysis for repair application commit `3636ad4` completed successfully;
+the hosted dependency-security job failed on the documented advisories. These are distinct gates.
 
 Restore rejects malformed or incomplete backups before writing; writes are atomic and do not delete
 existing records. Same IDs overwrite by established design. Treat imported ZIPs as untrusted; file-size/
