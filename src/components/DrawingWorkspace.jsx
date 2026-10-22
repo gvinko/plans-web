@@ -16,10 +16,11 @@ import { unitDims } from '@/data/unitDims';
 import { SPLIT_MODELS } from '@/data/splitModels';
 import { PAIR_COILS, UNIT_COIL } from '@/data/pipeSizing';
 import AutoLayoutDialog from '@/components/AutoLayoutDialog';
-import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, calcRoomLoad } from '@/lib/heatLoad';
+import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, WALLS, GLAZING, calcRoomLoad } from '@/lib/heatLoad';
 import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
 import { buildTakeoff, takeoffLink } from '@/lib/wbTakeoff';
+import { networkAirflow } from '@/lib/airflow';
 
 const COLORBOND = ['Basalt', 'Blue Ocean', 'Classic Cream', 'Cottage Green', 'Cove', 'Deep Ocean', 'Dune', 'Evening Haze', 'Galvanised', 'Gully', 'Headland', 'Ironstone', 'Jasper', 'Mangrove', 'Manor Red', 'Monument', 'Night Sky', 'Pale Eucalypt', 'Paperbark', 'Shale Grey', 'Surfmist', 'Terrain', 'Wallaby', 'Windspray', 'Woodland'];
 const isService = (conn) => !!conn && (conn.type === 'pipe' || conn.type === 'drain' || conn.type === 'power');
@@ -569,6 +570,8 @@ const DRAWING_KINDS = {
   construction: { label: 'For construction', note: 'Issued for construction. Report any discrepancy before proceeding.' },
   asbuilt: { label: 'As installed', note: 'As-installed record of the mechanical services.' },
 };
+// The customer plan is its own PDF (Export PDF → Customer plan), not an "Issued as" choice.
+const CUSTOMER_KIND = { label: 'Customer plan', note: 'Indicative layout for your quotation. Final unit, outlet and duct positions are confirmed on site before installation.' };
 
 const SHORTCUTS = [
   ['D', 'Draw sheet metal / spiral / duct board run (snaps to 45° / 90°, joins and branches)'],
@@ -1750,7 +1753,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // Panels always start shown; H / the toolbar button hides them for this visit only.
   const [compact, setCompact] = useState(false);
   useEffect(() => { try { localStorage.removeItem('dp-compact'); } catch { /* ignore */ } }, []);
-  const [printMode, setPrintMode] = useState(null); // 'plan' | 'pick'
+  const [printMode, setPrintMode] = useState(null); // 'plan' | 'pick' | 'customer'
   const [printOpts, setPrintOpts] = useState({ paper: 'A3', scale: 'fit' });
   // Page layout for the PDF: orientation, where the schedule goes, title. Saved with the drawing.
   const [layout, setLayout] = useState({ orient: 'landscape', side: 'beside', page2: false, title: '', kind: 'concept', dwgNo: '', refs: '' });
@@ -2362,6 +2365,20 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     });
   }, [items, sketch, ppm, climate]);
 
+  // Airflow stage 2: outlets get their room's share of L/s (unless typed), and each sheet metal
+  // run's L/s is the sum of what it feeds. A typed run L/s always wins.
+  const airflow = useMemo(() => {
+    const supplyIn = (r) => items.filter((i) => !i.remove && getTool(i.type).role === 'supplyTerm' && i.cx >= r.x1 && i.cx <= r.x2 && i.cy >= r.y1 && i.cy <= r.y2);
+    const roomLps = (it) => {
+      const r = rooms.find((x) => x.kw > 0 && it.cx >= x.x1 && it.cx <= x.x2 && it.cy >= x.y1 && it.cy <= x.y2);
+      if (!r) return null;
+      const n = supplyIn(r).length || 1;
+      return Math.round((r.kw * LPS_PER_KW) / n);
+    };
+    return networkAirflow({ sketch, items, connections, joins }, { roleOf: (t) => getTool(t)?.role, roomLps });
+  }, [sketch, items, connections, joins, rooms]);
+  const runLs = (s) => (Number(s?.ls) > 0 ? Number(s.ls) : airflow.runs.get(s?.id)?.lps || 0);
+
   // Design checks: airflow, return air, pipe runs, heat load, power.
   const checks = useMemo(() => {
     const out = [];
@@ -2457,20 +2474,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (!powered) out.push({ level: 'info', group: 'Electrical', title: `${tags[cu.id]}: no power run drawn`, detail: 'Add a Switchboard and Isolator, then run cable (dark red dots) to get an approx. length.', itemId: cu.id });
     });
     sketch.forEach((r) => {
-      if (r.kind !== 'smduct' || !(Number(r.ls) > 0)) return;
+      const ls = r.kind === 'smduct' ? runLs(r) : 0;
+      if (!(ls > 0)) return;
       const { w, h } = smDims(r);
       const rule = SM_SIZING[r.sizeBy] || SM_SIZING.standard;
-      const a = smAirflow(r.ls, w, h);
+      const a = smAirflow(ls, w, h);
       if (!a) return;
-      const best = smSuggest(r.ls, r.sizeBy).find((x) => x.h === h);
+      const best = smSuggest(ls, r.sizeBy).find((x) => x.h === h);
+      const auto = !(Number(r.ls) > 0) ? airflow.runs.get(r.id) : null;
+      const how = auto ? ` (from ${auto.outlets} outlet${auto.outlets === 1 ? '' : 's'}${auto.missing ? `, ${auto.missing} with no airflow yet` : ''})` : '';
       if (a.v > rule.vmax || a.pa > rule.pa * 1.15) {
-        out.push({ level: 'warn', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s is too small — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, detail: best ? `Try ${best.w}/${best.h}. Tap here to select the run and resize it.` : 'Go deeper. Tap here for options.', sketchId: r.id });
+        out.push({ level: 'warn', group: 'Duct sizing', title: `${w}/${h} at ${ls} L/s is too small — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, detail: `${best ? `Try ${best.w}/${best.h}.` : 'Go deeper.'}${how} Tap here to select the run.`, sketchId: r.id });
       } else {
-        out.push({ level: 'ok', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, sketchId: r.id });
+        out.push({ level: 'ok', group: 'Duct sizing', title: `${w}/${h} at ${ls} L/s — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m${how}`, sketchId: r.id });
       }
     });
     return out;
-  }, [items, connections, joins, runs, rooms, tags, scale, sketch]);
+  }, [items, connections, joins, runs, rooms, tags, scale, sketch, airflow]);
   const warnCount = checks.filter((c) => c.level === 'warn').length;
 
   // Pipe run length limit and the (optional) spec'd refrigerant top-up.
@@ -3971,6 +3991,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const calc = calcRoomLoad(room.hl, area, climate, room.name || '');
     const v = calc.inputs;
     const setHl = (patch) => onChange({ hl: { ...(room.hl || {}), ...patch } });
+    // Editing any window saves the full list, so a room with one window can grow more.
+    const setWin = (i, patch) => setHl({ windows: v.windows.map((w, j) => (j === i ? { ...w, ...(room.hl?.windows?.[j] || {}), ...patch } : w)) });
+    const addWin = () => setHl({ windows: [...v.windows, { orient: 'mixed', glass: 2, shading: 'eaves' }] });
+    const dropWin = (i) => setHl({ windows: v.windows.filter((_, j) => j !== i) });
     const field = 'h-8 w-full rounded-md border border-input bg-background px-2 text-xs';
     return (
       <div className="rounded-md border border-border p-2 text-xs space-y-2">
@@ -4004,20 +4028,34 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               <Input className="h-8 text-xs" type="number" min="0" inputMode="numeric" value={v.people} onChange={(e) => setHl({ people: e.target.value })} />
             </label>
           )}
+          <div className="col-span-2 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">{`Windows (${v.glass.toFixed(1)} m² glass)`}</span>
+              <button type="button" className="rounded border border-border px-1.5 py-0.5 text-[11px] hover:bg-muted" onClick={addWin}>+ Window</button>
+            </div>
+            {v.windows.map((w, i) => (
+              <div key={i} className="grid grid-cols-[1fr_3.5rem_1fr_1.5rem] gap-1 items-center">
+                <select className={field} aria-label="Window faces" value={w.orient} onChange={(e) => setWin(i, { orient: e.target.value })}>
+                  {Object.entries(ORIENTS).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
+                </select>
+                <Input className="h-8 text-xs px-1.5" aria-label="Glass m²" type="number" min="0" step="0.5" inputMode="decimal" value={room.hl?.windows?.[i]?.glass ?? w.glass} onChange={(e) => setWin(i, { glass: e.target.value })} />
+                <select className={field} aria-label="Shading" value={w.shading} onChange={(e) => setWin(i, { shading: e.target.value })}>
+                  {Object.entries(SHADING).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
+                </select>
+                {v.windows.length > 1 ? <button type="button" aria-label="Remove window" className="text-muted-foreground hover:text-foreground" onClick={() => dropWin(i)}>×</button> : <span />}
+              </div>
+            ))}
+          </div>
           <label className="flex flex-col gap-0.5">
-            <span className="text-muted-foreground">Main windows face</span>
-            <select className={field} value={v.orient} onChange={(e) => setHl({ orient: e.target.value })}>
-              {Object.entries(ORIENTS).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
+            <span className="text-muted-foreground">Glazing</span>
+            <select className={field} value={v.glazing} onChange={(e) => setHl({ glazing: e.target.value })}>
+              {Object.entries(GLAZING).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-0.5">
-            <span className="text-muted-foreground">Glass (m²)</span>
-            <Input className="h-8 text-xs" type="number" min="0" step="0.5" inputMode="decimal" value={v.glass} onChange={(e) => setHl({ glass: e.target.value })} />
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className="text-muted-foreground">Shading</span>
-            <select className={field} value={v.shading} onChange={(e) => setHl({ shading: e.target.value })}>
-              {Object.entries(SHADING).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
+            <span className="text-muted-foreground">Wall construction</span>
+            <select className={field} value={v.wallType} onChange={(e) => setHl({ wallType: e.target.value })}>
+              {Object.entries(WALLS).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-0.5">
@@ -4203,7 +4241,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (!project?.address_c) toast.message('Tip: add the customer address in Job details so it prints on the sheet.');
     const prev = viewRef.current;
     setPrintScaleUsed(null);
-    if (mode === 'plan') {
+    const fabBefore = showFab;
+    if (mode === 'customer') setShowFab(false); // no workshop detail on the customer's copy
+    if (mode === 'plan' || mode === 'customer') {
       const pb = planBox(printOpts.paper, layout);
       const W = pb.w * PX_PER_MM;
       const H = pb.h * PX_PER_MM;
@@ -4229,6 +4269,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const restore = () => {
       setView(prev);
       setPrintMode(null);
+      if (mode === 'customer') setShowFab(fabBefore);
       window.removeEventListener('afterprint', restore);
     };
     window.addEventListener('afterprint', restore);
@@ -4447,8 +4488,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const selectedMm = selected ? footprintMm(selected) : null;
 
   function printHeader(title) {
-    const kind = DRAWING_KINDS[layout.kind] || null;
-    const refs = (layout.refs || '').trim();
+    const cust = printMode === 'customer';
+    const kind = cust ? CUSTOMER_KIND : DRAWING_KINDS[layout.kind] || null;
+    const refs = cust ? '' : (layout.refs || '').trim();
     return (
       <div className="border-b-2 border-black pb-2 mb-2">
         <div className="flex items-start justify-between gap-3">
@@ -4468,7 +4510,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <div className="text-right">
             {kind && printMode !== 'pick' && <div className="inline-block border-2 border-black px-1.5 text-[10px] font-bold uppercase tracking-wider mb-0.5">{kind.label}</div>}
             <div className="text-base font-bold uppercase tracking-wide">{title}</div>
-            <div className="text-[10px]">{`${new Date().toLocaleDateString('en-AU')} · ${page.Name}${(layout.dwgNo || '').trim() ? ` · Dwg ${layout.dwgNo.trim()}` : ''} · Rev ${project?.revision_c || 'A'}`}</div>
+            <div className="text-[10px]">{cust ? `${project?.Name || ''}${project?.suburb_c ? `, ${project.suburb_c}` : ''} · ${new Date().toLocaleDateString('en-AU')} · ${page.Name}` : `${new Date().toLocaleDateString('en-AU')} · ${page.Name}${(layout.dwgNo || '').trim() ? ` · Dwg ${layout.dwgNo.trim()}` : ''} · Rev ${project?.revision_c || 'A'}`}</div>
           </div>
         </div>
         {printMode !== 'pick' && (kind || refs) && (
@@ -4521,6 +4563,56 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             <div className="font-semibold text-[11px]">{v}</div>
           </div>
         ))}
+      </div>
+    );
+  }
+
+  // Plain-English summary printed beside the customer plan instead of the equipment list.
+  function customerSummary() {
+    const live = items.filter((i) => !i.existing && !i.remove);
+    const count = (pred) => live.filter(pred).length;
+    const units = live.filter((i) => i.type === 'indoor' || i.type === 'splitindoor' || i.type === 'coilsection').map((i) => {
+      const kw = unitKw(i);
+      const model = i.type === 'coilsection' ? actronPair(i.spec?.model)?.coilCode : i.spec?.model;
+      return `${model && model !== CHOOSE_MODEL ? model : getTool(i.type).label}${kw ? ` — ${kw} kW cooling` : ''}`;
+    });
+    const outdoor = live.filter((i) => i.type === 'outdoor').map((i) => i.outdoorModel || 'Outdoor unit');
+    const zones = [...new Set(live.filter((i) => i.type === 'zone' || i.type === 'zonearea').map((i) => i.spec?.zone).filter(Boolean))];
+    const roomsByZone = zones.map((z) => ({ z, rooms: [...new Set(live.filter((i) => i.type === 'zonearea' && i.spec?.zone === z && i.room).map((i) => i.room))] }));
+    const outlets = count((i) => getTool(i.type).role === 'supplyTerm');
+    const returns = count((i) => getTool(i.type).role === 'returnTerm');
+    const controls = count((i) => i.type === 'controller');
+    const loadKw = rooms.reduce((n, r) => n + (r.kw || 0), 0);
+    const rows = [
+      ...units.map((u) => ['Indoor unit', u]),
+      ...outdoor.map((o) => ['Outdoor unit', o]),
+      zones.length ? ['Zones', `${zones.length}`] : null,
+      outlets ? ['Supply outlets', `${outlets}`] : null,
+      returns ? ['Return air grilles', `${returns}`] : null,
+      controls ? ['Controllers', `${controls}`] : null,
+      loadKw > 0 ? ['Estimated cooling load', `${loadKw.toFixed(1)} kW`] : null,
+    ].filter(Boolean);
+    return (
+      <div className="mb-2">
+        <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Your system</div>
+        {rows.length === 0 && <p>Nothing drawn yet.</p>}
+        {rows.map(([k, v], i) => (
+          <div key={i} className="flex gap-2 border-b border-gray-300 py-0.5 text-[10px]">
+            <span className="w-24 shrink-0 text-gray-700">{k}</span>
+            <span className="font-semibold">{v}</span>
+          </div>
+        ))}
+        {roomsByZone.some((x) => x.rooms.length) && (
+          <div className="mt-2">
+            <div className="font-bold uppercase text-[8px] tracking-wider text-gray-700 mb-0.5">Zones</div>
+            {roomsByZone.map(({ z, rooms: rs }) => (
+              <div key={z} className="flex gap-1.5 py-0.5 text-[10px]">
+                <span className="inline-block size-2.5 mt-0.5 shrink-0 rounded-full" style={{ backgroundColor: zoneColor(z) || '#64748b' }} />
+                <span><span className="font-semibold">{z}</span>{rs.length ? ` — ${rs.join(', ')}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -4613,7 +4705,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </header>
 
       <div className="dp-print-only text-black px-1">
-        {printHeader(printMode === 'pick' ? 'Pick slip' : (layout.title || '').trim() || 'Duct layout')}
+        {printHeader(printMode === 'pick' ? 'Pick slip' : printMode === 'customer' ? 'Your air conditioning layout' : (layout.title || '').trim() || 'Duct layout')}
         {printCustomer()}
       </div>
 
@@ -5856,6 +5948,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 </div>
               );
             })()}
+            {printMode === 'customer' ? customerSummary() : (<>
             {fanSchedule.length > 0 && (
               <div className="mb-2">
                 <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Fan schedule</div>
@@ -5902,7 +5995,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 ))}
               </div>
             ))}
-            {sketch.some((x) => x.kind === 'pin') && (
+            </>)}
+            {printMode !== 'customer' && sketch.some((x) => x.kind === 'pin') && (
               <div className="mb-1.5">
                 <div className="font-bold uppercase text-[8px] tracking-wider text-gray-700">Site notes</div>
                 {sketch.filter((x) => x.kind === 'pin').map((x) => (
@@ -6100,7 +6194,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   {!(selected.type === 'indoor' || selected.type === 'coilsection') && (
                     <label className="flex flex-col gap-1 text-xs">
                       <span className="text-muted-foreground">Airflow (L/s)</span>
-                      <Input className="h-9" type="number" min="0" inputMode="numeric" placeholder="e.g. 120" value={selected.airflow ?? ''} onChange={(event) => updateItem(selected.id, { airflow: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                      <Input className="h-9" type="number" min="0" inputMode="numeric" placeholder={airflow.terminals.get(selected.id)?.source === 'room' ? `from room: ${airflow.terminals.get(selected.id).lps}` : 'e.g. 120'} value={selected.airflow ?? ''} onChange={(event) => updateItem(selected.id, { airflow: event.target.value === '' ? undefined : Number(event.target.value) })} />
                     </label>
                   )}
                   {!FAN_TYPES.has(selected.type) && (
@@ -6536,18 +6630,29 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     <div className="grid grid-cols-2 gap-2">
                       <label className="flex flex-col gap-1 text-xs">
                         <span className="text-muted-foreground">Airflow (L/s)</span>
-                        <Input className="h-9" inputMode="numeric" placeholder="e.g. 450" value={s.ls ?? ''} onChange={(event) => updateSketch(s.id, { ls: event.target.value })} />
+                        <Input className="h-9" inputMode="numeric" placeholder={airflow.runs.get(s.id)?.lps ? `auto ${airflow.runs.get(s.id).lps}` : 'e.g. 450'} value={s.ls ?? ''} onChange={(event) => updateSketch(s.id, { ls: event.target.value })} />
                       </label>
                       <label className="flex flex-col gap-1 text-xs">
                         <span className="text-muted-foreground">Elevation tag</span>
                         <Input className="h-9" placeholder="e.g. U/S 2700" value={s.elev ?? ''} onChange={(event) => updateSketch(s.id, { elev: event.target.value })} />
                       </label>
                     </div>
-                    {Number(s.ls) > 0 && (() => {
+                    {!(Number(s.ls) > 0) && airflow.runs.get(s.id) && (() => {
+                      const a = airflow.runs.get(s.id);
+                      return (
+                        <div className="text-[11px] text-muted-foreground">
+                          {a.lps > 0 ? `Auto: ${a.lps} L/s from ${a.outlets} outlet${a.outlets === 1 ? '' : 's'} it feeds.` : `Feeds ${a.outlets} outlet${a.outlets === 1 ? '' : 's'} with no airflow yet.`}
+                          {a.missing > 0 && a.lps > 0 && ` ${a.missing} have no airflow yet — type it on the outlet, or draw its room with a heat load.`}
+                          {' Type a figure to override.'}
+                        </div>
+                      );
+                    })()}
+                    {runLs(s) > 0 && (() => {
+                      const ls = runLs(s);
                       const { w, h } = smDims(s);
                       const rule = SM_SIZING[s.sizeBy] || SM_SIZING.standard;
-                      const now = smAirflow(s.ls, w, h);
-                      const sug = smSuggest(s.ls, s.sizeBy);
+                      const now = smAirflow(ls, w, h);
+                      const sug = smSuggest(ls, s.sizeBy);
                       const same = sug.find((x) => x.h === h);
                       const others = sug.filter((x) => x.h !== h && x.w >= x.h).slice(0, 3);
                       const over = now && (now.v > rule.vmax || now.pa > rule.pa * 1.15);
@@ -6560,7 +6665,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                               {Object.entries(SM_SIZING).map(([k, r]) => <option key={k} value={k}>{r.label}</option>)}
                             </select>
                           </div>
-                          {now && <div>{`${w}/${h} at ${s.ls} L/s: `}<span className={over ? 'font-semibold text-red-700' : 'font-semibold'}>{`${now.v.toFixed(1)} m/s · ${now.pa.toFixed(2)} Pa/m`}</span>{over ? ' — too small' : ' — OK'}</div>}
+                          {now && <div>{`${w}/${h} at ${ls} L/s: `}<span className={over ? 'font-semibold text-red-700' : 'font-semibold'}>{`${now.v.toFixed(1)} m/s · ${now.pa.toFixed(2)} Pa/m`}</span>{over ? ' — too small' : ' — OK'}</div>}
                           {same && (same.w !== w) && (
                             <Button size="sm" className="h-8 w-full" onClick={() => use(same)}>{`Use ${same.w}/${same.h} (keeps ${h} deep) — ${same.v.toFixed(1)} m/s`}</Button>
                           )}
@@ -6834,7 +6939,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </div>
 
       {/* Printed schedule (PDF page 2) / pick slip */}
-      <div className={`dp-print-only text-black px-1 ${printMode === 'plan' && !layout.page2 ? 'dp-noprint' : printMode === 'plan' ? 'dp-page-break' : ''}`}>
+      <div className={`dp-print-only text-black px-1 ${printMode === 'customer' || (printMode === 'plan' && !layout.page2) ? 'dp-noprint' : printMode === 'plan' ? 'dp-page-break' : ''}`}>
         {printMode === 'plan' && printHeader('Equipment schedule')}
         {printMode === 'plan' && printCustomer()}
         {printMode === 'pick' && pickHead()}
@@ -6987,6 +7092,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           {!scale && <p className="text-xs text-amber-700">Set the plan scale to print at 1:50, 1:100 etc.</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPrintDialog(false)}>Cancel</Button>
+            <Button variant="outline" title="Colour plan for the customer: no workshop detail or parts list" onClick={() => { setPrintDialog(false); setTimeout(() => exportPdf('customer'), 50); }}>
+              <ApperIcon name="UserRound" size={15} />
+              Customer plan
+            </Button>
             <Button onClick={() => { setPrintDialog(false); setTimeout(() => exportPdf('plan'), 50); }}>
               <ApperIcon name="FileDown" size={15} />
               Make PDF

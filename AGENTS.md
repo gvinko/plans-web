@@ -66,7 +66,7 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 
 ## Wish list (do one at a time, only when asked)
 
-1. Airflow, stage 2: L/s on each outlet/grille, summed back up the network so each run's L/s fills in by itself (stage 1, typed L/s with velocity and size suggestions, is done).
+1. ~~Airflow, stage 2~~ — done 22 Oct 2026, see below.
 2. Duct board (PolyPlan) and spiral duct as run materials.
 3. Manufacturer equipment catalogue with real port positions (Daikin / Fujitsu / Mitsubishi / Rinnai / Fantech).
 4. Vector PDF (the current PDF comes from the browser's print view, which is already sharp but not a CAD file), plus DXF export.
@@ -108,3 +108,16 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - PDF legend: top of `.dp-side-list`, only the part types and duct services used.
 - Title block: `DESIGNER` details, `DRAWING_KINDS` issue stamp + note (`layout.kind`), `layout.dwgNo`, `layout.refs` ("Read with"). Logo is `src/assets/echo-logo.png` via `ECHO_LOGO` (the old inline base64 was corrupt); also shown in the app bar.
 - Eraser tool (Q, `eraseAt`). Select all (Ctrl+A, `allSel`) + `rotateAll` (R / Shift+R) turns everything 90° about the drawing centre; the plan image stays put.
+
+## Airflow stage 2 (22 Oct 2026)
+
+- `src/lib/airflow.js` `networkAirflow()` treats each sheet metal system as a tree rooted at its unit (role `unit`/`section`) or, with no unit, an inline exhaust fan. A run's L/s = the sum of the terminals downstream of it (side branches count upstream). Past the last grille to a louvre / roof cowl (`anyTerm`), a run carries the whole system. No unit or fan → no auto figure.
+- Terminal L/s: typed `item.airflow` first, else (supply outlets only) the room's load × `LPS_PER_KW` split between the supply outlets inside that room / zone area.
+- `runLs(s)` in DrawingWorkspace: typed `s.ls` wins, else the auto figure. Sizing in the run panel and the Checks tab use it. Plan annotation still shows typed L/s only.
+- Flex (domestic) ducts are not covered — the auto layout already sizes those.
+- Tests: `node --test test/airflow.test.mjs`.
+## Heat load: windows, glazing, walls (22 Oct 2026)
+
+- `hl.windows` [{orient, glass, shading}] per room. Rooms saved before this keep one window in `hl.orient` / `hl.glass` / `hl.shading` and calculate exactly as before; the first edit in the Windows list saves `hl.windows`.
+- `hl.glazing` ('single' default, 'double') and `hl.wallType` (`WALLS`, 'standard' default = the old U 0.6) in `src/lib/heatLoad.js`. Defaults reproduce the old numbers.
+- Tests: `node --test test/heatload.test.mjs`.
