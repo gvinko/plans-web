@@ -20,6 +20,7 @@ import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, calc
 import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
 import { buildTakeoff, takeoffLink } from '@/lib/wbTakeoff';
+import { networkAirflow } from '@/lib/airflow';
 
 const COLORBOND = ['Basalt', 'Blue Ocean', 'Classic Cream', 'Cottage Green', 'Cove', 'Deep Ocean', 'Dune', 'Evening Haze', 'Galvanised', 'Gully', 'Headland', 'Ironstone', 'Jasper', 'Mangrove', 'Manor Red', 'Monument', 'Night Sky', 'Pale Eucalypt', 'Paperbark', 'Shale Grey', 'Surfmist', 'Terrain', 'Wallaby', 'Windspray', 'Woodland'];
 const isService = (conn) => !!conn && (conn.type === 'pipe' || conn.type === 'drain' || conn.type === 'power');
@@ -2364,6 +2365,20 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     });
   }, [items, sketch, ppm, climate]);
 
+  // Airflow stage 2: outlets get their room's share of L/s (unless typed), and each sheet metal
+  // run's L/s is the sum of what it feeds. A typed run L/s always wins.
+  const airflow = useMemo(() => {
+    const supplyIn = (r) => items.filter((i) => !i.remove && getTool(i.type).role === 'supplyTerm' && i.cx >= r.x1 && i.cx <= r.x2 && i.cy >= r.y1 && i.cy <= r.y2);
+    const roomLps = (it) => {
+      const r = rooms.find((x) => x.kw > 0 && it.cx >= x.x1 && it.cx <= x.x2 && it.cy >= x.y1 && it.cy <= x.y2);
+      if (!r) return null;
+      const n = supplyIn(r).length || 1;
+      return Math.round((r.kw * LPS_PER_KW) / n);
+    };
+    return networkAirflow({ sketch, items, connections, joins }, { roleOf: (t) => getTool(t)?.role, roomLps });
+  }, [sketch, items, connections, joins, rooms]);
+  const runLs = (s) => (Number(s?.ls) > 0 ? Number(s.ls) : airflow.runs.get(s?.id)?.lps || 0);
+
   // Design checks: airflow, return air, pipe runs, heat load, power.
   const checks = useMemo(() => {
     const out = [];
@@ -2459,20 +2474,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (!powered) out.push({ level: 'info', group: 'Electrical', title: `${tags[cu.id]}: no power run drawn`, detail: 'Add a Switchboard and Isolator, then run cable (dark red dots) to get an approx. length.', itemId: cu.id });
     });
     sketch.forEach((r) => {
-      if (r.kind !== 'smduct' || !(Number(r.ls) > 0)) return;
+      const ls = r.kind === 'smduct' ? runLs(r) : 0;
+      if (!(ls > 0)) return;
       const { w, h } = smDims(r);
       const rule = SM_SIZING[r.sizeBy] || SM_SIZING.standard;
-      const a = smAirflow(r.ls, w, h);
+      const a = smAirflow(ls, w, h);
       if (!a) return;
-      const best = smSuggest(r.ls, r.sizeBy).find((x) => x.h === h);
+      const best = smSuggest(ls, r.sizeBy).find((x) => x.h === h);
+      const auto = !(Number(r.ls) > 0) ? airflow.runs.get(r.id) : null;
+      const how = auto ? ` (from ${auto.outlets} outlet${auto.outlets === 1 ? '' : 's'}${auto.missing ? `, ${auto.missing} with no airflow yet` : ''})` : '';
       if (a.v > rule.vmax || a.pa > rule.pa * 1.15) {
-        out.push({ level: 'warn', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s is too small — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, detail: best ? `Try ${best.w}/${best.h}. Tap here to select the run and resize it.` : 'Go deeper. Tap here for options.', sketchId: r.id });
+        out.push({ level: 'warn', group: 'Duct sizing', title: `${w}/${h} at ${ls} L/s is too small — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, detail: `${best ? `Try ${best.w}/${best.h}.` : 'Go deeper.'}${how} Tap here to select the run.`, sketchId: r.id });
       } else {
-        out.push({ level: 'ok', group: 'Duct sizing', title: `${w}/${h} at ${r.ls} L/s — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m`, sketchId: r.id });
+        out.push({ level: 'ok', group: 'Duct sizing', title: `${w}/${h} at ${ls} L/s — ${a.v.toFixed(1)} m/s, ${a.pa.toFixed(2)} Pa/m${how}`, sketchId: r.id });
       }
     });
     return out;
-  }, [items, connections, joins, runs, rooms, tags, scale, sketch]);
+  }, [items, connections, joins, runs, rooms, tags, scale, sketch, airflow]);
   const warnCount = checks.filter((c) => c.level === 'warn').length;
 
   // Pipe run length limit and the (optional) spec'd refrigerant top-up.
@@ -6158,7 +6176,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   {!(selected.type === 'indoor' || selected.type === 'coilsection') && (
                     <label className="flex flex-col gap-1 text-xs">
                       <span className="text-muted-foreground">Airflow (L/s)</span>
-                      <Input className="h-9" type="number" min="0" inputMode="numeric" placeholder="e.g. 120" value={selected.airflow ?? ''} onChange={(event) => updateItem(selected.id, { airflow: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                      <Input className="h-9" type="number" min="0" inputMode="numeric" placeholder={airflow.terminals.get(selected.id)?.source === 'room' ? `from room: ${airflow.terminals.get(selected.id).lps}` : 'e.g. 120'} value={selected.airflow ?? ''} onChange={(event) => updateItem(selected.id, { airflow: event.target.value === '' ? undefined : Number(event.target.value) })} />
                     </label>
                   )}
                   {!FAN_TYPES.has(selected.type) && (
@@ -6594,18 +6612,29 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     <div className="grid grid-cols-2 gap-2">
                       <label className="flex flex-col gap-1 text-xs">
                         <span className="text-muted-foreground">Airflow (L/s)</span>
-                        <Input className="h-9" inputMode="numeric" placeholder="e.g. 450" value={s.ls ?? ''} onChange={(event) => updateSketch(s.id, { ls: event.target.value })} />
+                        <Input className="h-9" inputMode="numeric" placeholder={airflow.runs.get(s.id)?.lps ? `auto ${airflow.runs.get(s.id).lps}` : 'e.g. 450'} value={s.ls ?? ''} onChange={(event) => updateSketch(s.id, { ls: event.target.value })} />
                       </label>
                       <label className="flex flex-col gap-1 text-xs">
                         <span className="text-muted-foreground">Elevation tag</span>
                         <Input className="h-9" placeholder="e.g. U/S 2700" value={s.elev ?? ''} onChange={(event) => updateSketch(s.id, { elev: event.target.value })} />
                       </label>
                     </div>
-                    {Number(s.ls) > 0 && (() => {
+                    {!(Number(s.ls) > 0) && airflow.runs.get(s.id) && (() => {
+                      const a = airflow.runs.get(s.id);
+                      return (
+                        <div className="text-[11px] text-muted-foreground">
+                          {a.lps > 0 ? `Auto: ${a.lps} L/s from ${a.outlets} outlet${a.outlets === 1 ? '' : 's'} it feeds.` : `Feeds ${a.outlets} outlet${a.outlets === 1 ? '' : 's'} with no airflow yet.`}
+                          {a.missing > 0 && a.lps > 0 && ` ${a.missing} have no airflow yet — type it on the outlet, or draw its room with a heat load.`}
+                          {' Type a figure to override.'}
+                        </div>
+                      );
+                    })()}
+                    {runLs(s) > 0 && (() => {
+                      const ls = runLs(s);
                       const { w, h } = smDims(s);
                       const rule = SM_SIZING[s.sizeBy] || SM_SIZING.standard;
-                      const now = smAirflow(s.ls, w, h);
-                      const sug = smSuggest(s.ls, s.sizeBy);
+                      const now = smAirflow(ls, w, h);
+                      const sug = smSuggest(ls, s.sizeBy);
                       const same = sug.find((x) => x.h === h);
                       const others = sug.filter((x) => x.h !== h && x.w >= x.h).slice(0, 3);
                       const over = now && (now.v > rule.vmax || now.pa > rule.pa * 1.15);
@@ -6618,7 +6647,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                               {Object.entries(SM_SIZING).map(([k, r]) => <option key={k} value={k}>{r.label}</option>)}
                             </select>
                           </div>
-                          {now && <div>{`${w}/${h} at ${s.ls} L/s: `}<span className={over ? 'font-semibold text-red-700' : 'font-semibold'}>{`${now.v.toFixed(1)} m/s · ${now.pa.toFixed(2)} Pa/m`}</span>{over ? ' — too small' : ' — OK'}</div>}
+                          {now && <div>{`${w}/${h} at ${ls} L/s: `}<span className={over ? 'font-semibold text-red-700' : 'font-semibold'}>{`${now.v.toFixed(1)} m/s · ${now.pa.toFixed(2)} Pa/m`}</span>{over ? ' — too small' : ' — OK'}</div>}
                           {same && (same.w !== w) && (
                             <Button size="sm" className="h-8 w-full" onClick={() => use(same)}>{`Use ${same.w}/${same.h} (keeps ${h} deep) — ${same.v.toFixed(1)} m/s`}</Button>
                           )}
