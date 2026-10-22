@@ -19,6 +19,7 @@ import AutoLayoutDialog from '@/components/AutoLayoutDialog';
 import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, calcRoomLoad } from '@/lib/heatLoad';
 import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
+import { buildTakeoff, takeoffLink } from '@/lib/wbTakeoff';
 
 const COLORBOND = ['Basalt', 'Blue Ocean', 'Classic Cream', 'Cottage Green', 'Cove', 'Deep Ocean', 'Dune', 'Evening Haze', 'Galvanised', 'Gully', 'Headland', 'Ironstone', 'Jasper', 'Mangrove', 'Manor Red', 'Monument', 'Night Sky', 'Pale Eucalypt', 'Paperbark', 'Shale Grey', 'Surfmist', 'Terrain', 'Wallaby', 'Windspray', 'Woodland'];
 const isService = (conn) => !!conn && (conn.type === 'pipe' || conn.type === 'drain' || conn.type === 'power');
@@ -1836,8 +1837,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const flush = () => { if (dirtyRef.current) saveRef.current?.({ auto: true }); };
     const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
     window.addEventListener('pagehide', flush);
+    window.addEventListener('dp-save-now', flush); // UpdateBanner, before it reloads
     document.addEventListener('visibilitychange', onHide);
-    return () => { window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', onHide); };
+    return () => { window.removeEventListener('pagehide', flush); window.removeEventListener('dp-save-now', flush); document.removeEventListener('visibilitychange', onHide); };
   }, []);
 
   const ppm = scale?.pxPerM || DEFAULT_PPM;
@@ -2519,6 +2521,15 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     link.download = `${page.Name || 'drawing'} - equipment list.csv`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }
+
+  // Send the parts list to WorkBrain, which prices it from the WorkBrain Rates sheet.
+  function sendToWorkBrain() {
+    const pkg = buildTakeoff({ equipment, project: project || {}, page });
+    if (!pkg.lines.length) { toast.error('Nothing to send yet.'); return; }
+    const win = window.open(takeoffLink(pkg), 'workbrain');
+    if (!win) { toast.error('Pop-up blocked', { description: 'Allow pop-ups for Ductplanner, then try again.' }); return; }
+    toast.success(`Sent ${pkg.lines.length} lines to WorkBrain`, { description: pkg.job.wbJobRef ? `Job ${pkg.job.wbJobRef}` : 'Not linked to a WorkBrain job yet — open this job from WorkBrain to link it.' });
   }
 
   // ---- Duct re-routing: slide a straight section sideways; the run stays square ----
@@ -6809,6 +6820,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 <Button variant="outline" size="sm" onClick={downloadEquipment}>
                   <ApperIcon name="Download" size={14} />
                   CSV
+                </Button>
+                <Button variant="outline" size="sm" onClick={sendToWorkBrain} title="Price this list in WorkBrain">
+                  <ApperIcon name="Send" size={14} />
+                  WorkBrain
                 </Button>
               </div>
             )}
