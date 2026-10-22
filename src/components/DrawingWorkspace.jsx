@@ -1837,8 +1837,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const flush = () => { if (dirtyRef.current) saveRef.current?.({ auto: true }); };
     const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
     window.addEventListener('pagehide', flush);
+    window.addEventListener('dp-save-now', flush); // UpdateBanner, before it reloads
     document.addEventListener('visibilitychange', onHide);
-    return () => { window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', onHide); };
+    return () => { window.removeEventListener('pagehide', flush); window.removeEventListener('dp-save-now', flush); document.removeEventListener('visibilitychange', onHide); };
   }, []);
 
   const ppm = scale?.pxPerM || DEFAULT_PPM;
