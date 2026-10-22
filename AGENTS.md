@@ -108,3 +108,9 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - PDF legend: top of `.dp-side-list`, only the part types and duct services used.
 - Title block: `DESIGNER` details, `DRAWING_KINDS` issue stamp + note (`layout.kind`), `layout.dwgNo`, `layout.refs` ("Read with"). Logo is `src/assets/echo-logo.png` via `ECHO_LOGO` (the old inline base64 was corrupt); also shown in the app bar.
 - Eraser tool (Q, `eraseAt`). Select all (Ctrl+A, `allSel`) + `rotateAll` (R / Shift+R) turns everything 90° about the drawing centre; the plan image stays put.
+
+## Heat load: windows, glazing, walls (22 Oct 2026)
+
+- `hl.windows` [{orient, glass, shading}] per room. Rooms saved before this keep one window in `hl.orient` / `hl.glass` / `hl.shading` and calculate exactly as before; the first edit in the Windows list saves `hl.windows`.
+- `hl.glazing` ('single' default, 'double') and `hl.wallType` (`WALLS`, 'standard' default = the old U 0.6) in `src/lib/heatLoad.js`. Defaults reproduce the old numbers.
+- Tests: `node --test test/heatload.test.mjs`.

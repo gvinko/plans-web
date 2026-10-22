@@ -48,9 +48,22 @@ export const CEILINGS = {
   floor: { label: 'Another floor above', cool: 5, u: 0 },
 };
 
+// External wall construction. 'standard' is what every room used before wall types existed.
+export const WALLS = {
+  standard: { label: 'Insulated (typical)', u: 0.6 },
+  wellInsulated: { label: 'Well insulated (R2.5+)', u: 0.4 },
+  brickVeneer: { label: 'Brick veneer, no insulation', u: 1.7 },
+  doubleBrick: { label: 'Double brick', u: 2.0 },
+  lightweight: { label: 'Lightweight / cladding, no insulation', u: 2.5 },
+};
+
+// Window glass. 'single' is what every room used before glazing types existed.
+export const GLAZING = {
+  single: { label: 'Single glazed', u: 5.8, solar: 1 },
+  double: { label: 'Double glazed', u: 2.9, solar: 0.85 },
+};
+
 const AIR_CHANGES = 0.7;
-const GLASS_U = 5.8;
-const WALL_U = 0.6;
 const WALL_SOLAR = 4;
 const PERSON_W = 130;
 
@@ -67,14 +80,25 @@ export function defaultRoomType(name) {
 }
 
 // Fill in anything not entered yet with sensible defaults.
+// Windows: `hl.windows` [{orient, glass, shading}] when the room has more than one; older rooms
+// keep one window in hl.orient / hl.glass / hl.shading, which still works unchanged.
 export function roomInputs(hl = {}, areaM2 = 0, name = '') {
   const type = hl.type || defaultRoomType(name);
   const t = ROOM_TYPES[type] || ROOM_TYPES.other;
+  const orient = hl.orient || 'mixed';
+  const glass = hl.glass != null && hl.glass !== '' ? Number(hl.glass) : Math.round(areaM2 * 0.15 * 10) / 10;
+  const shading = hl.shading || 'eaves';
+  const windows = Array.isArray(hl.windows) && hl.windows.length
+    ? hl.windows.map((w) => ({ orient: w?.orient || 'mixed', glass: Math.max(0, Number(w?.glass) || 0), shading: w?.shading || 'eaves' }))
+    : [{ orient, glass, shading }];
   return {
     type,
-    orient: hl.orient || 'mixed',
-    glass: hl.glass != null && hl.glass !== '' ? Number(hl.glass) : Math.round(areaM2 * 0.15 * 10) / 10,
-    shading: hl.shading || 'eaves',
+    orient,
+    glass: windows.reduce((n, w) => n + w.glass, 0),
+    shading,
+    windows,
+    wallType: WALLS[hl.wallType] ? hl.wallType : 'standard',
+    glazing: GLAZING[hl.glazing] ? hl.glazing : 'single',
     walls: hl.walls != null && hl.walls !== '' ? Number(hl.walls) : 1,
     ceiling: hl.ceiling || 'insulated',
     height: Number(hl.height) || 2.4,
@@ -91,20 +115,22 @@ export function calcRoomLoad(hl, areaM2, climateKey = DEFAULT_CLIMATE, name = ''
   const vol = area * r.height;
   const glass = Math.max(0, r.glass);
   const wallArea = Math.max(0, r.walls * Math.sqrt(area) * r.height - glass);
-  const solar = (ORIENTS[r.orient] || ORIENTS.mixed).solar * (SHADING[r.shading] || SHADING.none).factor;
+  const wallU = WALLS[r.wallType].u;
+  const glz = GLAZING[r.glazing];
+  const solarGain = r.windows.reduce((n, w) => n + w.glass * (ORIENTS[w.orient] || ORIENTS.mixed).solar * (SHADING[w.shading] || SHADING.none).factor, 0) * glz.solar;
 
   const cool = {
     roof: area * ceil.cool * c.solar,
-    walls: wallArea * (WALL_U * c.dtCool + WALL_SOLAR),
-    glass: glass * (solar * c.solar + GLASS_U * c.dtCool),
+    walls: wallArea * (wallU * c.dtCool + WALL_SOLAR),
+    glass: solarGain * c.solar + glass * glz.u * c.dtCool,
     air: 0.33 * AIR_CHANGES * vol * c.dtCool,
     people: r.people * PERSON_W,
     internal: type.internal,
   };
   const heat = {
     roof: area * ceil.u * c.dtHeat,
-    walls: wallArea * WALL_U * c.dtHeat,
-    glass: glass * GLASS_U * c.dtHeat,
+    walls: wallArea * wallU * c.dtHeat,
+    glass: glass * glz.u * c.dtHeat,
     air: 0.33 * AIR_CHANGES * vol * c.dtHeat,
   };
   const coolW = Object.values(cool).reduce((n, v) => n + v, 0);
