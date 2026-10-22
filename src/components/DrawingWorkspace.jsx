@@ -569,6 +569,8 @@ const DRAWING_KINDS = {
   construction: { label: 'For construction', note: 'Issued for construction. Report any discrepancy before proceeding.' },
   asbuilt: { label: 'As installed', note: 'As-installed record of the mechanical services.' },
 };
+// The customer plan is its own PDF (Export PDF → Customer plan), not an "Issued as" choice.
+const CUSTOMER_KIND = { label: 'Customer plan', note: 'Indicative layout for your quotation. Final unit, outlet and duct positions are confirmed on site before installation.' };
 
 const SHORTCUTS = [
   ['D', 'Draw sheet metal / spiral / duct board run (snaps to 45° / 90°, joins and branches)'],
@@ -1750,7 +1752,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // Panels always start shown; H / the toolbar button hides them for this visit only.
   const [compact, setCompact] = useState(false);
   useEffect(() => { try { localStorage.removeItem('dp-compact'); } catch { /* ignore */ } }, []);
-  const [printMode, setPrintMode] = useState(null); // 'plan' | 'pick'
+  const [printMode, setPrintMode] = useState(null); // 'plan' | 'pick' | 'customer'
   const [printOpts, setPrintOpts] = useState({ paper: 'A3', scale: 'fit' });
   // Page layout for the PDF: orientation, where the schedule goes, title. Saved with the drawing.
   const [layout, setLayout] = useState({ orient: 'landscape', side: 'beside', page2: false, title: '', kind: 'concept', dwgNo: '', refs: '' });
@@ -4203,7 +4205,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (!project?.address_c) toast.message('Tip: add the customer address in Job details so it prints on the sheet.');
     const prev = viewRef.current;
     setPrintScaleUsed(null);
-    if (mode === 'plan') {
+    const fabBefore = showFab;
+    if (mode === 'customer') setShowFab(false); // no workshop detail on the customer's copy
+    if (mode === 'plan' || mode === 'customer') {
       const pb = planBox(printOpts.paper, layout);
       const W = pb.w * PX_PER_MM;
       const H = pb.h * PX_PER_MM;
@@ -4229,6 +4233,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const restore = () => {
       setView(prev);
       setPrintMode(null);
+      if (mode === 'customer') setShowFab(fabBefore);
       window.removeEventListener('afterprint', restore);
     };
     window.addEventListener('afterprint', restore);
@@ -4447,8 +4452,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const selectedMm = selected ? footprintMm(selected) : null;
 
   function printHeader(title) {
-    const kind = DRAWING_KINDS[layout.kind] || null;
-    const refs = (layout.refs || '').trim();
+    const cust = printMode === 'customer';
+    const kind = cust ? CUSTOMER_KIND : DRAWING_KINDS[layout.kind] || null;
+    const refs = cust ? '' : (layout.refs || '').trim();
     return (
       <div className="border-b-2 border-black pb-2 mb-2">
         <div className="flex items-start justify-between gap-3">
@@ -4468,7 +4474,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <div className="text-right">
             {kind && printMode !== 'pick' && <div className="inline-block border-2 border-black px-1.5 text-[10px] font-bold uppercase tracking-wider mb-0.5">{kind.label}</div>}
             <div className="text-base font-bold uppercase tracking-wide">{title}</div>
-            <div className="text-[10px]">{`${new Date().toLocaleDateString('en-AU')} · ${page.Name}${(layout.dwgNo || '').trim() ? ` · Dwg ${layout.dwgNo.trim()}` : ''} · Rev ${project?.revision_c || 'A'}`}</div>
+            <div className="text-[10px]">{cust ? `${project?.Name || ''}${project?.suburb_c ? `, ${project.suburb_c}` : ''} · ${new Date().toLocaleDateString('en-AU')} · ${page.Name}` : `${new Date().toLocaleDateString('en-AU')} · ${page.Name}${(layout.dwgNo || '').trim() ? ` · Dwg ${layout.dwgNo.trim()}` : ''} · Rev ${project?.revision_c || 'A'}`}</div>
           </div>
         </div>
         {printMode !== 'pick' && (kind || refs) && (
@@ -4521,6 +4527,56 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             <div className="font-semibold text-[11px]">{v}</div>
           </div>
         ))}
+      </div>
+    );
+  }
+
+  // Plain-English summary printed beside the customer plan instead of the equipment list.
+  function customerSummary() {
+    const live = items.filter((i) => !i.existing && !i.remove);
+    const count = (pred) => live.filter(pred).length;
+    const units = live.filter((i) => i.type === 'indoor' || i.type === 'splitindoor' || i.type === 'coilsection').map((i) => {
+      const kw = unitKw(i);
+      const model = i.type === 'coilsection' ? actronPair(i.spec?.model)?.coilCode : i.spec?.model;
+      return `${model && model !== CHOOSE_MODEL ? model : getTool(i.type).label}${kw ? ` — ${kw} kW cooling` : ''}`;
+    });
+    const outdoor = live.filter((i) => i.type === 'outdoor').map((i) => i.outdoorModel || 'Outdoor unit');
+    const zones = [...new Set(live.filter((i) => i.type === 'zone' || i.type === 'zonearea').map((i) => i.spec?.zone).filter(Boolean))];
+    const roomsByZone = zones.map((z) => ({ z, rooms: [...new Set(live.filter((i) => i.type === 'zonearea' && i.spec?.zone === z && i.room).map((i) => i.room))] }));
+    const outlets = count((i) => getTool(i.type).role === 'supplyTerm');
+    const returns = count((i) => getTool(i.type).role === 'returnTerm');
+    const controls = count((i) => i.type === 'controller');
+    const loadKw = rooms.reduce((n, r) => n + (r.kw || 0), 0);
+    const rows = [
+      ...units.map((u) => ['Indoor unit', u]),
+      ...outdoor.map((o) => ['Outdoor unit', o]),
+      zones.length ? ['Zones', `${zones.length}`] : null,
+      outlets ? ['Supply outlets', `${outlets}`] : null,
+      returns ? ['Return air grilles', `${returns}`] : null,
+      controls ? ['Controllers', `${controls}`] : null,
+      loadKw > 0 ? ['Estimated cooling load', `${loadKw.toFixed(1)} kW`] : null,
+    ].filter(Boolean);
+    return (
+      <div className="mb-2">
+        <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Your system</div>
+        {rows.length === 0 && <p>Nothing drawn yet.</p>}
+        {rows.map(([k, v], i) => (
+          <div key={i} className="flex gap-2 border-b border-gray-300 py-0.5 text-[10px]">
+            <span className="w-24 shrink-0 text-gray-700">{k}</span>
+            <span className="font-semibold">{v}</span>
+          </div>
+        ))}
+        {roomsByZone.some((x) => x.rooms.length) && (
+          <div className="mt-2">
+            <div className="font-bold uppercase text-[8px] tracking-wider text-gray-700 mb-0.5">Zones</div>
+            {roomsByZone.map(({ z, rooms: rs }) => (
+              <div key={z} className="flex gap-1.5 py-0.5 text-[10px]">
+                <span className="inline-block size-2.5 mt-0.5 shrink-0 rounded-full" style={{ backgroundColor: zoneColor(z) || '#64748b' }} />
+                <span><span className="font-semibold">{z}</span>{rs.length ? ` — ${rs.join(', ')}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -4613,7 +4669,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </header>
 
       <div className="dp-print-only text-black px-1">
-        {printHeader(printMode === 'pick' ? 'Pick slip' : (layout.title || '').trim() || 'Duct layout')}
+        {printHeader(printMode === 'pick' ? 'Pick slip' : printMode === 'customer' ? 'Your air conditioning layout' : (layout.title || '').trim() || 'Duct layout')}
         {printCustomer()}
       </div>
 
@@ -5856,6 +5912,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 </div>
               );
             })()}
+            {printMode === 'customer' ? customerSummary() : (<>
             {fanSchedule.length > 0 && (
               <div className="mb-2">
                 <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Fan schedule</div>
@@ -5902,7 +5959,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 ))}
               </div>
             ))}
-            {sketch.some((x) => x.kind === 'pin') && (
+            </>)}
+            {printMode !== 'customer' && sketch.some((x) => x.kind === 'pin') && (
               <div className="mb-1.5">
                 <div className="font-bold uppercase text-[8px] tracking-wider text-gray-700">Site notes</div>
                 {sketch.filter((x) => x.kind === 'pin').map((x) => (
@@ -6834,7 +6892,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       </div>
 
       {/* Printed schedule (PDF page 2) / pick slip */}
-      <div className={`dp-print-only text-black px-1 ${printMode === 'plan' && !layout.page2 ? 'dp-noprint' : printMode === 'plan' ? 'dp-page-break' : ''}`}>
+      <div className={`dp-print-only text-black px-1 ${printMode === 'customer' || (printMode === 'plan' && !layout.page2) ? 'dp-noprint' : printMode === 'plan' ? 'dp-page-break' : ''}`}>
         {printMode === 'plan' && printHeader('Equipment schedule')}
         {printMode === 'plan' && printCustomer()}
         {printMode === 'pick' && pickHead()}
@@ -6987,6 +7045,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           {!scale && <p className="text-xs text-amber-700">Set the plan scale to print at 1:50, 1:100 etc.</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPrintDialog(false)}>Cancel</Button>
+            <Button variant="outline" title="Colour plan for the customer: no workshop detail or parts list" onClick={() => { setPrintDialog(false); setTimeout(() => exportPdf('customer'), 50); }}>
+              <ApperIcon name="UserRound" size={15} />
+              Customer plan
+            </Button>
             <Button onClick={() => { setPrintDialog(false); setTimeout(() => exportPdf('plan'), 50); }}>
               <ApperIcon name="FileDown" size={15} />
               Make PDF
