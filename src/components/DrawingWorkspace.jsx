@@ -16,7 +16,7 @@ import { unitDims } from '@/data/unitDims';
 import { SPLIT_MODELS } from '@/data/splitModels';
 import { PAIR_COILS, UNIT_COIL } from '@/data/pipeSizing';
 import AutoLayoutDialog from '@/components/AutoLayoutDialog';
-import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, calcRoomLoad } from '@/lib/heatLoad';
+import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, WALLS, GLAZING, calcRoomLoad } from '@/lib/heatLoad';
 import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
 import { buildTakeoff, takeoffLink } from '@/lib/wbTakeoff';
@@ -3991,6 +3991,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const calc = calcRoomLoad(room.hl, area, climate, room.name || '');
     const v = calc.inputs;
     const setHl = (patch) => onChange({ hl: { ...(room.hl || {}), ...patch } });
+    // Editing any window saves the full list, so a room with one window can grow more.
+    const setWin = (i, patch) => setHl({ windows: v.windows.map((w, j) => (j === i ? { ...w, ...(room.hl?.windows?.[j] || {}), ...patch } : w)) });
+    const addWin = () => setHl({ windows: [...v.windows, { orient: 'mixed', glass: 2, shading: 'eaves' }] });
+    const dropWin = (i) => setHl({ windows: v.windows.filter((_, j) => j !== i) });
     const field = 'h-8 w-full rounded-md border border-input bg-background px-2 text-xs';
     return (
       <div className="rounded-md border border-border p-2 text-xs space-y-2">
@@ -4024,20 +4028,34 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               <Input className="h-8 text-xs" type="number" min="0" inputMode="numeric" value={v.people} onChange={(e) => setHl({ people: e.target.value })} />
             </label>
           )}
+          <div className="col-span-2 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">{`Windows (${v.glass.toFixed(1)} m² glass)`}</span>
+              <button type="button" className="rounded border border-border px-1.5 py-0.5 text-[11px] hover:bg-muted" onClick={addWin}>+ Window</button>
+            </div>
+            {v.windows.map((w, i) => (
+              <div key={i} className="grid grid-cols-[1fr_3.5rem_1fr_1.5rem] gap-1 items-center">
+                <select className={field} aria-label="Window faces" value={w.orient} onChange={(e) => setWin(i, { orient: e.target.value })}>
+                  {Object.entries(ORIENTS).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
+                </select>
+                <Input className="h-8 text-xs px-1.5" aria-label="Glass m²" type="number" min="0" step="0.5" inputMode="decimal" value={room.hl?.windows?.[i]?.glass ?? w.glass} onChange={(e) => setWin(i, { glass: e.target.value })} />
+                <select className={field} aria-label="Shading" value={w.shading} onChange={(e) => setWin(i, { shading: e.target.value })}>
+                  {Object.entries(SHADING).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
+                </select>
+                {v.windows.length > 1 ? <button type="button" aria-label="Remove window" className="text-muted-foreground hover:text-foreground" onClick={() => dropWin(i)}>×</button> : <span />}
+              </div>
+            ))}
+          </div>
           <label className="flex flex-col gap-0.5">
-            <span className="text-muted-foreground">Main windows face</span>
-            <select className={field} value={v.orient} onChange={(e) => setHl({ orient: e.target.value })}>
-              {Object.entries(ORIENTS).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
+            <span className="text-muted-foreground">Glazing</span>
+            <select className={field} value={v.glazing} onChange={(e) => setHl({ glazing: e.target.value })}>
+              {Object.entries(GLAZING).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-0.5">
-            <span className="text-muted-foreground">Glass (m²)</span>
-            <Input className="h-8 text-xs" type="number" min="0" step="0.5" inputMode="decimal" value={v.glass} onChange={(e) => setHl({ glass: e.target.value })} />
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className="text-muted-foreground">Shading</span>
-            <select className={field} value={v.shading} onChange={(e) => setHl({ shading: e.target.value })}>
-              {Object.entries(SHADING).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
+            <span className="text-muted-foreground">Wall construction</span>
+            <select className={field} value={v.wallType} onChange={(e) => setHl({ wallType: e.target.value })}>
+              {Object.entries(WALLS).map(([k, o]) => <option key={k} value={k}>{o.label}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-0.5">

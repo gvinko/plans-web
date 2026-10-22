@@ -116,3 +116,8 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - `runLs(s)` in DrawingWorkspace: typed `s.ls` wins, else the auto figure. Sizing in the run panel and the Checks tab use it. Plan annotation still shows typed L/s only.
 - Flex (domestic) ducts are not covered — the auto layout already sizes those.
 - Tests: `node --test test/airflow.test.mjs`.
+## Heat load: windows, glazing, walls (22 Oct 2026)
+
+- `hl.windows` [{orient, glass, shading}] per room. Rooms saved before this keep one window in `hl.orient` / `hl.glass` / `hl.shading` and calculate exactly as before; the first edit in the Windows list saves `hl.windows`.
+- `hl.glazing` ('single' default, 'double') and `hl.wallType` (`WALLS`, 'standard' default = the old U 0.6) in `src/lib/heatLoad.js`. Defaults reproduce the old numbers.
+- Tests: `node --test test/heatload.test.mjs`.
