@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ApperIcon from '@/components/ApperIcon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-const PROJECT_FIELDS = ['Id', 'Name', 'suburb_c', 'address_c', 'phone_c', 'revision_c', 'ModifiedOn'];
+const PROJECT_FIELDS = ['Id', 'Name', 'suburb_c', 'address_c', 'phone_c', 'revision_c', 'wbJobId_c', 'wbJobRef_c', 'ModifiedOn'];
+
+// WorkBrain opens Ductplanner with ?wbJobId=…&wbJobRef=…&wbCustomer=…&wbSuburb=… (hub contract).
+function readWbLaunch() {
+  const q = new URLSearchParams(window.location.search);
+  const wbJobId = (q.get('wbJobId') || '').trim();
+  if (!wbJobId) return null;
+  return { wbJobId, wbJobRef: (q.get('wbJobRef') || '').trim(), customer: (q.get('wbCustomer') || '').trim(), suburb: (q.get('wbSuburb') || '').trim() };
+}
 const PAGE_FIELDS = ['Id', 'Name', 'projectId_c', 'level_c', 'drawingJson_c', 'planFile_c', 'sitePhotos_c', 'ModifiedOn'];
 
 async function fetchProjects() {
@@ -52,6 +60,23 @@ export default function Phase1() {
   const [message, setMessage] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [wbLink, setWbLink] = useState(null);
+  const launchDone = useRef(false);
+
+  // Opened from WorkBrain: open the project already linked to that job, else prefill a new one.
+  useEffect(() => {
+    if (launchDone.current || loading || !data) return;
+    launchDone.current = true;
+    const launch = readWbLaunch();
+    if (!launch) return;
+    window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+    const linked = data.find((p) => p.wbJobId_c === launch.wbJobId);
+    if (linked) { openProject(linked); return; }
+    setWbLink(launch);
+    if (launch.customer) setCustomer(launch.customer);
+    if (launch.suburb) setSuburb(launch.suburb);
+    setMessage(`New project for WorkBrain job ${launch.wbJobRef || launch.wbJobId} — check the details, then New project.`);
+  }, [loading, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Delete a project and its drawing page(s).
   async function deleteProject() {
@@ -86,6 +111,7 @@ export default function Phase1() {
       address_c: address.trim(),
       phone_c: phone.trim(),
       revision_c: 'A',
+      ...(wbLink ? { wbJobId_c: wbLink.wbJobId, wbJobRef_c: wbLink.wbJobRef } : {}),
     });
     if (projectRes.messages?.length) {
       setMessage(projectRes.messages.join(' '));
@@ -108,7 +134,8 @@ export default function Phase1() {
     setSuburb('');
     setAddress('');
     setPhone('');
-    setMessage('Project created ✓');
+    setWbLink(null);
+    setMessage(wbLink ? `Project created ✓ — linked to WorkBrain job ${wbLink.wbJobRef || wbLink.wbJobId}` : 'Project created ✓');
     await reloadProjects();
   }
 
