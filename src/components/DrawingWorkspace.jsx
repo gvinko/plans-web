@@ -3773,6 +3773,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       canvasRef.current.setPointerCapture(event.pointerId);
       return;
     }
+    if ((sketchTool === 'tcount' || sketchTool === 'tlen') && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) document.activeElement.blur(); // so Enter / Esc reach the drawing
     if (sketchTool === 'tcount') {
       const el = { id: crypto.randomUUID(), kind: 'tcount', x1: p.x, y1: p.y, label: toCount.trim() || 'Item' };
       setSketch((current) => [...current, el]);
