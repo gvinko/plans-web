@@ -128,3 +128,8 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - `label` is whatever the user typed (presets `TO_LEN_PRESETS` / `TO_COUNT_PRESETS`); colour from `toColor(label)`; counts numbered per label (`takeoff2.countNo`).
 - `takeoff2` memo totals them; the BOM gets a `Takeoff` group first (metres rounded up, or run count with no scale). They go to WorkBrain with the rest of the list.
 - Not printed on the Customer plan. Not in the DXF.
+
+## Multi-page PDF → one level per page (26 Oct 2026)
+
+- Loading a PDF with more than one page puts page 1 on the current level as before, then offers "Add N levels" (`pdfSplit` dialog, names editable, default "Page 2"…).
+- Pages render with `pdfPageToJpeg(pdf, n)`; `Phase1.addLevelsWithPlans([{name, file}])` uploads each and creates a `plan_pages_c` row with `planFile_c` set. Each new level needs its own scale.

@@ -383,7 +383,12 @@ async function pdfFileToJpeg(file) {
   await ensurePdfWorker();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  const pdfPage = await pdf.getPage(1);
+  return { blob: await pdfPageToJpeg(pdf, 1), pages: pdf.numPages, pdf };
+}
+
+// One page of an open PDF as a plan image.
+async function pdfPageToJpeg(pdf, n) {
+  const pdfPage = await pdf.getPage(n);
   const base = pdfPage.getViewport({ scale: 1 });
   const scale = Math.min(3, PLAN_MAX_EDGE / Math.max(base.width, base.height));
   const viewport = pdfPage.getViewport({ scale });
@@ -394,7 +399,9 @@ async function pdfFileToJpeg(file) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   await pdfPage.render({ canvasContext: ctx, viewport }).promise;
-  return { blob: await canvasToJpeg(canvas), pages: pdf.numPages };
+  const blob = await canvasToJpeg(canvas);
+  pdfPage.cleanup();
+  return blob;
 }
 
 function blobToDataUrl(blob) {
@@ -1710,7 +1717,7 @@ function migrateItems(list) {
   return (list || []).map((item) => (item.cx != null ? item : { ...item, cx: (item.x ?? 0) + 24, cy: (item.y ?? 0) + 24 }));
 }
 
-export default function DrawingWorkspace({ page, project, onSave, onSaveProject, onBack, levels = [], onSwitchLevel, onAddLevel }) {
+export default function DrawingWorkspace({ page, project, onSave, onSaveProject, onBack, levels = [], onSwitchLevel, onAddLevel, onAddLevelsWithPlans }) {
   const [items, setItems] = useState([]);
   const [connections, setConnections] = useState([]);
   const [joins, setJoins] = useState([]); // [{ id, a:{itemId,portId}, b:{itemId,portId} }]
@@ -1771,6 +1778,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [pickOpen, setPickOpen] = useState(false);
   const [allSel, setAllSel] = useState(false); // Ctrl+A: everything selected
   const [printDialog, setPrintDialog] = useState(false);
+  const [pdfSplit, setPdfSplit] = useState(null); // { pdf, pages, names[], busy } — multi-page PDF waiting to be split into levels
   const [printScaleUsed, setPrintScaleUsed] = useState(null);
   // Free sketch for jobs with no plan: walls, room boxes and text labels.
   const [sketch, setSketch] = useState([]);
@@ -3113,6 +3121,29 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  // Pages 2..N of a multi-page PDF each become their own level with that page as its plan.
+  async function splitPdfToLevels() {
+    const job = pdfSplit;
+    if (!job || job.busy) return;
+    setPdfSplit({ ...job, busy: true });
+    const list = [];
+    try {
+      for (let n = 2; n <= job.pages; n += 1) {
+        setStatus(`Preparing PDF page ${n} of ${job.pages}…`);
+        const blob = await pdfPageToJpeg(job.pdf, n);
+        list.push({ name: (job.names[n - 2] || '').trim() || `Page ${n}`, file: new File([blob], `plan-p${n}.jpg`, { type: 'image/jpeg' }) });
+      }
+      const made = await onAddLevelsWithPlans(list);
+      setStatus(`Plan loaded · ${made} more level${made === 1 ? '' : 's'} added from the PDF`);
+      toast.success(`${made} level${made === 1 ? '' : 's'} added`, { description: 'Pick them from the level drop-down at the top. Set the scale on each one.' });
+    } catch (err) {
+      toast.error('Could not add the other pages', { description: err?.message || 'Try again.' });
+    } finally {
+      job.pdf?.destroy?.();
+      setPdfSplit(null);
+    }
+  }
+
   async function loadPlan(event) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -3135,6 +3166,15 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         const res = await pdfFileToJpeg(file);
         blob = res.blob;
         note = ` (PDF page 1 of ${res.pages})`;
+        if (res.pages > 1 && onAddLevelsWithPlans) {
+          const used = new Set(levels.map((l) => String(l.Name || '').toLowerCase()));
+          const names = Array.from({ length: res.pages - 1 }, (_, i) => {
+            let nm = `Page ${i + 2}`;
+            for (let k = 2; used.has(nm.toLowerCase()); k += 1) nm = `Page ${i + 2} (${k})`;
+            return nm;
+          });
+          setPdfSplit({ pdf: res.pdf, pages: res.pages, names, busy: false });
+        } else res.pdf?.destroy?.();
       } else {
         blob = await imageFileToJpeg(file);
       }
@@ -7205,6 +7245,29 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         kwOf={modelKw}
         onGenerate={generateAuto}
       />
+      <Dialog open={!!pdfSplit} onOpenChange={(open) => { if (!open && !pdfSplit?.busy) { pdfSplit?.pdf?.destroy?.(); setPdfSplit(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{`This PDF has ${pdfSplit?.pages || ''} pages`}</DialogTitle>
+            <DialogDescription>{`Page 1 is on ${page.Name}. Put each other page on its own level so you don't have to load them one by one.`}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50svh] space-y-2 overflow-y-auto">
+            {(pdfSplit?.names || []).map((nm, i) => (
+              <label key={i} className="grid grid-cols-[4.5rem_1fr] items-center gap-2 text-sm">
+                <span className="text-muted-foreground">{`Page ${i + 2}`}</span>
+                <Input className="h-9" value={nm} disabled={pdfSplit?.busy} placeholder="Level name, e.g. First floor" onChange={(event) => { const v = event.target.value; setPdfSplit((j) => (j ? { ...j, names: j.names.map((x, k) => (k === i ? v : x)) } : j)); }} />
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={pdfSplit?.busy} onClick={() => { pdfSplit?.pdf?.destroy?.(); setPdfSplit(null); }}>Just page 1</Button>
+            <Button disabled={pdfSplit?.busy} onClick={splitPdfToLevels}>
+              <ApperIcon name={pdfSplit?.busy ? 'Loader2' : 'Layers'} size={15} className={pdfSplit?.busy ? 'animate-spin' : ''} />
+              {pdfSplit?.busy ? 'Adding levels…' : `Add ${(pdfSplit?.pages || 1) - 1} levels`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={printDialog} onOpenChange={setPrintDialog}>
         <DialogContent>
           <DialogHeader>
