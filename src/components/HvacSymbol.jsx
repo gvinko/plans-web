@@ -415,6 +415,14 @@ export default function HvacSymbol({ type, size = 22, className = '', stretch = 
         </svg>
       );
 
+    case 'custom':
+      return (
+        <svg {...common}>
+          <rect x="2" y="2" width="20" height="20" />
+          <path d="M2 2 L22 22 M22 2 L2 22" strokeWidth="1" />
+        </svg>
+      );
+
     case 'attenuator':
       return (
         <svg {...common}>

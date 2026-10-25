@@ -5807,8 +5807,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   <button
                     key={item.id}
                     type="button"
-                    title={`${tags[item.id]} · ${tool.label}`}
-                    aria-label={`${tags[item.id]} ${tool.label}`}
+                    title={`${tags[item.id]} · ${item.type === 'custom' ? customLine(item) : tool.label}`}
+                    aria-label={`${tags[item.id]} ${item.type === 'custom' ? customLine(item) : tool.label}`}
                     className={`absolute touch-none transition-shadow ${scale ? 'bg-white' : 'rounded-sm bg-white/85 shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_1px_4px_rgba(0,0,0,0.35)]'} ${item.remove ? 'opacity-55 grayscale outline-2 outline-dashed outline-red-600' : item.existing ? 'opacity-65 grayscale outline-2 outline-dashed outline-slate-500' : ''} ${isSel ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent' : 'hover:ring-1 hover:ring-primary/40'}`}
                     style={(item.rot || 0) % 90 ? { left: item.cx - box.uw / 2, top: item.cy - box.uh / 2, width: box.uw, height: box.uh, transform: `rotate(${item.rot}deg)` } : { left: item.cx - box.w / 2, top: item.cy - box.h / 2, width: box.w, height: box.h }}
                     onPointerDown={(event) => startItemDrag(event, item)}
