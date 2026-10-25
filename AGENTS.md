@@ -139,3 +139,9 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - Scale button / K opens `scaleDlg`: type 1:N and the sheet size the scale is for (A0–A4). "Measure a known dimension" still runs the old two-point `startScale()`.
 - `sheet` {w,h} mm is the PDF page's printed size (from `pdfPageToJpeg`), saved with the drawing; photos/scans have none. New levels from a split PDF get theirs in `drawingJson_c`.
 - `applyRatioScale()`: shown plan width (`bgAspect`, object-contain in WORLD_W × WORLD_H) ÷ (sheet width × N) → `pxPerM`. Scale object `{ pxPerM, ratio, paper }`; point-measured ones stay `{ pxPerM, a, b, mm }`.
+
+## Custom parts (26 Oct 2026)
+
+- Catalogue group "Custom parts", type `custom` (role `none`, no ports). Fields on the item: `customName`, `customTag` (numbered per tag: BOP1, BOP2…), `customSize` (free text; "600x300" also sets the plan footprint), `qty` (parts-list quantity, default 1). Symbol: box with an X.
+- Picking "New custom part…" opens `customDlg`. "My parts" presets `{name, tag, size}` live in localStorage `dp-my-parts` (this browser only — not in backups) and show in the Custom parts group; drag or click to place.
+- BOM line: `customLine(item)` = "Name — size", in the Custom parts group.

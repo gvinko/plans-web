@@ -306,6 +306,12 @@ const CATALOG = [
       { type: 'attenuator', label: 'Attenuator', tag: 'ATT', role: 'fit', specs: [{ key: 'size', label: 'Size', sheet: 'Attenuator', options: ['200mm round x 900', '250mm round x 900', '300x300 x 900', '450x300 x 1200', '600x400 x 1200'], short: (v) => v.split(' x ')[0].replace('mm round', 'Ø') }] },
     ],
   },
+  {
+    group: 'Custom parts',
+    items: [
+      { type: 'custom', label: 'New custom part…', tag: 'CP', role: 'none', noDuct: 'Custom parts go on the parts list; draw ducts to the parts either side.' },
+    ],
+  },
 ];
 // Parts no longer offered, kept so older drawings still open and list them.
 const RETIRED = [
@@ -793,6 +799,10 @@ function footprintMm(item) {
     }
     if (rect) return [Number(rect[1]), Number(rect[2])];
     if (round) return [Number(round[1]) + 100, Number(round[1]) + 50];
+  }
+  if (item.type === 'custom') {
+    const m = String(item.customSize || '').match(/(\d+)\s*[x×]\s*(\d+)/i);
+    return m ? [Number(m[1]), Number(m[2])] : [300, 300];
   }
   return TYPE_MM[item.type] || [400, 400];
 }
@@ -1676,11 +1686,12 @@ function StatusPicker({ value, onChange, noun }) {
   );
 }
 
-function ComponentList({ onPick, draggable = false, autoFocus = false, compact = false }) {
+function ComponentList({ onPick, draggable = false, autoFocus = false, compact = false, myParts = [], onRemoveMyPart }) {
   const [q, setQ] = useState('');
   const query = q.trim().toLowerCase();
+  const mine = myParts.filter((m) => !query || `${m.name} ${m.tag} ${m.size || ''} custom`.toLowerCase().includes(query));
   const groups = CATALOG
-    .map((g) => ({ ...g, items: g.items.filter((t) => !query || `${t.label} ${t.tag} ${g.group}`.toLowerCase().includes(query)) }))
+    .map((g) => ({ ...g, items: g.items.filter((t) => !query || `${t.label} ${t.tag} ${g.group}`.toLowerCase().includes(query) || (t.type === 'custom' && mine.length)) }))
     .filter((g) => g.items.length);
   return (
     <div className="flex flex-col min-h-0">
@@ -1699,6 +1710,22 @@ function ComponentList({ onPick, draggable = false, autoFocus = false, compact =
         {groups.map((g) => (
           <div key={g.group}>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-0.5">{g.group}</div>
+            {g.group === 'Custom parts' && mine.map((m) => (
+              <div key={`${m.name}|${m.size || ''}`} className="group flex items-center">
+                <button
+                  type="button"
+                  draggable={draggable}
+                  onDragStart={(event) => { event.dataTransfer.setData('text/x-hvac-part', 'custom'); event.dataTransfer.setData('text/x-hvac-preset', JSON.stringify(m)); event.dataTransfer.effectAllowed = 'copy'; }}
+                  onClick={() => onPick('custom', m)}
+                  title={draggable ? `Drag onto the plan, or click to add ${m.name}` : `Add ${m.name} here`}
+                  className={`flex-1 min-w-0 flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                >
+                  <span className="size-7 shrink-0 flex items-center justify-center rounded border border-border bg-card text-[9px] font-bold">{m.tag || 'CP'}</span>
+                  <span className="truncate">{`${m.name}${m.size ? ` ${m.size}` : ''}`}</span>
+                </button>
+                {onRemoveMyPart && <button type="button" aria-label={`Remove ${m.name} from my parts`} title="Remove from my parts" className="px-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground" onClick={() => onRemoveMyPart(m)}>×</button>}
+              </div>
+            ))}
             {g.items.map((t) => (
               <button
                 key={t.type}
@@ -1723,6 +1750,13 @@ function ComponentList({ onPick, draggable = false, autoFocus = false, compact =
   );
 }
 
+// "My parts": custom parts saved on this device for reuse (e.g. Blank off plate).
+const MY_PARTS_KEY = 'dp-my-parts';
+const readMyParts = () => { try { const v = JSON.parse(localStorage.getItem(MY_PARTS_KEY) || '[]'); return Array.isArray(v) ? v.filter((x) => x?.name) : []; } catch { return []; } };
+const writeMyParts = (list) => { try { localStorage.setItem(MY_PARTS_KEY, JSON.stringify(list)); } catch { /* storage blocked */ } };
+const tagFromName = (name) => String(name || '').split(/[\s/-]+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().slice(0, 4) || 'CP';
+const customLine = (it) => `${(it.customName || 'Custom part').trim()}${String(it.customSize || '').trim() ? ` — ${String(it.customSize).trim()}` : ''}`;
+
 // Older drawings stored the top-left corner of a 48px box; convert to centres.
 function migrateItems(list) {
   return (list || []).map((item) => (item.cx != null ? item : { ...item, cx: (item.x ?? 0) + 24, cy: (item.y ?? 0) + 24 }));
@@ -1738,7 +1772,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [scale, setScale] = useState(null);
   const [sheet, setSheet] = useState(null); // printed sheet size of the plan (mm), from the PDF
   const [bgAspect, setBgAspect] = useState(null); // plan image width / height
-  const [scaleDlg, setScaleDlg] = useState(null); // { ratio, paper } — set scale from 1:100 @ A1
+  const [scaleDlg, setScaleDlg] = useState(null);
+  const [myParts, setMyParts] = useState(readMyParts);
+  const [customDlg, setCustomDlg] = useState(null); // { name, tag, size, qty, save, at } — new custom part // { ratio, paper } — set scale from 1:100 @ A1
   const [scaleDraft, setScaleDraft] = useState(null);
   const [showLabels, setShowLabels] = useState(true);
   const [showFab, setShowFab] = useState(false); // shop detail: sheet pieces, joints, centre line
@@ -2066,8 +2102,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const counts = {};
     const map = {};
     items.forEach((item) => {
-      counts[item.type] = (counts[item.type] || 0) + 1;
-      map[item.id] = `${getTool(item.type).tag}${counts[item.type]}`;
+      const tg = item.type === 'custom' ? (item.customTag || 'CP') : getTool(item.type).tag;
+      const k = item.type === 'custom' ? `custom:${tg}` : item.type;
+      counts[k] = (counts[k] || 0) + 1;
+      map[item.id] = `${tg}${counts[k]}`;
     });
     return map;
   }, [items]);
@@ -2246,6 +2284,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       }
       if (item.type === 'supply') {
         add(group, `${item.spec?.variant || 'Metal Diffusers + Neck'} — ${item.spec?.neck || '250mm'} neck`);
+        return;
+      }
+      if (item.type === 'custom') {
+        add(group, customLine(item), Number(item.qty) > 0 ? Number(item.qty) : 1, item.notes ? { note: item.notes } : {});
         return;
       }
       if (item.type === 'rafilterbox') {
@@ -2680,12 +2722,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     };
   }
 
-  function addItem(type, at = null) {
+  function addItem(type, at = null, preset = null) {
+    if (type === 'custom' && !preset) { setCustomDlg({ name: '', tag: '', size: '', qty: '1', save: true, at }); return; }
     const el = canvasRef.current;
     const v = viewRef.current;
     const cx = at ? at.x : el ? (el.clientWidth / 2 - v.x) / v.z : WORLD_W / 2;
     const cy = at ? at.y : el ? (el.clientHeight / 2 - v.y) / v.z : WORLD_H / 2;
     const draft = { id: crypto.randomUUID(), type, cx, cy, rot: 0, spec: defaultSpec(getTool(type)) };
+    if (type === 'custom' && preset) Object.assign(draft, { customName: preset.name, customTag: preset.tag || tagFromName(preset.name), customSize: preset.size || '', qty: Number(preset.qty) > 0 ? Number(preset.qty) : 1 });
     if (type === 'zonearea') {
       // Automatically take the next zone that isn't coloured yet.
       const used = items.filter((i) => i.type === 'zonearea').map((i) => i.spec?.zone);
@@ -2712,6 +2756,21 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     setPendingPort(null);
     markDirty();
     if (type === 'zone' && at) cutIn(next);
+  }
+
+  function removeMyPart(m) {
+    setMyParts((cur) => { const next = cur.filter((x) => !(x.name === m.name && (x.size || '') === (m.size || ''))); writeMyParts(next); return next; });
+  }
+  function createCustomPart() {
+    const d = customDlg;
+    const name = (d?.name || '').trim();
+    if (!name) { toast.error('Give the part a name, e.g. Blank off plate.'); return; }
+    const preset = { name, tag: (d.tag || '').trim().toUpperCase() || tagFromName(name), size: (d.size || '').trim() };
+    if (d.save) {
+      setMyParts((cur) => { const next = [...cur.filter((x) => !(x.name === preset.name && (x.size || '') === preset.size)), preset]; writeMyParts(next); return next; });
+    }
+    setCustomDlg(null);
+    addItem('custom', d.at || null, { ...preset, qty: d.qty });
   }
 
   // Auto cut-in: a free zone motor dropped on a supply run splits the run through
@@ -4785,6 +4844,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
 
   function renderSymbol(item, box) {
+    if (item.type === 'custom') {
+      return (
+        <svg viewBox="0 0 24 24" preserveAspectRatio="none" className="size-full text-slate-700" fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke">
+          <rect x="1" y="1" width="22" height="22" vectorEffect="non-scaling-stroke" />
+          <path d="M1 1 L23 23 M23 1 L1 23" vectorEffect="non-scaling-stroke" strokeWidth="1" />
+        </svg>
+      );
+    }
     if (item.type === 'indoor') {
       const [w, d] = footprintMm(item);
       return <IndoorUnitPlan w={w} d={d} />;
@@ -5027,7 +5094,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         <div className="flex flex-col lg:flex-row flex-1 min-h-0">
         <aside className={`dp-noprint hidden ${compact ? '' : 'lg:flex'} flex-col w-56 shrink-0 border-r border-border bg-card p-2 min-h-0 max-h-[calc(100svh-120px)]`}>
           <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Parts library</div>
-          <ComponentList draggable onPick={(type) => addItem(type)} />
+          <ComponentList draggable myParts={myParts} onRemoveMyPart={removeMyPart} onPick={(type, preset) => addItem(type, null, preset)} />
           <p className="text-[11px] text-muted-foreground mt-2 shrink-0">Drag a part onto the plan to place it, or right-click the plan to add one right there.</p>
         </aside>
         <main className={`flex-1 p-1 sm:p-1.5 bg-muted/30 min-w-0 dp-print-plan ${printMode === 'pick' ? 'dp-noprint' : ''}`}>
@@ -5096,7 +5163,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               const type = event.dataTransfer.getData('text/x-hvac-part');
               if (!type) return;
               event.preventDefault();
-              addItem(type, toWorld(event.clientX, event.clientY));
+              let preset = null;
+              try { preset = JSON.parse(event.dataTransfer.getData('text/x-hvac-preset') || 'null'); } catch { preset = null; }
+              addItem(type, toWorld(event.clientX, event.clientY), preset);
             }}
           >
             <div
@@ -6041,7 +6110,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     <ApperIcon name="X" size={14} />
                   </button>
                 </div>
-                <ComponentList compact autoFocus onPick={(type) => { addItem(type, ctxMenu.world); setCtxMenu(null); }} />
+                <ComponentList compact autoFocus myParts={myParts} onPick={(type, preset) => { addItem(type, ctxMenu.world, preset); setCtxMenu(null); }} />
               </div>
             )}
 
@@ -6123,9 +6192,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <div className="dp-print-only dp-side-list text-black text-[9px] leading-tight">
             {(() => {
               // Symbol legend: only what's on this drawing.
-              const types = [...new Set(items.filter((i) => i.type !== 'zonearea').map((i) => i.type))];
+              const types = [...new Set(items.filter((i) => i.type !== 'zonearea' && i.type !== 'custom').map((i) => i.type))];
+              const customs = [...new Map(items.filter((i) => i.type === 'custom').map((i) => [`${i.customTag || 'CP'}|${i.customName || ''}`, i])).values()];
               const airs = [...new Set(sketch.filter((x) => x.kind === 'smduct').map((x) => x.air || 'supply'))];
-              if (!types.length && !airs.length) return null;
+              if (!types.length && !airs.length && !customs.length) return null;
               return (
                 <div className="mb-2">
                   <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Legend</div>
@@ -6134,6 +6204,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       <div key={`air-${a}`} className="flex items-center gap-1">
                         <span className="inline-block h-2.5 w-5 shrink-0 border" style={{ background: SM_FILL[a] || SM_FILL.supply, borderColor: CASING[a] || CASING.supply }} />
                         <span>{`${(AIR_NAME[a] || a).replace(/^./, (c) => c.toUpperCase())} duct`}</span>
+                      </div>
+                    ))}
+                    {customs.map((i) => (
+                      <div key={`cp-${i.id}`} className="flex items-center gap-1">
+                        <span className="inline-flex size-4 shrink-0 items-center justify-center border border-current text-[6px] font-bold">×</span>
+                        <span className="truncate">{`${i.customTag || 'CP'} ${i.customName || 'Custom part'}`}</span>
                       </div>
                     ))}
                     {types.map((t) => {
@@ -6390,6 +6466,29 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span className="text-muted-foreground">Tag colour</span>
                       <TagColourPicker value={selected.labelColor} onChange={(c) => updateItem(selected.id, { labelColor: c || undefined })} />
+                    </div>
+                  )}
+                  {selected.type === 'custom' && (
+                    <div className="space-y-2 rounded-md border border-border p-2">
+                      <label className="flex flex-col gap-1 text-xs">
+                        <span className="text-muted-foreground">Part name</span>
+                        <Input className="h-9" value={selected.customName || ''} onChange={(event) => updateItem(selected.id, { customName: event.target.value })} />
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <label className="flex flex-col gap-1 text-xs">
+                          <span className="text-muted-foreground">Tag</span>
+                          <Input className="h-9" value={selected.customTag || ''} onChange={(event) => updateItem(selected.id, { customTag: event.target.value.toUpperCase().slice(0, 6) })} />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          <span className="text-muted-foreground">Size</span>
+                          <Input className="h-9" placeholder="e.g. 600x300" value={selected.customSize || ''} onChange={(event) => updateItem(selected.id, { customSize: event.target.value })} />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          <span className="text-muted-foreground">Qty</span>
+                          <Input className="h-9" type="number" min="1" inputMode="numeric" value={selected.qty ?? 1} onChange={(event) => updateItem(selected.id, { qty: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                        </label>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">{`Parts list: ${Number(selected.qty) > 0 ? Number(selected.qty) : 1} × ${customLine(selected)}`}</p>
                     </div>
                   )}
                   {!(selected.type === 'indoor' || selected.type === 'coilsection') && (
@@ -7288,6 +7387,44 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         kwOf={modelKw}
         onGenerate={generateAuto}
       />
+      <Dialog open={!!customDlg} onOpenChange={(open) => { if (!open) setCustomDlg(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New custom part</DialogTitle>
+            <DialogDescription>For anything not in the library, e.g. a blank off plate. It goes on the plan and the parts list.</DialogDescription>
+          </DialogHeader>
+          {customDlg && (
+            <form className="space-y-3 text-sm" onSubmit={(event) => { event.preventDefault(); createCustomPart(); }}>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Part name</span>
+                <Input autoFocus className="h-9" placeholder="e.g. Blank off plate" value={customDlg.name} onChange={(event) => setCustomDlg((d) => ({ ...d, name: event.target.value }))} />
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Tag on plan</span>
+                  <Input className="h-9" placeholder={tagFromName(customDlg.name)} value={customDlg.tag} onChange={(event) => setCustomDlg((d) => ({ ...d, tag: event.target.value.toUpperCase().slice(0, 6) }))} />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Size</span>
+                  <Input className="h-9" placeholder="e.g. 600x300" value={customDlg.size} onChange={(event) => setCustomDlg((d) => ({ ...d, size: event.target.value }))} />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Qty</span>
+                  <Input className="h-9" type="number" min="1" inputMode="numeric" value={customDlg.qty} onChange={(event) => setCustomDlg((d) => ({ ...d, qty: event.target.value }))} />
+                </label>
+              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={customDlg.save} onChange={(event) => setCustomDlg((d) => ({ ...d, save: event.target.checked }))} />
+                Keep it in my parts (Custom parts in the library) for next time
+              </label>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setCustomDlg(null)}>Cancel</Button>
+                <Button type="submit">Add part</Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!scaleDlg} onOpenChange={(open) => { if (!open) setScaleDlg(null); }}>
         <DialogContent>
           <DialogHeader>
