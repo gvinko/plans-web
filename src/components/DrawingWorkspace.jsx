@@ -570,6 +570,13 @@ const DRAWING_KINDS = {
   construction: { label: 'For construction', note: 'Issued for construction. Report any discrepancy before proceeding.' },
   asbuilt: { label: 'As installed', note: 'As-installed record of the mechanical services.' },
 };
+// Takeoff: measure lengths and count symbols straight off a loaded plan (consultant drawings).
+const TO_LEN_PRESETS = ['Sheet metal duct', 'Spiral duct', 'Flex duct', 'Duct board', 'Refrigerant pipe', 'Condensate drain', 'Power cable', 'Control cable'];
+const TO_COUNT_PRESETS = ['Indoor unit', 'Outdoor unit', 'Ceiling diffuser', 'Return air grille', 'Exhaust grille', 'Exhaust fan', 'Volume damper', 'Fire damper', 'Zone motor', 'Controller'];
+const TO_COLORS = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5'];
+const toColor = (label) => { let h = 0; for (const ch of String(label || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return TO_COLORS[h % TO_COLORS.length]; };
+const toLenM = (pts, ppm) => pts.reduce((n, q, i) => (i ? n + Math.hypot(q.x - pts[i - 1].x, q.y - pts[i - 1].y) : 0), 0) / ppm;
+
 // The customer plan is its own PDF (Export PDF → Customer plan), not an "Issued as" choice.
 const CUSTOMER_KIND = { label: 'Customer plan', note: 'Indicative layout for your quotation. Final unit, outlet and duct positions are confirmed on site before installation.' };
 
@@ -598,6 +605,8 @@ const SHORTCUTS = [
   ['1 / 2 / 3', 'Draw supply / return / flex duct'],
   ['4 / 5', 'Draw exhaust / outside air duct'],
   ['L', 'Show or hide labels'],
+  ['U', 'Takeoff: measure a length over the plan (tap each corner, double-tap or Enter to finish)'],
+  ['I', 'Takeoff: count — tap each symbol on the plan'],
   ['+ / -', 'Zoom in / out'],
   ['0', 'Fit the whole plan'],
   ['F', 'Zoom to the selected part'],
@@ -1767,6 +1776,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [sketch, setSketch] = useState([]);
   const [sketchTool, setSketchTool] = useState(null); // null | 'wall' | 'room' | 'text'
   const [sketchDraft, setSketchDraft] = useState(null);
+  const [toLen, setToLen] = useState(TO_LEN_PRESETS[0]); // what the next takeoff length is
+  const [toCount, setToCount] = useState(TO_COUNT_PRESETS[0]); // what the next count tap is
+  const [tmActive, setTmActive] = useState(null); // id of the takeoff length being drawn
+  const [tmHover, setTmHover] = useState(null);
   // Sheet metal run still being drawn: where the next segment starts. Each tap adds a bend
   // to the same run; Esc / Enter / a second tap on the same spot / ending on a connection finishes it.
   const [smChain, setSmChain] = useState(null); // null | {kind:'end', id, end} | {kind:'port', itemId, portId} | {kind:'free', x, y}
@@ -2140,6 +2153,27 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     return rows;
   }, [items, runs, scale]);
 
+  // Takeoff totals: lengths measured and symbols counted over the plan, by what they are.
+  const takeoff2 = useMemo(() => {
+    const lengths = new Map();
+    const counts = new Map();
+    const countNo = {};
+    sketch.forEach((x) => {
+      if (x.kind === 'tmeasure' && (x.pts?.length || 0) > 1) {
+        const k = x.label || 'Duct';
+        const cur = lengths.get(k) || { m: 0, runs: 0 };
+        cur.m += toLenM(x.pts, ppm);
+        cur.runs += 1;
+        lengths.set(k, cur);
+      } else if (x.kind === 'tcount') {
+        const k = x.label || 'Item';
+        counts.set(k, (counts.get(k) || 0) + 1);
+        countNo[x.id] = counts.get(k);
+      }
+    });
+    return { lengths, counts, countNo, any: lengths.size + counts.size > 0 };
+  }, [sketch, ppm]);
+
   // Equipment list / bill of materials, grouped like the parts library.
   const equipment = useMemo(() => {
     const groups = new Map();
@@ -2314,7 +2348,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (lengthsKnown) add('Ductwork', `Flex duct R1.0 — ${sizeLabel(size)} x 6m`, Math.max(1, Math.ceil(metres / FLEX_LENGTH_M)), { swatch: sizeColor(size), note: `${fmtM(metres)} m drawn over ${count} run(s)` });
       else add('Ductwork', `Flex duct — ${sizeLabel(size)}`, count, { swatch: sizeColor(size), note: 'runs — set the scale for lengths' });
     });
-    const order = [...CATALOG.map((g) => g.group), 'Ductwork', 'Refrigeration & drains', 'Electrical'];
+    takeoff2.lengths.forEach(({ m, runs: n }, label) => {
+      if (scale) add('Takeoff', label, Math.max(1, Math.ceil(m)), { swatch: toColor(label), note: `metres — ${fmtM(m)} m measured over ${n} run(s)` });
+      else add('Takeoff', label, n, { swatch: toColor(label), note: 'runs — set the scale for metres' });
+    });
+    takeoff2.counts.forEach((n, label) => add('Takeoff', label, n, { swatch: toColor(label), note: 'counted on the plan' }));
+    const order = ['Takeoff', ...CATALOG.map((g) => g.group), 'Ductwork', 'Refrigeration & drains', 'Electrical'];
     const list = [...groups.entries()]
       .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
       .map(([name, rows]) => ({ name, rows: [...rows.values()] }));
@@ -2324,7 +2363,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       { name: 'Existing — strip out / remove', rows: siteRows(strip) },
     ].filter((g) => g.rows.length);
     return { groups: list, site: siteGroups, total: list.reduce((n, g) => n + g.rows.reduce((m, r) => m + r.qty, 0), 0) };
-  }, [items, runs, scale, sketch, ppm, canvasJoints]);
+  }, [items, runs, scale, sketch, ppm, canvasJoints, takeoff2]);
 
   const pinNo = useMemo(() => {
     const m = {};
@@ -3032,6 +3071,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (key === 'a') { setSketchTool('callout'); return; }
       if (key === 'm') { setSketchTool('measure'); return; }
       if (key === 'n') { setSketchTool('pin'); return; }
+      if (key === 'u') { setSketchTool('tlen'); return; }
+      if (key === 'i') { setSketchTool('tcount'); return; }
       if (key === 'q') { setSketchTool('erase'); return; }
       if (key === 'v') { setSketchTool(null); setPendingPort(null); setSketchDraft(null); return; }
       if (key === 'k') { startScale(); return; }
@@ -3051,6 +3092,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         if (selected) deleteSelectedItem();
         else if (selectedConn) deleteSelectedConnection();
         else if (selectedSketchId) deleteSketch();
+      } else if ((event.key === 'Escape' || event.key === 'Enter') && tmActive) {
+        finishTm(); // stays on the takeoff tool for the next run; Esc again leaves it
       } else if ((event.key === 'Escape' || event.key === 'Enter') && smChain) {
         // Finish the run being drawn and go back to Select (D to draw another).
         setSmChain(null);
@@ -3265,7 +3308,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const dx = skSnap(p.x - drag.px);
       const dy = skSnap(p.y - drag.py);
       const o = drag.orig;
-      setSketch((current) => current.map((s) => (s.id === drag.id ? { ...s, x1: o.x1 + dx, y1: o.y1 + dy, ...(o.x2 != null ? { x2: o.x2 + dx, y2: o.y2 + dy } : {}), ...(o.pts ? { pts: o.pts.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : {}) } : s)));
+      setSketch((current) => current.map((s) => (s.id === drag.id ? { ...s, ...(o.x1 != null ? { x1: o.x1 + dx, y1: o.y1 + dy } : {}), ...(o.x2 != null ? { x2: o.x2 + dx, y2: o.y2 + dy } : {}), ...(o.pts ? { pts: o.pts.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : {}) } : s)));
       if (drag.riders?.length) {
         // Dampers, fans and spigots fitted to the run travel with it.
         const at = new Map(drag.riders.map((r) => [r.id, r]));
@@ -3582,6 +3625,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
   function onCanvasPointerMove(event) {
     if (dragRef.current) { moveDrag(event); return; }
+    if (sketchTool === 'tlen' && tmActive && event.pointerType !== 'touch') setTmHover(toWorld(event.clientX, event.clientY));
     if (sketchTool === 'smduct' && smChain && event.pointerType !== 'touch') {
       // Show the next segment of the run being drawn following the pointer.
       const at = smChainAt();
@@ -3701,11 +3745,22 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     toast.success(`${o.summary.title} added`, { description: 'Everything is editable — drag outlets to suit lights and trusses. Undo removes it.' });
   }
 
+  useEffect(() => { if (sketchTool !== 'tlen' && tmActive) finishTm(); }, [sketchTool]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- Free sketch (no plan) ----
   // Snap to a 50 mm grid at the drawing's scale.
   function skSnap(v) {
     const g = (ppm * 50) / 1000;
     return Math.round(v / g) * g;
+  }
+
+  // End the takeoff length being drawn; a single tap with no second corner is dropped.
+  function finishTm() {
+    const id = tmActive;
+    setTmActive(null);
+    setTmHover(null);
+    if (!id) return;
+    setSketch((current) => current.filter((x) => x.id !== id || (x.pts?.length || 0) > 1));
   }
 
   function startSketch(event, opts = {}) {
@@ -3716,6 +3771,33 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       eraseAt(p);
       dragRef.current = { kind: 'erase', sx: event.clientX, sy: event.clientY, moved: false, last: 0 };
       canvasRef.current.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (sketchTool === 'tcount') {
+      const el = { id: crypto.randomUUID(), kind: 'tcount', x1: p.x, y1: p.y, label: toCount.trim() || 'Item' };
+      setSketch((current) => [...current, el]);
+      markDirty();
+      return; // stay on Count for the next tap
+    }
+    if (sketchTool === 'tlen') {
+      const cur = tmActive && sketch.find((x) => x.id === tmActive);
+      if (cur) {
+        const last = cur.pts[cur.pts.length - 1];
+        if (Math.hypot(p.x - last.x, p.y - last.y) < 10 / (viewRef.current?.z || 1)) { finishTm(); return; } // double-tap / tap the last corner
+        let q = { x: p.x, y: p.y };
+        if (event.shiftKey) { // Shift: snap to 0 / 45 / 90°
+          const a = Math.round(Math.atan2(p.y - last.y, p.x - last.x) / (Math.PI / 4)) * (Math.PI / 4);
+          const d = Math.hypot(p.x - last.x, p.y - last.y);
+          q = { x: last.x + Math.cos(a) * d, y: last.y + Math.sin(a) * d };
+        }
+        setSketch((current) => current.map((x) => (x.id === cur.id ? { ...x, pts: [...x.pts, q] } : x)));
+        markDirty();
+        return;
+      }
+      const el = { id: crypto.randomUUID(), kind: 'tmeasure', pts: [{ x: p.x, y: p.y }], label: toLen.trim() || 'Duct' };
+      setSketch((current) => [...current, el]);
+      setTmActive(el.id);
+      markDirty();
       return;
     }
     if (sketchTool === 'text' || sketchTool === 'pin') {
@@ -4138,6 +4220,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
     const sk = [...sketch].reverse().find((x) => {
       if (x.kind === 'smduct') return onPath(smPts(x, smCtx), (smDims(x).w / 1000) * ppm / 2 + tol);
+      if (x.kind === 'tmeasure') return onPath(x.pts || [], tol);
       if (x.kind === 'wall' || x.kind === 'dim' || x.kind === 'callout') return segDist(p, { x: x.x1, y: x.y1 }, { x: x.x2, y: x.y2 }) <= tol;
       if (x.kind === 'room') return [[x.x1, x.y1, x.x2, x.y1], [x.x2, x.y1, x.x2, x.y2], [x.x2, x.y2, x.x1, x.y2], [x.x1, x.y2, x.x1, x.y1]].some(([a, b, c, d]) => segDist(p, { x: a, y: b }, { x: c, y: d }) <= tol);
       return Math.hypot(p.x - x.x1, p.y - x.y1) <= tol * 2.5; // text, note pins
@@ -4743,7 +4826,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             </Button>
           )}
           <div className="h-6 w-px bg-border mx-0.5" />
-          {[[null, 'MousePointer2', 'Select', 'V'], ['smduct', 'RectangleHorizontal', 'SM duct', 'D'], ['wall', 'PenLine', 'Wall', 'W'], ['room', 'Square', 'Room', 'B'], ['text', 'Type', 'Text', 'T'], ['callout', 'MessageSquareText', 'Callout', 'A'], ['measure', 'Ruler', 'Measure', 'M'], ['pin', 'MapPin', 'Note', 'N'], ['erase', 'Eraser', 'Eraser', 'Q']].map(([tool, icon, label, key]) => (
+          {[[null, 'MousePointer2', 'Select', 'V'], ['smduct', 'RectangleHorizontal', 'SM duct', 'D'], ['wall', 'PenLine', 'Wall', 'W'], ['room', 'Square', 'Room', 'B'], ['text', 'Type', 'Text', 'T'], ['callout', 'MessageSquareText', 'Callout', 'A'], ['measure', 'Ruler', 'Measure', 'M'], ['pin', 'MapPin', 'Note', 'N'], ['tlen', 'Route', 'Takeoff', 'U'], ['tcount', 'Hash', 'Count', 'I'], ['erase', 'Eraser', 'Eraser', 'Q']].map(([tool, icon, label, key]) => (
             <Button
               key={label}
               variant={sketchTool === tool ? 'default' : 'ghost'}
@@ -4835,6 +4918,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type in the panel.'}
             {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
             {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}
+            {sketchTool === 'tlen' && `Measuring “${toLen || 'Duct'}” — tap each corner along it, double-tap or Enter to finish. Shift = 45° steps. Change what you're measuring in the panel.${scale ? '' : ' Set the scale first for real metres.'}`}
+            {sketchTool === 'tcount' && `Counting “${toCount || 'Item'}” — tap each one on the plan. Change what you're counting in the panel. Esc when done.`}
             {sketchTool === 'erase' && 'Eraser: tap or drag over parts, runs, walls, text or notes to remove them. Ctrl+Z undoes. Esc when done.'}
           </div>
         )}
@@ -5039,6 +5124,38 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           <line key={i} x1={x - uy * t} y1={y + ux * t} x2={x + uy * t} y2={y - ux * t} stroke={dc} strokeWidth={1.5} />
                         ))}
                         <text x={mx} y={my - 4} transform={`rotate(${ang} ${mx} ${my})`} textAnchor="middle" fontSize={11 * Math.min(inv, 2.5)} fontWeight="700" fill={dc} stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>{`${(len / ppm).toFixed(2)} m`}</text>
+                      </g>
+                    );
+                  }
+                  if (s.kind === 'tmeasure' && s.pts?.length) {
+                    if (printMode === 'customer') return null;
+                    const c = sel ? '#2563eb' : toColor(s.label);
+                    const pts = s.id === tmActive && tmHover ? [...s.pts, tmHover] : s.pts;
+                    const d = pts.map((q, i) => `${i ? 'L' : 'M'}${q.x} ${q.y}`).join(' ');
+                    let best = 0;
+                    let at = pts[0];
+                    for (let i = 1; i < pts.length; i += 1) {
+                      const L = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+                      if (L > best) { best = L; at = { x: (pts[i].x + pts[i - 1].x) / 2, y: (pts[i].y + pts[i - 1].y) / 2 }; }
+                    }
+                    const k = Math.min(inv, 2.5);
+                    return (
+                      <g key={s.id}>
+                        <path d={d} fill="none" stroke="transparent" strokeWidth={16 * k} style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} />
+                        <path d={d} fill="none" stroke={c} strokeOpacity={0.85} strokeWidth={4 * k} strokeLinejoin="round" strokeLinecap="round" strokeDasharray={s.id === tmActive ? `${8 * k} ${5 * k}` : undefined} style={{ pointerEvents: 'none' }} />
+                        {s.pts.map((q, i) => <circle key={i} cx={q.x} cy={q.y} r={3.5 * k} fill="#fff" stroke={c} strokeWidth={1.5 * k} style={{ pointerEvents: 'none' }} />)}
+                        {pts.length > 1 && <text x={at.x} y={at.y - 7 * k} textAnchor="middle" fontSize={11 * k} fontWeight="700" fill={c} stroke="#fff" strokeWidth={3 * k} paintOrder="stroke" style={{ pointerEvents: 'none' }}>{`${fmtM(toLenM(pts, ppm))} m`}</text>}
+                      </g>
+                    );
+                  }
+                  if (s.kind === 'tcount') {
+                    if (printMode === 'customer') return null;
+                    const k = Math.min(inv, 2.5);
+                    const c = sel ? '#2563eb' : toColor(s.label);
+                    return (
+                      <g key={s.id} transform={`translate(${s.x1} ${s.y1}) scale(${k})`} style={{ pointerEvents: live || 'all', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)}>
+                        <circle r={9} fill={c} fillOpacity={0.9} stroke="#fff" strokeWidth={2} />
+                        <text textAnchor="middle" dominantBaseline="central" fontSize="10" fontWeight="800" fill="#fff">{takeoff2.countNo[s.id]}</text>
                       </g>
                     );
                   }
@@ -6445,7 +6562,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           )}
           {rightTab === 'selection' && !selected && !selectedConn && selectedSketch && (
             <div className="space-y-3">
-              <div className="text-sm font-semibold">{{ wall: 'Wall', room: 'Room', dim: 'Measurement', smduct: `${SM_MATS[smMat(selectedSketch)]} run`, callout: 'Callout', pin: `Site note ${pinNo[selectedSketch.id] || ''}` }[selectedSketch.kind] || 'Text label'}</div>
+              <div className="text-sm font-semibold">{{ wall: 'Wall', room: 'Room', dim: 'Measurement', smduct: `${SM_MATS[smMat(selectedSketch)]} run`, callout: 'Callout', pin: `Site note ${pinNo[selectedSketch.id] || ''}`, tmeasure: 'Takeoff length', tcount: `Count ${takeoff2.countNo[selectedSketch.id] || ''}` }[selectedSketch.kind] || 'Text label'}</div>
+              {(selectedSketch.kind === 'tmeasure' || selectedSketch.kind === 'tcount') && (
+                <div className="space-y-2 text-xs">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-muted-foreground">What it is (goes on the parts list)</span>
+                    <Input className="h-9" list={selectedSketch.kind === 'tmeasure' ? 'dp-to-len' : 'dp-to-count'} value={selectedSketch.label || ''} onChange={(event) => updateSketch(selectedSketch.id, { label: event.target.value })} />
+                  </label>
+                  {selectedSketch.kind === 'tmeasure' && (
+                    <div>
+                      <span className="font-semibold">{`${fmtM(toLenM(selectedSketch.pts || [], ppm))} m`}</span>
+                      <span className="text-muted-foreground">{` · ${Math.max(0, (selectedSketch.pts?.length || 1) - 1)} straight(s)`}</span>
+                      {!scale && <div className="text-[11px] text-amber-700">Not to scale yet — set the scale for real metres.</div>}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">Drag to move · Delete removes it.</p>
+                </div>
+              )}
               {selectedSketch.kind === 'dim' && (
                 <div className="text-xs">
                   <span className="font-semibold">{`${(Math.hypot(selectedSketch.x2 - selectedSketch.x1, selectedSketch.y2 - selectedSketch.y1) / ppm).toFixed(2)} m`}</span>
@@ -6792,6 +6925,51 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               <p className="text-[11px] text-muted-foreground">R / Shift+R rotate · Esc clears.</p>
             </div>
           )}
+          {rightTab === 'selection' && !selected && !selectedConn && !selectedSketch && !allSel && (sketchTool === 'tlen' || sketchTool === 'tcount' || takeoff2.any) && (
+            <div className="space-y-2 mb-3 rounded-md border border-border p-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">Takeoff</span>
+                <div className="flex gap-1">
+                  <Button size="sm" variant={sketchTool === 'tlen' ? 'default' : 'outline'} className="h-7 px-2 text-xs" onClick={() => setSketchTool('tlen')}><ApperIcon name="Route" size={13} />Length</Button>
+                  <Button size="sm" variant={sketchTool === 'tcount' ? 'default' : 'outline'} className="h-7 px-2 text-xs" onClick={() => setSketchTool('tcount')}><ApperIcon name="Hash" size={13} />Count</Button>
+                </div>
+              </div>
+              {sketchTool === 'tlen' && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-muted-foreground">Measuring</span>
+                  <Input className="h-9" list="dp-to-len" placeholder="e.g. 600x300 S/A duct" value={toLen} onChange={(event) => setToLen(event.target.value)} />
+                </label>
+              )}
+              {sketchTool === 'tcount' && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-muted-foreground">Counting</span>
+                  <Input className="h-9" list="dp-to-count" placeholder="e.g. Indoor unit" value={toCount} onChange={(event) => setToCount(event.target.value)} />
+                </label>
+              )}
+              {sketchTool === 'tlen' && !scale && <p className="text-[11px] text-amber-700">Set the scale (K) on the plan first, or lengths won't be real metres.</p>}
+              {takeoff2.any ? (
+                <table className="w-full">
+                  <tbody>
+                    {[...takeoff2.lengths.entries()].map(([label, { m, runs: n }]) => (
+                      <tr key={`l-${label}`} className="border-b border-border/60 last:border-0">
+                        <td className="py-1 pr-2"><span className="inline-block size-2.5 rounded-full mr-1.5 align-middle" style={{ backgroundColor: toColor(label) }} />{label}<div className="text-[10px] text-muted-foreground">{`${n} run(s)`}</div></td>
+                        <td className="py-1 text-right font-semibold tabular-nums whitespace-nowrap">{scale ? `${fmtM(m)} m` : `${n} runs`}</td>
+                      </tr>
+                    ))}
+                    {[...takeoff2.counts.entries()].map(([label, n]) => (
+                      <tr key={`c-${label}`} className="border-b border-border/60 last:border-0">
+                        <td className="py-1 pr-2"><span className="inline-block size-2.5 rounded-full mr-1.5 align-middle" style={{ backgroundColor: toColor(label) }} />{label}</td>
+                        <td className="py-1 text-right font-semibold tabular-nums">{n}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : <p className="text-muted-foreground">Nothing measured or counted yet.</p>}
+              <p className="text-[11px] text-muted-foreground">These go on the parts list under Takeoff. Tap a line or marker to rename or delete it.</p>
+            </div>
+          )}
+          <datalist id="dp-to-len">{TO_LEN_PRESETS.map((x) => <option key={x} value={x} />)}</datalist>
+          <datalist id="dp-to-count">{TO_COUNT_PRESETS.map((x) => <option key={x} value={x} />)}</datalist>
           {rightTab === 'selection' && !selected && !selectedConn && !selectedSketch && !allSel && (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">Select a component or duct run. Drag empty space to pan, pinch or scroll to zoom.</p>

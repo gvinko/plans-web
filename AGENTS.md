@@ -121,3 +121,10 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - `hl.windows` [{orient, glass, shading}] per room. Rooms saved before this keep one window in `hl.orient` / `hl.glass` / `hl.shading` and calculate exactly as before; the first edit in the Windows list saves `hl.windows`.
 - `hl.glazing` ('single' default, 'double') and `hl.wallType` (`WALLS`, 'standard' default = the old U 0.6) in `src/lib/heatLoad.js`. Defaults reproduce the old numbers.
 - Tests: `node --test test/heatload.test.mjs`.
+
+## Takeoff: measure and count over a plan (26 Oct 2026)
+
+- Tools `tlen` (U) and `tcount` (I). Sketch items `{ kind: 'tmeasure', pts, label }` (polyline, tap each corner, double-tap / tap last corner / Enter finishes, Shift = 45°) and `{ kind: 'tcount', x1, y1, label }`.
+- `label` is whatever the user typed (presets `TO_LEN_PRESETS` / `TO_COUNT_PRESETS`); colour from `toColor(label)`; counts numbered per label (`takeoff2.countNo`).
+- `takeoff2` memo totals them; the BOM gets a `Takeoff` group first (metres rounded up, or run count with no scale). They go to WorkBrain with the rest of the list.
+- Not printed on the Customer plan. Not in the DXF.
