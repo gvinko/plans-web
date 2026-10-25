@@ -2018,7 +2018,6 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setConnections([]);
         setJoins([]);
         setScale(null);
-      setSheet(null);
         setSheet(null);
         setClimate(DEFAULT_CLIMATE);
       } else {
