@@ -133,3 +133,9 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 
 - Loading a PDF with more than one page puts page 1 on the current level as before, then offers "Add N levels" (`pdfSplit` dialog, names editable, default "Page 2"…).
 - Pages render with `pdfPageToJpeg(pdf, n)`; `Phase1.addLevelsWithPlans([{name, file}])` uploads each and creates a `plan_pages_c` row with `planFile_c` set. Each new level needs its own scale.
+
+## Scale from the title block (26 Oct 2026)
+
+- Scale button / K opens `scaleDlg`: type 1:N and the sheet size the scale is for (A0–A4). "Measure a known dimension" still runs the old two-point `startScale()`.
+- `sheet` {w,h} mm is the PDF page's printed size (from `pdfPageToJpeg`), saved with the drawing; photos/scans have none. New levels from a split PDF get theirs in `drawingJson_c`.
+- `applyRatioScale()`: shown plan width (`bgAspect`, object-contain in WORLD_W × WORLD_H) ÷ (sheet width × N) → `pxPerM`. Scale object `{ pxPerM, ratio, paper }`; point-measured ones stay `{ pxPerM, a, b, mm }`.

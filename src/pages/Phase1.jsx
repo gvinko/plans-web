@@ -225,13 +225,13 @@ export default function Phase1() {
   async function addLevelsWithPlans(list) {
     if (!activeProject) return 0;
     const made = [];
-    for (const { name, file } of list) {
+    for (const { name, file, sheet } of list) {
       const up = await sdk.storage.upload(file);
       const res = await sdk.table('plan_pages_c').create({
         Name: name,
         projectId_c: activeProject.Id,
         level_c: name,
-        drawingJson_c: '[]',
+        drawingJson_c: sheet ? JSON.stringify({ items: [], connections: [], joins: [], sketch: [], scale: null, sheet }) : '[]',
         planFile_c: sdk.storage.toUpdateFormat([up]),
       });
       if (res.data?.length) made.push(res.data[0]);

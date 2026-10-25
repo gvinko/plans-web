@@ -345,6 +345,15 @@ const SIZE_FROM_SPEC = new Set(['eggcrate', 'sqdiff', 'louvre', 'transfer', 'doo
 
 // ---- Plan background helpers ----
 const PLAN_MAX_EDGE = 2000;
+// ISO sheet sizes (mm, long × short) for "set scale from 1:100 @ A1".
+const ISO_SHEETS = { A0: [1189, 841], A1: [841, 594], A2: [594, 420], A3: [420, 297], A4: [297, 210] };
+const DRAWING_RATIOS = [20, 25, 50, 75, 100, 125, 150, 200, 250, 500];
+const sheetName = (sh) => {
+  if (!sh?.w || !sh?.h) return null;
+  const L = Math.max(sh.w, sh.h);
+  const S = Math.min(sh.w, sh.h);
+  return Object.entries(ISO_SHEETS).find(([, [a, b]]) => Math.abs(L - a) / a < 0.03 && Math.abs(S - b) / b < 0.03)?.[0] || null;
+};
 
 function canvasToJpeg(canvas) {
   return new Promise((resolve, reject) => {
@@ -383,7 +392,8 @@ async function pdfFileToJpeg(file) {
   await ensurePdfWorker();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  return { blob: await pdfPageToJpeg(pdf, 1), pages: pdf.numPages, pdf };
+  const { blob, sheet } = await pdfPageToJpeg(pdf, 1);
+  return { blob, sheet, pages: pdf.numPages, pdf };
 }
 
 // One page of an open PDF as a plan image.
@@ -401,7 +411,8 @@ async function pdfPageToJpeg(pdf, n) {
   await pdfPage.render({ canvasContext: ctx, viewport }).promise;
   const blob = await canvasToJpeg(canvas);
   pdfPage.cleanup();
-  return blob;
+  const mm = 25.4 / 72; // PDF points to mm: the real printed sheet size
+  return { blob, sheet: { w: Math.round(base.width * mm), h: Math.round(base.height * mm) } };
 }
 
 function blobToDataUrl(blob) {
@@ -1725,6 +1736,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [planFile, setPlanFile] = useState([]);
   const [planBusy, setPlanBusy] = useState(false);
   const [scale, setScale] = useState(null);
+  const [sheet, setSheet] = useState(null); // printed sheet size of the plan (mm), from the PDF
+  const [bgAspect, setBgAspect] = useState(null); // plan image width / height
+  const [scaleDlg, setScaleDlg] = useState(null); // { ratio, paper } — set scale from 1:100 @ A1
   const [scaleDraft, setScaleDraft] = useState(null);
   const [showLabels, setShowLabels] = useState(true);
   const [showFab, setShowFab] = useState(false); // shop detail: sheet pieces, joints, centre line
@@ -1843,7 +1857,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const t = setTimeout(() => {
       if (!dirtyRef.current) return; // already saved
       try {
-        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
+        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, sheet, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
       } catch { /* storage full or blocked */ }
     }, 800);
     return () => clearTimeout(t);
@@ -2004,6 +2018,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setConnections([]);
         setJoins([]);
         setScale(null);
+      setSheet(null);
+        setSheet(null);
         setClimate(DEFAULT_CLIMATE);
       } else {
         setItems(migrateItems(saved.items));
@@ -2011,6 +2027,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setJoins(saved.joins ?? []);
         setSketch(saved.sketch ?? []);
         setScale(saved.scale ?? null);
+        setSheet(saved.sheet?.w ? saved.sheet : null);
         setShowLabels(saved.showLabels ?? true);
         setShowFab(!!saved.showFab);
         setTextStyle({ size: 0.7, color: '', ...(saved.textStyle || {}) });
@@ -2038,6 +2055,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       setConnections([]);
       setJoins([]);
       setScale(null);
+      setSheet(null);
       setStatus('Drawing data could not be read');
     }
   }, [page.Id, page.drawingJson_c, page.planFile_c]);
@@ -3083,7 +3101,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (key === 'i') { setSketchTool('tcount'); return; }
       if (key === 'q') { setSketchTool('erase'); return; }
       if (key === 'v') { setSketchTool(null); setPendingPort(null); setSketchDraft(null); return; }
-      if (key === 'k') { startScale(); return; }
+      if (key === 'k') { openScaleDlg(); return; }
       if (key === 'o') { fileRef.current?.click(); return; }
       if (key === 'h') { setCompact((c) => !c); return; }
       if (key === 'g') { setDuctMaterial((m) => (m === 'sheet' ? 'flex' : 'sheet')); toast.message('Toggled flex / sheet metal for new runs'); return; }
@@ -3130,8 +3148,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     try {
       for (let n = 2; n <= job.pages; n += 1) {
         setStatus(`Preparing PDF page ${n} of ${job.pages}…`);
-        const blob = await pdfPageToJpeg(job.pdf, n);
-        list.push({ name: (job.names[n - 2] || '').trim() || `Page ${n}`, file: new File([blob], `plan-p${n}.jpg`, { type: 'image/jpeg' }) });
+        const { blob, sheet: sh } = await pdfPageToJpeg(job.pdf, n);
+        list.push({ name: (job.names[n - 2] || '').trim() || `Page ${n}`, sheet: sh, file: new File([blob], `plan-p${n}.jpg`, { type: 'image/jpeg' }) });
       }
       const made = await onAddLevelsWithPlans(list);
       setStatus(`Plan loaded · ${made} more level${made === 1 ? '' : 's'} added from the PDF`);
@@ -3165,6 +3183,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (isPdf) {
         const res = await pdfFileToJpeg(file);
         blob = res.blob;
+        setSheet(res.sheet);
         note = ` (PDF page 1 of ${res.pages})`;
         if (res.pages > 1 && onAddLevelsWithPlans) {
           const used = new Set(levels.map((l) => String(l.Name || '').toLowerCase()));
@@ -3177,6 +3196,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         } else res.pdf?.destroy?.();
       } else {
         blob = await imageFileToJpeg(file);
+        setSheet(null); // a photo or scan: the sheet size is picked when setting the scale
       }
     } catch (err) {
       const msg = err?.message || 'unknown error';
@@ -3201,7 +3221,31 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     } finally {
       setPlanBusy(false);
     }
-    if (!scale) toast.message('Plan loaded', { description: 'Tap “Set scale” and mark a known dimension so units draw to size and ducts are measured.' });
+    if (!scale) toast.message('Plan loaded', { description: 'Tap “Set scale” (K): type the scale from the title block, e.g. 1:100 @ A1, or mark a known dimension.' });
+  }
+
+  // ---- Scale from the drawing's stated scale (1:100 @ A1) ----
+  function openScaleDlg() {
+    const auto = sheetName(sheet);
+    setScaleDlg({ ratio: String(scale?.ratio || 100), paper: scale?.paper || auto || 'A3' });
+  }
+  function applyRatioScale() {
+    const N = Number(scaleDlg?.ratio);
+    const dims = ISO_SHEETS[scaleDlg?.paper];
+    if (!(N > 0) || !dims) { toast.error('Enter the drawing scale, e.g. 100 for 1:100.'); return; }
+    if (!background || !bgAspect) { toast.error('Load the plan first.'); return; }
+    // The plan image is fitted inside the drawing area; its shown width is the sheet's width.
+    const shownW = bgAspect >= WORLD_W / WORLD_H ? WORLD_W : WORLD_H * bgAspect;
+    const sheetWmm = bgAspect >= 1 ? dims[0] : dims[1];
+    const pxPerM = shownW / ((sheetWmm * N) / 1000);
+    setScale({ pxPerM, ratio: N, paper: scaleDlg.paper });
+    setScaleDlg(null);
+    markDirty('Scale set · unsaved changes');
+    const pdfName = sheetName(sheet);
+    toast.success(`Scale 1:${N} @ ${scaleDlg.paper}`, {
+      description: `${pdfName && pdfName !== scaleDlg.paper ? `This PDF is ${pdfName}, so it's a reduced copy — that's fine. ` : ''}The sheet is ${Math.round((sheetWmm * N) / 1000)} m wide. Check one known dimension with Measure (M).`,
+      duration: 8000,
+    });
   }
 
   // ---- Scale calibration ----
@@ -4552,7 +4596,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return;
     }
     setStatus('Saving…');
-    const payload = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
+    const payload = JSON.stringify({ items, connections, joins, scale, sheet, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
     lastSavedRef.current = payload;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos); } catch { ok = false; }
@@ -4861,9 +4905,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               <Button variant="ghost" size="sm" className="h-7 px-1.5" title="Cancel (Esc)" onClick={() => setScaleDraft(null)}><ApperIcon name="X" size={14} /></Button>
             </div>
           ) : (
-            <Button variant={scale && !scaleOff ? 'outline' : scaleOff ? 'destructive' : 'default'} size="sm" className="h-8 px-2" title={`${scaleOff ? `Scale looks wrong: the sheet works out ${Math.round(WORLD_W / scale.pxPerM)} m wide, so ducts draw too ${WORLD_W / scale.pxPerM > 120 ? 'thin' : 'big'}. Click to set it again.` : scale ? `Scale set from a ${Number(scale.mm).toLocaleString()} mm reference (sheet ≈ ${Math.round(WORLD_W / scale.pxPerM)} m wide) — click to reset` : 'Set the scale: mark a known dimension so everything draws to size'}  ·  K`} onClick={startScale}>
+            <Button variant={scale && !scaleOff ? 'outline' : scaleOff ? 'destructive' : 'default'} size="sm" className="h-8 px-2" title={`${scaleOff ? `Scale looks wrong: the sheet works out ${Math.round(WORLD_W / scale.pxPerM)} m wide, so ducts draw too ${WORLD_W / scale.pxPerM > 120 ? 'thin' : 'big'}. Click to set it again.` : scale ? `${scale.ratio ? `Scale 1:${scale.ratio} @ ${scale.paper}` : `Scale set from a ${Number(scale.mm).toLocaleString()} mm reference`} (sheet ≈ ${Math.round(WORLD_W / scale.pxPerM)} m wide) — click to change` : 'Set the scale: type 1:100 from the title block, or mark a known dimension'}  ·  K`} onClick={openScaleDlg}>
               <ApperIcon name={scaleOff ? 'TriangleAlert' : 'Ruler'} size={15} />
-              <span className="text-xs">{scaleOff ? 'Check scale' : scale ? 'Scale ✓' : 'Set scale'}</span>
+              <span className="text-xs">{scaleOff ? 'Check scale' : scale?.ratio ? `1:${scale.ratio}` : scale ? 'Scale ✓' : 'Set scale'}</span>
             </Button>
           )}
           <div className="h-6 w-px bg-border mx-0.5" />
@@ -5061,7 +5105,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               style={{ width: WORLD_W, height: WORLD_H, transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}
             >
               {background ? (
-                <img src={background} alt="Uploaded plan" draggable={false} className="absolute inset-0 size-full object-contain pointer-events-none select-none" />
+                <img src={background} alt="Uploaded plan" draggable={false} onLoad={(event) => { const im = event.currentTarget; if (im.naturalHeight) setBgAspect(im.naturalWidth / im.naturalHeight); }} className="absolute inset-0 size-full object-contain pointer-events-none select-none" />
               ) : (
                 <div
                   className="absolute inset-0 opacity-40 pointer-events-none"
@@ -7245,6 +7289,49 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         kwOf={modelKw}
         onGenerate={generateAuto}
       />
+      <Dialog open={!!scaleDlg} onOpenChange={(open) => { if (!open) setScaleDlg(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set the scale</DialogTitle>
+            <DialogDescription>Type the scale from the title block, or measure a dimension you know.</DialogDescription>
+          </DialogHeader>
+          {scaleDlg && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Drawing scale</span>
+                  <div className="flex items-center gap-1">
+                    <span className="font-semibold">1 :</span>
+                    <Input className="h-9" list="dp-ratios" inputMode="numeric" value={scaleDlg.ratio} onChange={(event) => setScaleDlg((d) => ({ ...d, ratio: event.target.value.replace(/[^0-9.]/g, '') }))} />
+                    <datalist id="dp-ratios">{DRAWING_RATIOS.map((n) => <option key={n} value={n} />)}</datalist>
+                  </div>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">At sheet size</span>
+                  <select className="h-9 rounded-md border border-input bg-background px-2" value={scaleDlg.paper} onChange={(event) => setScaleDlg((d) => ({ ...d, paper: event.target.value }))}>
+                    {Object.entries(ISO_SHEETS).map(([k, [a, b]]) => <option key={k} value={k}>{`${k} (${a} × ${b})${sheetName(sheet) === k ? ' — this PDF' : ''}`}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {[50, 100, 200].map((n) => <Button key={n} size="sm" variant={Number(scaleDlg.ratio) === n ? 'default' : 'outline'} className="h-7 px-2 text-xs" onClick={() => setScaleDlg((d) => ({ ...d, ratio: String(n) }))}>{`1:${n}`}</Button>)}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {sheet ? `This PDF page is ${sheetName(sheet) || `${sheet.w} × ${sheet.h} mm`}. ` : 'Photo or scan: pick the sheet size it was printed on. '}
+                If the title block says “1:100 @ A1” but this copy is A3, pick A1 — the app allows for the reduction.
+              </p>
+              {!background && <p className="text-xs text-amber-700">Load the plan first.</p>}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setScaleDlg(null); startScale(); }}>
+              <ApperIcon name="Ruler" size={15} />
+              Measure a known dimension
+            </Button>
+            <Button disabled={!background} onClick={applyRatioScale}>Apply scale</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!pdfSplit} onOpenChange={(open) => { if (!open && !pdfSplit?.busy) { pdfSplit?.pdf?.destroy?.(); setPdfSplit(null); } }}>
         <DialogContent>
           <DialogHeader>
