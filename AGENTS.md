@@ -145,3 +145,7 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - Catalogue group "Custom parts", type `custom` (role `none`, no ports). Fields on the item: `customName`, `customTag` (numbered per tag: BOP1, BOP2…), `customSize` (free text; "600x300" also sets the plan footprint), `qty` (parts-list quantity, default 1). Symbol: box with an X.
 - Picking "New custom part…" opens `customDlg`. "My parts" presets `{name, tag, size}` live in localStorage `dp-my-parts` (this browser only — not in backups) and show in the Custom parts group; drag or click to place.
 - BOM line: `customLine(item)` = "Name — size", in the Custom parts group.
+
+## Load speed (26 Oct 2026)
+
+- Don't `@import` web fonts in CSS: it blocks the whole app from drawing until the font server answers (15 s+ on poor signal). The Geist font is a non-blocking `<link media="print" onload>` in `index.html`; the CSS font stack falls back to system fonts.
