@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useFetch } from '@/hooks/useFetch';
 import { sdk } from '@/services/sdk';
+import { db } from '@/services/localDb';
 import DrawingWorkspace from '@/components/DrawingWorkspace';
 import { toast } from 'sonner';
 import {
@@ -225,7 +226,7 @@ export default function Phase1() {
   async function addLevelsWithPlans(list) {
     if (!activeProject) return 0;
     const made = [];
-    for (const { name, file, sheet } of list) {
+    for (const { name, file, sheet, planText } of list) {
       const up = await sdk.storage.upload(file);
       const res = await sdk.table('plan_pages_c').create({
         Name: name,
@@ -233,11 +234,28 @@ export default function Phase1() {
         level_c: name,
         drawingJson_c: sheet ? JSON.stringify({ items: [], connections: [], joins: [], sketch: [], scale: null, sheet }) : '[]',
         planFile_c: sdk.storage.toUpdateFormat([up]),
+        planText_c: planText || '',
       });
       if (res.data?.length) made.push(res.data[0]);
     }
     if (made.length) setProjectPages((current) => [...current, ...made]);
     return made.length;
+  }
+
+  // Spec PDFs for the whole project: [{ id, key, name, pages, … }]. removedKeys: their files to delete.
+  async function saveDocs(list, removedKeys = []) {
+    if (!activeProject) return false;
+    const res = await sdk.table('projects_c').update({ Id: activeProject.Id, specDocs_c: list });
+    if (!res.data?.length) { toast.error('Could not save the spec', { description: (res.messages || []).join(' ') }); return false; }
+    if (removedKeys.length) { try { await db.files.bulkDelete(removedKeys); } catch { /* left in storage, harmless */ } }
+    setActiveProject((current) => ({ ...current, specDocs_c: list }));
+    return true;
+  }
+
+  // Text from a level's plan PDF, for spec & plan search.
+  async function savePageText(pageId, text) {
+    await sdk.table('plan_pages_c').update({ Id: pageId, planText_c: text || '' });
+    setProjectPages((current) => current.map((p) => (p.Id === pageId ? { ...p, planText_c: text || '' } : p)));
   }
 
   // Save customer / job details edited from inside the drawing.
@@ -268,6 +286,8 @@ export default function Phase1() {
         onSwitchLevel={switchLevel}
         onAddLevel={addLevel}
         onAddLevelsWithPlans={addLevelsWithPlans}
+        onSaveDocs={saveDocs}
+        onSavePageText={savePageText}
         onSave={saveDrawing}
         onSaveProject={saveProject}
         onBack={() => { setActivePage(null); setActiveProject(null); setProjectPages([]); }}
