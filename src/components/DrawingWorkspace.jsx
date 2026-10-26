@@ -21,6 +21,8 @@ import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
 import { buildTakeoff, takeoffLink } from '@/lib/wbTakeoff';
 import { networkAirflow } from '@/lib/airflow';
+import { pageTextFromItems, looksScanned } from '@/lib/specs';
+import SpecsDialog from '@/components/SpecsDialog';
 
 const COLORBOND = ['Basalt', 'Blue Ocean', 'Classic Cream', 'Cottage Green', 'Cove', 'Deep Ocean', 'Dune', 'Evening Haze', 'Galvanised', 'Gully', 'Headland', 'Ironstone', 'Jasper', 'Mangrove', 'Manor Red', 'Monument', 'Night Sky', 'Pale Eucalypt', 'Paperbark', 'Shale Grey', 'Surfmist', 'Terrain', 'Wallaby', 'Windspray', 'Woodland'];
 const isService = (conn) => !!conn && (conn.type === 'pipe' || conn.type === 'drain' || conn.type === 'power');
@@ -398,8 +400,26 @@ async function pdfFileToJpeg(file) {
   await ensurePdfWorker();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  const { blob, sheet } = await pdfPageToJpeg(pdf, 1);
-  return { blob, sheet, pages: pdf.numPages, pdf };
+  const { blob, sheet, text } = await pdfPageToJpeg(pdf, 1);
+  return { blob, sheet, text, pages: pdf.numPages, pdf };
+}
+
+// Every page's text of a spec PDF (no images), with progress.
+async function pdfFileText(file, onPage) {
+  await ensurePdfWorker();
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pages = [];
+  try {
+    for (let n = 1; n <= pdf.numPages; n += 1) {
+      onPage?.(n, pdf.numPages);
+      const pg = await pdf.getPage(n);
+      pages.push(pageTextFromItems((await pg.getTextContent()).items));
+      pg.cleanup();
+    }
+  } finally {
+    pdf.destroy();
+  }
+  return pages;
 }
 
 // One page of an open PDF as a plan image.
@@ -416,9 +436,11 @@ async function pdfPageToJpeg(pdf, n) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   await pdfPage.render({ canvasContext: ctx, viewport }).promise;
   const blob = await canvasToJpeg(canvas);
+  let text = '';
+  try { text = pageTextFromItems((await pdfPage.getTextContent()).items); } catch { text = ''; } // for spec & plan search
   pdfPage.cleanup();
   const mm = 25.4 / 72; // PDF points to mm: the real printed sheet size
-  return { blob, sheet: { w: Math.round(base.width * mm), h: Math.round(base.height * mm) } };
+  return { blob, text, sheet: { w: Math.round(base.width * mm), h: Math.round(base.height * mm) } };
 }
 
 function blobToDataUrl(blob) {
@@ -1762,7 +1784,7 @@ function migrateItems(list) {
   return (list || []).map((item) => (item.cx != null ? item : { ...item, cx: (item.x ?? 0) + 24, cy: (item.y ?? 0) + 24 }));
 }
 
-export default function DrawingWorkspace({ page, project, onSave, onSaveProject, onBack, levels = [], onSwitchLevel, onAddLevel, onAddLevelsWithPlans }) {
+export default function DrawingWorkspace({ page, project, onSave, onSaveProject, onBack, levels = [], onSwitchLevel, onAddLevel, onAddLevelsWithPlans, onSaveDocs, onSavePageText }) {
   const [items, setItems] = useState([]);
   const [connections, setConnections] = useState([]);
   const [joins, setJoins] = useState([]); // [{ id, a:{itemId,portId}, b:{itemId,portId} }]
@@ -1774,6 +1796,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [bgAspect, setBgAspect] = useState(null); // plan image width / height
   const [scaleDlg, setScaleDlg] = useState(null);
   const [myParts, setMyParts] = useState(readMyParts);
+  const [specOpen, setSpecOpen] = useState(false);
+  const [specBusy, setSpecBusy] = useState('');
   const [customDlg, setCustomDlg] = useState(null); // { name, tag, size, qty, save, at } — new custom part // { ratio, paper } — set scale from 1:100 @ A1
   const [scaleDraft, setScaleDraft] = useState(null);
   const [showLabels, setShowLabels] = useState(true);
@@ -3206,8 +3230,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     try {
       for (let n = 2; n <= job.pages; n += 1) {
         setStatus(`Preparing PDF page ${n} of ${job.pages}…`);
-        const { blob, sheet: sh } = await pdfPageToJpeg(job.pdf, n);
-        list.push({ name: (job.names[n - 2] || '').trim() || `Page ${n}`, sheet: sh, file: new File([blob], `plan-p${n}.jpg`, { type: 'image/jpeg' }) });
+        const { blob, sheet: sh, text } = await pdfPageToJpeg(job.pdf, n);
+        list.push({ name: (job.names[n - 2] || '').trim() || `Page ${n}`, sheet: sh, planText: text, file: new File([blob], `plan-p${n}.jpg`, { type: 'image/jpeg' }) });
       }
       const made = await onAddLevelsWithPlans(list);
       setStatus(`Plan loaded · ${made} more level${made === 1 ? '' : 's'} added from the PDF`);
@@ -3218,6 +3242,31 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       job.pdf?.destroy?.();
       setPdfSplit(null);
     }
+  }
+
+  // ---- Specs: upload, read the text, keep it with the project ----
+  async function addSpecFiles(files) {
+    if (!onSaveDocs) return;
+    const made = [];
+    try {
+      for (const file of files) {
+        if (!(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) { toast.error(`${file.name} is not a PDF`); continue; }
+        const pages = await pdfFileText(file, (n, of) => setSpecBusy(`Reading ${file.name} — page ${n} of ${of}…`));
+        const up = await sdk.storage.upload(file);
+        made.push({ id: crypto.randomUUID(), key: up.key, name: file.name, size: file.size, addedOn: new Date().toISOString(), pages, scanned: looksScanned(pages) });
+      }
+      if (made.length) {
+        await onSaveDocs([...(project?.specDocs_c || []), ...made]);
+        toast.success(`${made.length} spec${made.length === 1 ? '' : 's'} added`, { description: made.some((d) => d.scanned) ? 'One looks scanned — no text to search.' : `${made.reduce((n, d) => n + d.pages.length, 0)} pages ready to search.` });
+      }
+    } catch (err) {
+      toast.error('Could not read the spec', { description: err?.message || 'Try again.' });
+    } finally {
+      setSpecBusy('');
+    }
+  }
+  function removeSpecDoc(doc) {
+    onSaveDocs?.((project?.specDocs_c || []).filter((d) => d.id !== doc.id), [doc.key]);
   }
 
   async function loadPlan(event) {
@@ -3242,6 +3291,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         const res = await pdfFileToJpeg(file);
         blob = res.blob;
         setSheet(res.sheet);
+        onSavePageText?.(page.Id, res.text || '');
         note = ` (PDF page 1 of ${res.pages})`;
         if (res.pages > 1 && onAddLevelsWithPlans) {
           const used = new Set(levels.map((l) => String(l.Name || '').toLowerCase()));
@@ -3255,6 +3305,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       } else {
         blob = await imageFileToJpeg(file);
         setSheet(null); // a photo or scan: the sheet size is picked when setting the scale
+        onSavePageText?.(page.Id, '');
       }
     } catch (err) {
       const msg = err?.message || 'unknown error';
@@ -4916,6 +4967,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             {onAddLevel && <option value="__add">+ Add level…</option>}
           </select>
         </label>
+        {onSaveDocs && (
+          <Button variant="outline" size="sm" className="shrink-0" onClick={() => setSpecOpen(true)} title="Upload the spec, search it and the plans, and see what to allow for">
+            <ApperIcon name="FileSearch" size={15} />
+            <span className="hidden md:inline">{`Specs${project?.specDocs_c?.length ? ` (${project.specDocs_c.length})` : ''}`}</span>
+          </Button>
+        )}
         <Button variant="outline" size="sm" className="shrink-0" onClick={openJob} title="Customer name, address and phone">
           <ApperIcon name="UserRound" size={15} />
           <span className="hidden md:inline">Job details</span>
@@ -7387,6 +7444,19 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         kwOf={modelKw}
         onGenerate={generateAuto}
       />
+      {onSaveDocs && (
+        <SpecsDialog
+          open={specOpen}
+          onOpenChange={setSpecOpen}
+          docs={project?.specDocs_c || []}
+          plans={(levels.length ? levels : [page]).map((l) => ({ id: l.Id, name: l.Name, pages: l.planText_c ? [l.planText_c] : [] }))}
+          bomRows={equipment.groups.flatMap((g) => g.rows.map((r) => ({ name: r.name, qty: r.qty })))}
+          onAddFiles={addSpecFiles}
+          onRemoveDoc={removeSpecDoc}
+          onOpenLevel={(id) => { if (String(id) !== String(page.Id)) onSwitchLevel?.(String(id)); }}
+          busy={specBusy}
+        />
+      )}
       <Dialog open={!!customDlg} onOpenChange={(open) => { if (!open) setCustomDlg(null); }}>
         <DialogContent>
           <DialogHeader>

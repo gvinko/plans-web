@@ -149,3 +149,10 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 ## Load speed (26 Oct 2026)
 
 - Don't `@import` web fonts in CSS: it blocks the whole app from drawing until the font server answers (15 s+ on poor signal). The Geist font is a non-blocking `<link media="print" onload>` in `index.html`; the CSS font stack falls back to system fonts.
+
+## Specs & plan check (26 Oct 2026)
+
+- Top-bar **Specs** button → `SpecsDialog.jsx`. Spec PDFs are per project: `projects_c.specDocs_c` = [{ id, key (file in `files`), name, size, addedOn, pages: string[], scanned }]. No schema change; backups already carry project fields and all files.
+- Plan text per level: `plan_pages_c.planText_c` (page 1 text when a plan PDF is loaded; split pages get their own). Images/scans store ''. Plans loaded before 26 Oct have none until reloaded.
+- `src/lib/specs.js`: `searchSources`, `scanWatch` (`WATCH` rules + "My words" in localStorage `dp-watch-words`), `crossCheck` against the level's BOM (incl. Takeoff + Custom parts). Keyword matching only — no AI, no network. Tests: `test/specs.test.mjs`.
+- Scanned PDFs (no text) are flagged, not OCR'd.
