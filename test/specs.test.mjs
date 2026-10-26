@@ -32,6 +32,7 @@ test('search finds words across line breaks, with page and clause', () => {
   assert.match(hits[0].snippet.text, /volume control dampers at every branch/);
   assert.equal(searchSources([spec, plan], 'lined').length, 2); // spec + plan
   assert.equal(clauseAt(spec.pages[1], spec.pages[1].indexOf('Fire dampers')), '5.1');
+  assert.equal(clauseAt(spec.pages[0], spec.pages[0].indexOf('Dampers')), '4.3.2'); // a match on the heading line itself
 });
 
 test('watch list flags the gotchas', () => {

@@ -38,7 +38,8 @@ export function queryRegex(q) {
 export function snippet(text, index, length, max = 220) {
   const before = text.slice(0, index);
   const after = text.slice(index + length);
-  const start = Math.max(before.lastIndexOf('. ') + 2, before.lastIndexOf('\n') + 1, index - max / 2, 0);
+  let start = Math.max(before.lastIndexOf('. ') + 2, before.lastIndexOf('\n') + 1, index - max / 2, 0);
+  if (start > 0 && /\S/.test(text[start - 1] || '')) { const sp = text.indexOf(' ', start); if (sp > 0 && sp < index) start = sp + 1; } // don't start mid-word
   const endRel = after.search(/(\.\s|\n\n)/);
   const end = Math.min(index + length + (endRel >= 0 ? endRel + 1 : after.length), index + length + max / 2);
   const s = text.slice(start, end).replace(/\s+/g, ' ').trim();
@@ -47,7 +48,8 @@ export function snippet(text, index, length, max = 220) {
 
 // Clause number nearest above a match, e.g. "4.3.2" — specs are read by clause.
 export function clauseAt(text, index) {
-  const head = text.slice(0, index);
+  const eol = text.indexOf('\n', index);
+  const head = text.slice(0, eol < 0 ? text.length : eol); // include the match's own line (it may be the heading)
   const lines = head.split('\n').reverse();
   for (const ln of lines.slice(0, 40)) {
     const m = ln.match(/^\s*((?:\d+\.){1,4}\d+|[A-Z]\d{1,3}(?:\.\d+)*)\s+\S/);
