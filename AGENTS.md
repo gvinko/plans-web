@@ -121,3 +121,27 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - `hl.windows` [{orient, glass, shading}] per room. Rooms saved before this keep one window in `hl.orient` / `hl.glass` / `hl.shading` and calculate exactly as before; the first edit in the Windows list saves `hl.windows`.
 - `hl.glazing` ('single' default, 'double') and `hl.wallType` (`WALLS`, 'standard' default = the old U 0.6) in `src/lib/heatLoad.js`. Defaults reproduce the old numbers.
 - Tests: `node --test test/heatload.test.mjs`.
+
+## Takeoff: measure and count over a plan (26 Oct 2026)
+
+- Tools `tlen` (U) and `tcount` (I). Sketch items `{ kind: 'tmeasure', pts, label }` (polyline, tap each corner, double-tap / tap last corner / Enter finishes, Shift = 45°) and `{ kind: 'tcount', x1, y1, label }`.
+- `label` is whatever the user typed (presets `TO_LEN_PRESETS` / `TO_COUNT_PRESETS`); colour from `toColor(label)`; counts numbered per label (`takeoff2.countNo`).
+- `takeoff2` memo totals them; the BOM gets a `Takeoff` group first (metres rounded up, or run count with no scale). They go to WorkBrain with the rest of the list.
+- Not printed on the Customer plan. Not in the DXF.
+
+## Multi-page PDF → one level per page (26 Oct 2026)
+
+- Loading a PDF with more than one page puts page 1 on the current level as before, then offers "Add N levels" (`pdfSplit` dialog, names editable, default "Page 2"…).
+- Pages render with `pdfPageToJpeg(pdf, n)`; `Phase1.addLevelsWithPlans([{name, file}])` uploads each and creates a `plan_pages_c` row with `planFile_c` set. Each new level needs its own scale.
+
+## Scale from the title block (26 Oct 2026)
+
+- Scale button / K opens `scaleDlg`: type 1:N and the sheet size the scale is for (A0–A4). "Measure a known dimension" still runs the old two-point `startScale()`.
+- `sheet` {w,h} mm is the PDF page's printed size (from `pdfPageToJpeg`), saved with the drawing; photos/scans have none. New levels from a split PDF get theirs in `drawingJson_c`.
+- `applyRatioScale()`: shown plan width (`bgAspect`, object-contain in WORLD_W × WORLD_H) ÷ (sheet width × N) → `pxPerM`. Scale object `{ pxPerM, ratio, paper }`; point-measured ones stay `{ pxPerM, a, b, mm }`.
+
+## Custom parts (26 Oct 2026)
+
+- Catalogue group "Custom parts", type `custom` (role `none`, no ports). Fields on the item: `customName`, `customTag` (numbered per tag: BOP1, BOP2…), `customSize` (free text; "600x300" also sets the plan footprint), `qty` (parts-list quantity, default 1). Symbol: box with an X.
+- Picking "New custom part…" opens `customDlg`. "My parts" presets `{name, tag, size}` live in localStorage `dp-my-parts` (this browser only — not in backups) and show in the Custom parts group; drag or click to place.
+- BOM line: `customLine(item)` = "Name — size", in the Custom parts group.

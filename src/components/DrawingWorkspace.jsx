@@ -306,6 +306,12 @@ const CATALOG = [
       { type: 'attenuator', label: 'Attenuator', tag: 'ATT', role: 'fit', specs: [{ key: 'size', label: 'Size', sheet: 'Attenuator', options: ['200mm round x 900', '250mm round x 900', '300x300 x 900', '450x300 x 1200', '600x400 x 1200'], short: (v) => v.split(' x ')[0].replace('mm round', 'Ø') }] },
     ],
   },
+  {
+    group: 'Custom parts',
+    items: [
+      { type: 'custom', label: 'New custom part…', tag: 'CP', role: 'none', noDuct: 'Custom parts go on the parts list; draw ducts to the parts either side.' },
+    ],
+  },
 ];
 // Parts no longer offered, kept so older drawings still open and list them.
 const RETIRED = [
@@ -345,6 +351,15 @@ const SIZE_FROM_SPEC = new Set(['eggcrate', 'sqdiff', 'louvre', 'transfer', 'doo
 
 // ---- Plan background helpers ----
 const PLAN_MAX_EDGE = 2000;
+// ISO sheet sizes (mm, long × short) for "set scale from 1:100 @ A1".
+const ISO_SHEETS = { A0: [1189, 841], A1: [841, 594], A2: [594, 420], A3: [420, 297], A4: [297, 210] };
+const DRAWING_RATIOS = [20, 25, 50, 75, 100, 125, 150, 200, 250, 500];
+const sheetName = (sh) => {
+  if (!sh?.w || !sh?.h) return null;
+  const L = Math.max(sh.w, sh.h);
+  const S = Math.min(sh.w, sh.h);
+  return Object.entries(ISO_SHEETS).find(([, [a, b]]) => Math.abs(L - a) / a < 0.03 && Math.abs(S - b) / b < 0.03)?.[0] || null;
+};
 
 function canvasToJpeg(canvas) {
   return new Promise((resolve, reject) => {
@@ -383,7 +398,13 @@ async function pdfFileToJpeg(file) {
   await ensurePdfWorker();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  const pdfPage = await pdf.getPage(1);
+  const { blob, sheet } = await pdfPageToJpeg(pdf, 1);
+  return { blob, sheet, pages: pdf.numPages, pdf };
+}
+
+// One page of an open PDF as a plan image.
+async function pdfPageToJpeg(pdf, n) {
+  const pdfPage = await pdf.getPage(n);
   const base = pdfPage.getViewport({ scale: 1 });
   const scale = Math.min(3, PLAN_MAX_EDGE / Math.max(base.width, base.height));
   const viewport = pdfPage.getViewport({ scale });
@@ -394,7 +415,10 @@ async function pdfFileToJpeg(file) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   await pdfPage.render({ canvasContext: ctx, viewport }).promise;
-  return { blob: await canvasToJpeg(canvas), pages: pdf.numPages };
+  const blob = await canvasToJpeg(canvas);
+  pdfPage.cleanup();
+  const mm = 25.4 / 72; // PDF points to mm: the real printed sheet size
+  return { blob, sheet: { w: Math.round(base.width * mm), h: Math.round(base.height * mm) } };
 }
 
 function blobToDataUrl(blob) {
@@ -570,6 +594,13 @@ const DRAWING_KINDS = {
   construction: { label: 'For construction', note: 'Issued for construction. Report any discrepancy before proceeding.' },
   asbuilt: { label: 'As installed', note: 'As-installed record of the mechanical services.' },
 };
+// Takeoff: measure lengths and count symbols straight off a loaded plan (consultant drawings).
+const TO_LEN_PRESETS = ['Sheet metal duct', 'Spiral duct', 'Flex duct', 'Duct board', 'Refrigerant pipe', 'Condensate drain', 'Power cable', 'Control cable'];
+const TO_COUNT_PRESETS = ['Indoor unit', 'Outdoor unit', 'Ceiling diffuser', 'Return air grille', 'Exhaust grille', 'Exhaust fan', 'Volume damper', 'Fire damper', 'Zone motor', 'Controller'];
+const TO_COLORS = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5'];
+const toColor = (label) => { let h = 0; for (const ch of String(label || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return TO_COLORS[h % TO_COLORS.length]; };
+const toLenM = (pts, ppm) => pts.reduce((n, q, i) => (i ? n + Math.hypot(q.x - pts[i - 1].x, q.y - pts[i - 1].y) : 0), 0) / ppm;
+
 // The customer plan is its own PDF (Export PDF → Customer plan), not an "Issued as" choice.
 const CUSTOMER_KIND = { label: 'Customer plan', note: 'Indicative layout for your quotation. Final unit, outlet and duct positions are confirmed on site before installation.' };
 
@@ -598,6 +629,8 @@ const SHORTCUTS = [
   ['1 / 2 / 3', 'Draw supply / return / flex duct'],
   ['4 / 5', 'Draw exhaust / outside air duct'],
   ['L', 'Show or hide labels'],
+  ['U', 'Takeoff: measure a length over the plan (tap each corner, double-tap or Enter to finish)'],
+  ['I', 'Takeoff: count — tap each symbol on the plan'],
   ['+ / -', 'Zoom in / out'],
   ['0', 'Fit the whole plan'],
   ['F', 'Zoom to the selected part'],
@@ -766,6 +799,10 @@ function footprintMm(item) {
     }
     if (rect) return [Number(rect[1]), Number(rect[2])];
     if (round) return [Number(round[1]) + 100, Number(round[1]) + 50];
+  }
+  if (item.type === 'custom') {
+    const m = String(item.customSize || '').match(/(\d+)\s*[x×]\s*(\d+)/i);
+    return m ? [Number(m[1]), Number(m[2])] : [300, 300];
   }
   return TYPE_MM[item.type] || [400, 400];
 }
@@ -1649,11 +1686,12 @@ function StatusPicker({ value, onChange, noun }) {
   );
 }
 
-function ComponentList({ onPick, draggable = false, autoFocus = false, compact = false }) {
+function ComponentList({ onPick, draggable = false, autoFocus = false, compact = false, myParts = [], onRemoveMyPart }) {
   const [q, setQ] = useState('');
   const query = q.trim().toLowerCase();
+  const mine = myParts.filter((m) => !query || `${m.name} ${m.tag} ${m.size || ''} custom`.toLowerCase().includes(query));
   const groups = CATALOG
-    .map((g) => ({ ...g, items: g.items.filter((t) => !query || `${t.label} ${t.tag} ${g.group}`.toLowerCase().includes(query)) }))
+    .map((g) => ({ ...g, items: g.items.filter((t) => !query || `${t.label} ${t.tag} ${g.group}`.toLowerCase().includes(query) || (t.type === 'custom' && mine.length)) }))
     .filter((g) => g.items.length);
   return (
     <div className="flex flex-col min-h-0">
@@ -1672,6 +1710,22 @@ function ComponentList({ onPick, draggable = false, autoFocus = false, compact =
         {groups.map((g) => (
           <div key={g.group}>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-0.5">{g.group}</div>
+            {g.group === 'Custom parts' && mine.map((m) => (
+              <div key={`${m.name}|${m.size || ''}`} className="group flex items-center">
+                <button
+                  type="button"
+                  draggable={draggable}
+                  onDragStart={(event) => { event.dataTransfer.setData('text/x-hvac-part', 'custom'); event.dataTransfer.setData('text/x-hvac-preset', JSON.stringify(m)); event.dataTransfer.effectAllowed = 'copy'; }}
+                  onClick={() => onPick('custom', m)}
+                  title={draggable ? `Drag onto the plan, or click to add ${m.name}` : `Add ${m.name} here`}
+                  className={`flex-1 min-w-0 flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                >
+                  <span className="size-7 shrink-0 flex items-center justify-center rounded border border-border bg-card text-[9px] font-bold">{m.tag || 'CP'}</span>
+                  <span className="truncate">{`${m.name}${m.size ? ` ${m.size}` : ''}`}</span>
+                </button>
+                {onRemoveMyPart && <button type="button" aria-label={`Remove ${m.name} from my parts`} title="Remove from my parts" className="px-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground" onClick={() => onRemoveMyPart(m)}>×</button>}
+              </div>
+            ))}
             {g.items.map((t) => (
               <button
                 key={t.type}
@@ -1696,12 +1750,19 @@ function ComponentList({ onPick, draggable = false, autoFocus = false, compact =
   );
 }
 
+// "My parts": custom parts saved on this device for reuse (e.g. Blank off plate).
+const MY_PARTS_KEY = 'dp-my-parts';
+const readMyParts = () => { try { const v = JSON.parse(localStorage.getItem(MY_PARTS_KEY) || '[]'); return Array.isArray(v) ? v.filter((x) => x?.name) : []; } catch { return []; } };
+const writeMyParts = (list) => { try { localStorage.setItem(MY_PARTS_KEY, JSON.stringify(list)); } catch { /* storage blocked */ } };
+const tagFromName = (name) => String(name || '').split(/[\s/-]+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().slice(0, 4) || 'CP';
+const customLine = (it) => `${(it.customName || 'Custom part').trim()}${String(it.customSize || '').trim() ? ` — ${String(it.customSize).trim()}` : ''}`;
+
 // Older drawings stored the top-left corner of a 48px box; convert to centres.
 function migrateItems(list) {
   return (list || []).map((item) => (item.cx != null ? item : { ...item, cx: (item.x ?? 0) + 24, cy: (item.y ?? 0) + 24 }));
 }
 
-export default function DrawingWorkspace({ page, project, onSave, onSaveProject, onBack, levels = [], onSwitchLevel, onAddLevel }) {
+export default function DrawingWorkspace({ page, project, onSave, onSaveProject, onBack, levels = [], onSwitchLevel, onAddLevel, onAddLevelsWithPlans }) {
   const [items, setItems] = useState([]);
   const [connections, setConnections] = useState([]);
   const [joins, setJoins] = useState([]); // [{ id, a:{itemId,portId}, b:{itemId,portId} }]
@@ -1709,6 +1770,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [planFile, setPlanFile] = useState([]);
   const [planBusy, setPlanBusy] = useState(false);
   const [scale, setScale] = useState(null);
+  const [sheet, setSheet] = useState(null); // printed sheet size of the plan (mm), from the PDF
+  const [bgAspect, setBgAspect] = useState(null); // plan image width / height
+  const [scaleDlg, setScaleDlg] = useState(null);
+  const [myParts, setMyParts] = useState(readMyParts);
+  const [customDlg, setCustomDlg] = useState(null); // { name, tag, size, qty, save, at } — new custom part // { ratio, paper } — set scale from 1:100 @ A1
   const [scaleDraft, setScaleDraft] = useState(null);
   const [showLabels, setShowLabels] = useState(true);
   const [showFab, setShowFab] = useState(false); // shop detail: sheet pieces, joints, centre line
@@ -1762,11 +1828,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [pickOpen, setPickOpen] = useState(false);
   const [allSel, setAllSel] = useState(false); // Ctrl+A: everything selected
   const [printDialog, setPrintDialog] = useState(false);
+  const [pdfSplit, setPdfSplit] = useState(null); // { pdf, pages, names[], busy } — multi-page PDF waiting to be split into levels
   const [printScaleUsed, setPrintScaleUsed] = useState(null);
   // Free sketch for jobs with no plan: walls, room boxes and text labels.
   const [sketch, setSketch] = useState([]);
   const [sketchTool, setSketchTool] = useState(null); // null | 'wall' | 'room' | 'text'
   const [sketchDraft, setSketchDraft] = useState(null);
+  const [toLen, setToLen] = useState(TO_LEN_PRESETS[0]); // what the next takeoff length is
+  const [toCount, setToCount] = useState(TO_COUNT_PRESETS[0]); // what the next count tap is
+  const [tmActive, setTmActive] = useState(null); // id of the takeoff length being drawn
+  const [tmHover, setTmHover] = useState(null);
   // Sheet metal run still being drawn: where the next segment starts. Each tap adds a bend
   // to the same run; Esc / Enter / a second tap on the same spot / ending on a connection finishes it.
   const [smChain, setSmChain] = useState(null); // null | {kind:'end', id, end} | {kind:'port', itemId, portId} | {kind:'free', x, y}
@@ -1822,7 +1893,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const t = setTimeout(() => {
       if (!dirtyRef.current) return; // already saved
       try {
-        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
+        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, sheet, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
       } catch { /* storage full or blocked */ }
     }, 800);
     return () => clearTimeout(t);
@@ -1983,6 +2054,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setConnections([]);
         setJoins([]);
         setScale(null);
+        setSheet(null);
         setClimate(DEFAULT_CLIMATE);
       } else {
         setItems(migrateItems(saved.items));
@@ -1990,6 +2062,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setJoins(saved.joins ?? []);
         setSketch(saved.sketch ?? []);
         setScale(saved.scale ?? null);
+        setSheet(saved.sheet?.w ? saved.sheet : null);
         setShowLabels(saved.showLabels ?? true);
         setShowFab(!!saved.showFab);
         setTextStyle({ size: 0.7, color: '', ...(saved.textStyle || {}) });
@@ -2017,6 +2090,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       setConnections([]);
       setJoins([]);
       setScale(null);
+      setSheet(null);
       setStatus('Drawing data could not be read');
     }
   }, [page.Id, page.drawingJson_c, page.planFile_c]);
@@ -2028,8 +2102,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const counts = {};
     const map = {};
     items.forEach((item) => {
-      counts[item.type] = (counts[item.type] || 0) + 1;
-      map[item.id] = `${getTool(item.type).tag}${counts[item.type]}`;
+      const tg = item.type === 'custom' ? (item.customTag || 'CP') : getTool(item.type).tag;
+      const k = item.type === 'custom' ? `custom:${tg}` : item.type;
+      counts[k] = (counts[k] || 0) + 1;
+      map[item.id] = `${tg}${counts[k]}`;
     });
     return map;
   }, [items]);
@@ -2140,6 +2216,27 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     return rows;
   }, [items, runs, scale]);
 
+  // Takeoff totals: lengths measured and symbols counted over the plan, by what they are.
+  const takeoff2 = useMemo(() => {
+    const lengths = new Map();
+    const counts = new Map();
+    const countNo = {};
+    sketch.forEach((x) => {
+      if (x.kind === 'tmeasure' && (x.pts?.length || 0) > 1) {
+        const k = x.label || 'Duct';
+        const cur = lengths.get(k) || { m: 0, runs: 0 };
+        cur.m += toLenM(x.pts, ppm);
+        cur.runs += 1;
+        lengths.set(k, cur);
+      } else if (x.kind === 'tcount') {
+        const k = x.label || 'Item';
+        counts.set(k, (counts.get(k) || 0) + 1);
+        countNo[x.id] = counts.get(k);
+      }
+    });
+    return { lengths, counts, countNo, any: lengths.size + counts.size > 0 };
+  }, [sketch, ppm]);
+
   // Equipment list / bill of materials, grouped like the parts library.
   const equipment = useMemo(() => {
     const groups = new Map();
@@ -2187,6 +2284,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       }
       if (item.type === 'supply') {
         add(group, `${item.spec?.variant || 'Metal Diffusers + Neck'} — ${item.spec?.neck || '250mm'} neck`);
+        return;
+      }
+      if (item.type === 'custom') {
+        add(group, customLine(item), Number(item.qty) > 0 ? Number(item.qty) : 1, item.notes ? { note: item.notes } : {});
         return;
       }
       if (item.type === 'rafilterbox') {
@@ -2314,7 +2415,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (lengthsKnown) add('Ductwork', `Flex duct R1.0 — ${sizeLabel(size)} x 6m`, Math.max(1, Math.ceil(metres / FLEX_LENGTH_M)), { swatch: sizeColor(size), note: `${fmtM(metres)} m drawn over ${count} run(s)` });
       else add('Ductwork', `Flex duct — ${sizeLabel(size)}`, count, { swatch: sizeColor(size), note: 'runs — set the scale for lengths' });
     });
-    const order = [...CATALOG.map((g) => g.group), 'Ductwork', 'Refrigeration & drains', 'Electrical'];
+    takeoff2.lengths.forEach(({ m, runs: n }, label) => {
+      if (scale) add('Takeoff', label, Math.max(1, Math.ceil(m)), { swatch: toColor(label), note: `metres — ${fmtM(m)} m measured over ${n} run(s)` });
+      else add('Takeoff', label, n, { swatch: toColor(label), note: 'runs — set the scale for metres' });
+    });
+    takeoff2.counts.forEach((n, label) => add('Takeoff', label, n, { swatch: toColor(label), note: 'counted on the plan' }));
+    const order = ['Takeoff', ...CATALOG.map((g) => g.group), 'Ductwork', 'Refrigeration & drains', 'Electrical'];
     const list = [...groups.entries()]
       .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
       .map(([name, rows]) => ({ name, rows: [...rows.values()] }));
@@ -2324,7 +2430,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       { name: 'Existing — strip out / remove', rows: siteRows(strip) },
     ].filter((g) => g.rows.length);
     return { groups: list, site: siteGroups, total: list.reduce((n, g) => n + g.rows.reduce((m, r) => m + r.qty, 0), 0) };
-  }, [items, runs, scale, sketch, ppm, canvasJoints]);
+  }, [items, runs, scale, sketch, ppm, canvasJoints, takeoff2]);
 
   const pinNo = useMemo(() => {
     const m = {};
@@ -2616,12 +2722,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     };
   }
 
-  function addItem(type, at = null) {
+  function addItem(type, at = null, preset = null) {
+    if (type === 'custom' && !preset) { setCustomDlg({ name: '', tag: '', size: '', qty: '1', save: true, at }); return; }
     const el = canvasRef.current;
     const v = viewRef.current;
     const cx = at ? at.x : el ? (el.clientWidth / 2 - v.x) / v.z : WORLD_W / 2;
     const cy = at ? at.y : el ? (el.clientHeight / 2 - v.y) / v.z : WORLD_H / 2;
     const draft = { id: crypto.randomUUID(), type, cx, cy, rot: 0, spec: defaultSpec(getTool(type)) };
+    if (type === 'custom' && preset) Object.assign(draft, { customName: preset.name, customTag: preset.tag || tagFromName(preset.name), customSize: preset.size || '', qty: Number(preset.qty) > 0 ? Number(preset.qty) : 1 });
     if (type === 'zonearea') {
       // Automatically take the next zone that isn't coloured yet.
       const used = items.filter((i) => i.type === 'zonearea').map((i) => i.spec?.zone);
@@ -2648,6 +2756,21 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     setPendingPort(null);
     markDirty();
     if (type === 'zone' && at) cutIn(next);
+  }
+
+  function removeMyPart(m) {
+    setMyParts((cur) => { const next = cur.filter((x) => !(x.name === m.name && (x.size || '') === (m.size || ''))); writeMyParts(next); return next; });
+  }
+  function createCustomPart() {
+    const d = customDlg;
+    const name = (d?.name || '').trim();
+    if (!name) { toast.error('Give the part a name, e.g. Blank off plate.'); return; }
+    const preset = { name, tag: (d.tag || '').trim().toUpperCase() || tagFromName(name), size: (d.size || '').trim() };
+    if (d.save) {
+      setMyParts((cur) => { const next = [...cur.filter((x) => !(x.name === preset.name && (x.size || '') === preset.size)), preset]; writeMyParts(next); return next; });
+    }
+    setCustomDlg(null);
+    addItem('custom', d.at || null, { ...preset, qty: d.qty });
   }
 
   // Auto cut-in: a free zone motor dropped on a supply run splits the run through
@@ -3032,9 +3155,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (key === 'a') { setSketchTool('callout'); return; }
       if (key === 'm') { setSketchTool('measure'); return; }
       if (key === 'n') { setSketchTool('pin'); return; }
+      if (key === 'u') { setSketchTool('tlen'); return; }
+      if (key === 'i') { setSketchTool('tcount'); return; }
       if (key === 'q') { setSketchTool('erase'); return; }
       if (key === 'v') { setSketchTool(null); setPendingPort(null); setSketchDraft(null); return; }
-      if (key === 'k') { startScale(); return; }
+      if (key === 'k') { openScaleDlg(); return; }
       if (key === 'o') { fileRef.current?.click(); return; }
       if (key === 'h') { setCompact((c) => !c); return; }
       if (key === 'g') { setDuctMaterial((m) => (m === 'sheet' ? 'flex' : 'sheet')); toast.message('Toggled flex / sheet metal for new runs'); return; }
@@ -3051,6 +3176,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         if (selected) deleteSelectedItem();
         else if (selectedConn) deleteSelectedConnection();
         else if (selectedSketchId) deleteSketch();
+      } else if ((event.key === 'Escape' || event.key === 'Enter') && tmActive) {
+        finishTm(); // stays on the takeoff tool for the next run; Esc again leaves it
       } else if ((event.key === 'Escape' || event.key === 'Enter') && smChain) {
         // Finish the run being drawn and go back to Select (D to draw another).
         setSmChain(null);
@@ -3069,6 +3196,29 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  // Pages 2..N of a multi-page PDF each become their own level with that page as its plan.
+  async function splitPdfToLevels() {
+    const job = pdfSplit;
+    if (!job || job.busy) return;
+    setPdfSplit({ ...job, busy: true });
+    const list = [];
+    try {
+      for (let n = 2; n <= job.pages; n += 1) {
+        setStatus(`Preparing PDF page ${n} of ${job.pages}…`);
+        const { blob, sheet: sh } = await pdfPageToJpeg(job.pdf, n);
+        list.push({ name: (job.names[n - 2] || '').trim() || `Page ${n}`, sheet: sh, file: new File([blob], `plan-p${n}.jpg`, { type: 'image/jpeg' }) });
+      }
+      const made = await onAddLevelsWithPlans(list);
+      setStatus(`Plan loaded · ${made} more level${made === 1 ? '' : 's'} added from the PDF`);
+      toast.success(`${made} level${made === 1 ? '' : 's'} added`, { description: 'Pick them from the level drop-down at the top. Set the scale on each one.' });
+    } catch (err) {
+      toast.error('Could not add the other pages', { description: err?.message || 'Try again.' });
+    } finally {
+      job.pdf?.destroy?.();
+      setPdfSplit(null);
+    }
+  }
 
   async function loadPlan(event) {
     const file = event.target.files?.[0];
@@ -3091,9 +3241,20 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (isPdf) {
         const res = await pdfFileToJpeg(file);
         blob = res.blob;
+        setSheet(res.sheet);
         note = ` (PDF page 1 of ${res.pages})`;
+        if (res.pages > 1 && onAddLevelsWithPlans) {
+          const used = new Set(levels.map((l) => String(l.Name || '').toLowerCase()));
+          const names = Array.from({ length: res.pages - 1 }, (_, i) => {
+            let nm = `Page ${i + 2}`;
+            for (let k = 2; used.has(nm.toLowerCase()); k += 1) nm = `Page ${i + 2} (${k})`;
+            return nm;
+          });
+          setPdfSplit({ pdf: res.pdf, pages: res.pages, names, busy: false });
+        } else res.pdf?.destroy?.();
       } else {
         blob = await imageFileToJpeg(file);
+        setSheet(null); // a photo or scan: the sheet size is picked when setting the scale
       }
     } catch (err) {
       const msg = err?.message || 'unknown error';
@@ -3118,7 +3279,31 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     } finally {
       setPlanBusy(false);
     }
-    if (!scale) toast.message('Plan loaded', { description: 'Tap “Set scale” and mark a known dimension so units draw to size and ducts are measured.' });
+    if (!scale) toast.message('Plan loaded', { description: 'Tap “Set scale” (K): type the scale from the title block, e.g. 1:100 @ A1, or mark a known dimension.' });
+  }
+
+  // ---- Scale from the drawing's stated scale (1:100 @ A1) ----
+  function openScaleDlg() {
+    const auto = sheetName(sheet);
+    setScaleDlg({ ratio: String(scale?.ratio || 100), paper: scale?.paper || auto || 'A3' });
+  }
+  function applyRatioScale() {
+    const N = Number(scaleDlg?.ratio);
+    const dims = ISO_SHEETS[scaleDlg?.paper];
+    if (!(N > 0) || !dims) { toast.error('Enter the drawing scale, e.g. 100 for 1:100.'); return; }
+    if (!background || !bgAspect) { toast.error('Load the plan first.'); return; }
+    // The plan image is fitted inside the drawing area; its shown width is the sheet's width.
+    const shownW = bgAspect >= WORLD_W / WORLD_H ? WORLD_W : WORLD_H * bgAspect;
+    const sheetWmm = bgAspect >= 1 ? dims[0] : dims[1];
+    const pxPerM = shownW / ((sheetWmm * N) / 1000);
+    setScale({ pxPerM, ratio: N, paper: scaleDlg.paper });
+    setScaleDlg(null);
+    markDirty('Scale set · unsaved changes');
+    const pdfName = sheetName(sheet);
+    toast.success(`Scale 1:${N} @ ${scaleDlg.paper}`, {
+      description: `${pdfName && pdfName !== scaleDlg.paper ? `This PDF is ${pdfName}, so it's a reduced copy — that's fine. ` : ''}The sheet is ${Math.round((sheetWmm * N) / 1000)} m wide. Check one known dimension with Measure (M).`,
+      duration: 8000,
+    });
   }
 
   // ---- Scale calibration ----
@@ -3265,7 +3450,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const dx = skSnap(p.x - drag.px);
       const dy = skSnap(p.y - drag.py);
       const o = drag.orig;
-      setSketch((current) => current.map((s) => (s.id === drag.id ? { ...s, x1: o.x1 + dx, y1: o.y1 + dy, ...(o.x2 != null ? { x2: o.x2 + dx, y2: o.y2 + dy } : {}), ...(o.pts ? { pts: o.pts.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : {}) } : s)));
+      setSketch((current) => current.map((s) => (s.id === drag.id ? { ...s, ...(o.x1 != null ? { x1: o.x1 + dx, y1: o.y1 + dy } : {}), ...(o.x2 != null ? { x2: o.x2 + dx, y2: o.y2 + dy } : {}), ...(o.pts ? { pts: o.pts.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : {}) } : s)));
       if (drag.riders?.length) {
         // Dampers, fans and spigots fitted to the run travel with it.
         const at = new Map(drag.riders.map((r) => [r.id, r]));
@@ -3582,6 +3767,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
   function onCanvasPointerMove(event) {
     if (dragRef.current) { moveDrag(event); return; }
+    if (sketchTool === 'tlen' && tmActive && event.pointerType !== 'touch') setTmHover(toWorld(event.clientX, event.clientY));
     if (sketchTool === 'smduct' && smChain && event.pointerType !== 'touch') {
       // Show the next segment of the run being drawn following the pointer.
       const at = smChainAt();
@@ -3701,11 +3887,22 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     toast.success(`${o.summary.title} added`, { description: 'Everything is editable — drag outlets to suit lights and trusses. Undo removes it.' });
   }
 
+  useEffect(() => { if (sketchTool !== 'tlen' && tmActive) finishTm(); }, [sketchTool]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- Free sketch (no plan) ----
   // Snap to a 50 mm grid at the drawing's scale.
   function skSnap(v) {
     const g = (ppm * 50) / 1000;
     return Math.round(v / g) * g;
+  }
+
+  // End the takeoff length being drawn; a single tap with no second corner is dropped.
+  function finishTm() {
+    const id = tmActive;
+    setTmActive(null);
+    setTmHover(null);
+    if (!id) return;
+    setSketch((current) => current.filter((x) => x.id !== id || (x.pts?.length || 0) > 1));
   }
 
   function startSketch(event, opts = {}) {
@@ -3716,6 +3913,34 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       eraseAt(p);
       dragRef.current = { kind: 'erase', sx: event.clientX, sy: event.clientY, moved: false, last: 0 };
       canvasRef.current.setPointerCapture(event.pointerId);
+      return;
+    }
+    if ((sketchTool === 'tcount' || sketchTool === 'tlen') && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) document.activeElement.blur(); // so Enter / Esc reach the drawing
+    if (sketchTool === 'tcount') {
+      const el = { id: crypto.randomUUID(), kind: 'tcount', x1: p.x, y1: p.y, label: toCount.trim() || 'Item' };
+      setSketch((current) => [...current, el]);
+      markDirty();
+      return; // stay on Count for the next tap
+    }
+    if (sketchTool === 'tlen') {
+      const cur = tmActive && sketch.find((x) => x.id === tmActive);
+      if (cur) {
+        const last = cur.pts[cur.pts.length - 1];
+        if (Math.hypot(p.x - last.x, p.y - last.y) < 10 / (viewRef.current?.z || 1)) { finishTm(); return; } // double-tap / tap the last corner
+        let q = { x: p.x, y: p.y };
+        if (event.shiftKey) { // Shift: snap to 0 / 45 / 90°
+          const a = Math.round(Math.atan2(p.y - last.y, p.x - last.x) / (Math.PI / 4)) * (Math.PI / 4);
+          const d = Math.hypot(p.x - last.x, p.y - last.y);
+          q = { x: last.x + Math.cos(a) * d, y: last.y + Math.sin(a) * d };
+        }
+        setSketch((current) => current.map((x) => (x.id === cur.id ? { ...x, pts: [...x.pts, q] } : x)));
+        markDirty();
+        return;
+      }
+      const el = { id: crypto.randomUUID(), kind: 'tmeasure', pts: [{ x: p.x, y: p.y }], label: toLen.trim() || 'Duct' };
+      setSketch((current) => [...current, el]);
+      setTmActive(el.id);
+      markDirty();
       return;
     }
     if (sketchTool === 'text' || sketchTool === 'pin') {
@@ -4138,6 +4363,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
     const sk = [...sketch].reverse().find((x) => {
       if (x.kind === 'smduct') return onPath(smPts(x, smCtx), (smDims(x).w / 1000) * ppm / 2 + tol);
+      if (x.kind === 'tmeasure') return onPath(x.pts || [], tol);
       if (x.kind === 'wall' || x.kind === 'dim' || x.kind === 'callout') return segDist(p, { x: x.x1, y: x.y1 }, { x: x.x2, y: x.y2 }) <= tol;
       if (x.kind === 'room') return [[x.x1, x.y1, x.x2, x.y1], [x.x2, x.y1, x.x2, x.y2], [x.x2, x.y2, x.x1, x.y2], [x.x1, x.y2, x.x1, x.y1]].some(([a, b, c, d]) => segDist(p, { x: a, y: b }, { x: c, y: d }) <= tol);
       return Math.hypot(p.x - x.x1, p.y - x.y1) <= tol * 2.5; // text, note pins
@@ -4428,7 +4654,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return;
     }
     setStatus('Saving…');
-    const payload = JSON.stringify({ items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
+    const payload = JSON.stringify({ items, connections, joins, scale, sheet, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
     lastSavedRef.current = payload;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos); } catch { ok = false; }
@@ -4618,6 +4844,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
 
   function renderSymbol(item, box) {
+    if (item.type === 'custom') {
+      return (
+        <svg viewBox="0 0 24 24" preserveAspectRatio="none" className="size-full text-slate-700" fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke">
+          <rect x="1" y="1" width="22" height="22" vectorEffect="non-scaling-stroke" />
+          <path d="M1 1 L23 23 M23 1 L1 23" vectorEffect="non-scaling-stroke" strokeWidth="1" />
+        </svg>
+      );
+    }
     if (item.type === 'indoor') {
       const [w, d] = footprintMm(item);
       return <IndoorUnitPlan w={w} d={d} />;
@@ -4737,13 +4971,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               <Button variant="ghost" size="sm" className="h-7 px-1.5" title="Cancel (Esc)" onClick={() => setScaleDraft(null)}><ApperIcon name="X" size={14} /></Button>
             </div>
           ) : (
-            <Button variant={scale && !scaleOff ? 'outline' : scaleOff ? 'destructive' : 'default'} size="sm" className="h-8 px-2" title={`${scaleOff ? `Scale looks wrong: the sheet works out ${Math.round(WORLD_W / scale.pxPerM)} m wide, so ducts draw too ${WORLD_W / scale.pxPerM > 120 ? 'thin' : 'big'}. Click to set it again.` : scale ? `Scale set from a ${Number(scale.mm).toLocaleString()} mm reference (sheet ≈ ${Math.round(WORLD_W / scale.pxPerM)} m wide) — click to reset` : 'Set the scale: mark a known dimension so everything draws to size'}  ·  K`} onClick={startScale}>
+            <Button variant={scale && !scaleOff ? 'outline' : scaleOff ? 'destructive' : 'default'} size="sm" className="h-8 px-2" title={`${scaleOff ? `Scale looks wrong: the sheet works out ${Math.round(WORLD_W / scale.pxPerM)} m wide, so ducts draw too ${WORLD_W / scale.pxPerM > 120 ? 'thin' : 'big'}. Click to set it again.` : scale ? `${scale.ratio ? `Scale 1:${scale.ratio} @ ${scale.paper}` : `Scale set from a ${Number(scale.mm).toLocaleString()} mm reference`} (sheet ≈ ${Math.round(WORLD_W / scale.pxPerM)} m wide) — click to change` : 'Set the scale: type 1:100 from the title block, or mark a known dimension'}  ·  K`} onClick={openScaleDlg}>
               <ApperIcon name={scaleOff ? 'TriangleAlert' : 'Ruler'} size={15} />
-              <span className="text-xs">{scaleOff ? 'Check scale' : scale ? 'Scale ✓' : 'Set scale'}</span>
+              <span className="text-xs">{scaleOff ? 'Check scale' : scale?.ratio ? `1:${scale.ratio}` : scale ? 'Scale ✓' : 'Set scale'}</span>
             </Button>
           )}
           <div className="h-6 w-px bg-border mx-0.5" />
-          {[[null, 'MousePointer2', 'Select', 'V'], ['smduct', 'RectangleHorizontal', 'SM duct', 'D'], ['wall', 'PenLine', 'Wall', 'W'], ['room', 'Square', 'Room', 'B'], ['text', 'Type', 'Text', 'T'], ['callout', 'MessageSquareText', 'Callout', 'A'], ['measure', 'Ruler', 'Measure', 'M'], ['pin', 'MapPin', 'Note', 'N'], ['erase', 'Eraser', 'Eraser', 'Q']].map(([tool, icon, label, key]) => (
+          {[[null, 'MousePointer2', 'Select', 'V'], ['smduct', 'RectangleHorizontal', 'SM duct', 'D'], ['wall', 'PenLine', 'Wall', 'W'], ['room', 'Square', 'Room', 'B'], ['text', 'Type', 'Text', 'T'], ['callout', 'MessageSquareText', 'Callout', 'A'], ['measure', 'Ruler', 'Measure', 'M'], ['pin', 'MapPin', 'Note', 'N'], ['tlen', 'Route', 'Takeoff', 'U'], ['tcount', 'Hash', 'Count', 'I'], ['erase', 'Eraser', 'Eraser', 'Q']].map(([tool, icon, label, key]) => (
             <Button
               key={label}
               variant={sketchTool === tool ? 'default' : 'ghost'}
@@ -4835,6 +5069,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             {sketchTool === 'callout' && 'Drag from where the arrow points to where the text box goes, then type in the panel.'}
             {sketchTool === 'measure' && (scale || sketch.some((x) => x.kind === 'wall' || x.kind === 'room') ? 'Drag between two points to measure. Esc when done.' : 'Set the scale first so measurements are real metres.')}
             {sketchTool === 'pin' && 'Tap where the note goes, then type it and add a photo in the panel.'}
+            {sketchTool === 'tlen' && `Measuring “${toLen || 'Duct'}” — tap each corner along it, double-tap or Enter to finish. Shift = 45° steps. Change what you're measuring in the panel.${scale ? '' : ' Set the scale first for real metres.'}`}
+            {sketchTool === 'tcount' && `Counting “${toCount || 'Item'}” — tap each one on the plan. Change what you're counting in the panel. Esc when done.`}
             {sketchTool === 'erase' && 'Eraser: tap or drag over parts, runs, walls, text or notes to remove them. Ctrl+Z undoes. Esc when done.'}
           </div>
         )}
@@ -4858,7 +5094,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         <div className="flex flex-col lg:flex-row flex-1 min-h-0">
         <aside className={`dp-noprint hidden ${compact ? '' : 'lg:flex'} flex-col w-56 shrink-0 border-r border-border bg-card p-2 min-h-0 max-h-[calc(100svh-120px)]`}>
           <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Parts library</div>
-          <ComponentList draggable onPick={(type) => addItem(type)} />
+          <ComponentList draggable myParts={myParts} onRemoveMyPart={removeMyPart} onPick={(type, preset) => addItem(type, null, preset)} />
           <p className="text-[11px] text-muted-foreground mt-2 shrink-0">Drag a part onto the plan to place it, or right-click the plan to add one right there.</p>
         </aside>
         <main className={`flex-1 p-1 sm:p-1.5 bg-muted/30 min-w-0 dp-print-plan ${printMode === 'pick' ? 'dp-noprint' : ''}`}>
@@ -4927,7 +5163,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               const type = event.dataTransfer.getData('text/x-hvac-part');
               if (!type) return;
               event.preventDefault();
-              addItem(type, toWorld(event.clientX, event.clientY));
+              let preset = null;
+              try { preset = JSON.parse(event.dataTransfer.getData('text/x-hvac-preset') || 'null'); } catch { preset = null; }
+              addItem(type, toWorld(event.clientX, event.clientY), preset);
             }}
           >
             <div
@@ -4935,7 +5173,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               style={{ width: WORLD_W, height: WORLD_H, transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}
             >
               {background ? (
-                <img src={background} alt="Uploaded plan" draggable={false} className="absolute inset-0 size-full object-contain pointer-events-none select-none" />
+                <img src={background} alt="Uploaded plan" draggable={false} onLoad={(event) => { const im = event.currentTarget; if (im.naturalHeight) setBgAspect(im.naturalWidth / im.naturalHeight); }} className="absolute inset-0 size-full object-contain pointer-events-none select-none" />
               ) : (
                 <div
                   className="absolute inset-0 opacity-40 pointer-events-none"
@@ -5039,6 +5277,38 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           <line key={i} x1={x - uy * t} y1={y + ux * t} x2={x + uy * t} y2={y - ux * t} stroke={dc} strokeWidth={1.5} />
                         ))}
                         <text x={mx} y={my - 4} transform={`rotate(${ang} ${mx} ${my})`} textAnchor="middle" fontSize={11 * Math.min(inv, 2.5)} fontWeight="700" fill={dc} stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>{`${(len / ppm).toFixed(2)} m`}</text>
+                      </g>
+                    );
+                  }
+                  if (s.kind === 'tmeasure' && s.pts?.length) {
+                    if (printMode === 'customer') return null;
+                    const c = sel ? '#2563eb' : toColor(s.label);
+                    const pts = s.id === tmActive && tmHover ? [...s.pts, tmHover] : s.pts;
+                    const d = pts.map((q, i) => `${i ? 'L' : 'M'}${q.x} ${q.y}`).join(' ');
+                    let best = 0;
+                    let at = pts[0];
+                    for (let i = 1; i < pts.length; i += 1) {
+                      const L = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+                      if (L > best) { best = L; at = { x: (pts[i].x + pts[i - 1].x) / 2, y: (pts[i].y + pts[i - 1].y) / 2 }; }
+                    }
+                    const k = Math.min(inv, 2.5);
+                    return (
+                      <g key={s.id}>
+                        <path d={d} fill="none" stroke="transparent" strokeWidth={16 * k} style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} />
+                        <path d={d} fill="none" stroke={c} strokeOpacity={0.85} strokeWidth={4 * k} strokeLinejoin="round" strokeLinecap="round" strokeDasharray={s.id === tmActive ? `${8 * k} ${5 * k}` : undefined} style={{ pointerEvents: 'none' }} />
+                        {s.pts.map((q, i) => <circle key={i} cx={q.x} cy={q.y} r={3.5 * k} fill="#fff" stroke={c} strokeWidth={1.5 * k} style={{ pointerEvents: 'none' }} />)}
+                        {pts.length > 1 && <text x={at.x} y={at.y - 7 * k} textAnchor="middle" fontSize={11 * k} fontWeight="700" fill={c} stroke="#fff" strokeWidth={3 * k} paintOrder="stroke" style={{ pointerEvents: 'none' }}>{`${fmtM(toLenM(pts, ppm))} m`}</text>}
+                      </g>
+                    );
+                  }
+                  if (s.kind === 'tcount') {
+                    if (printMode === 'customer') return null;
+                    const k = Math.min(inv, 2.5);
+                    const c = sel ? '#2563eb' : toColor(s.label);
+                    return (
+                      <g key={s.id} transform={`translate(${s.x1} ${s.y1}) scale(${k})`} style={{ pointerEvents: live || 'all', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)}>
+                        <circle r={9} fill={c} fillOpacity={0.9} stroke="#fff" strokeWidth={2} />
+                        <text textAnchor="middle" dominantBaseline="central" fontSize="10" fontWeight="800" fill="#fff">{takeoff2.countNo[s.id]}</text>
                       </g>
                     );
                   }
@@ -5537,8 +5807,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   <button
                     key={item.id}
                     type="button"
-                    title={`${tags[item.id]} · ${tool.label}`}
-                    aria-label={`${tags[item.id]} ${tool.label}`}
+                    title={`${tags[item.id]} · ${item.type === 'custom' ? customLine(item) : tool.label}`}
+                    aria-label={`${tags[item.id]} ${item.type === 'custom' ? customLine(item) : tool.label}`}
                     className={`absolute touch-none transition-shadow ${scale ? 'bg-white' : 'rounded-sm bg-white/85 shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_1px_4px_rgba(0,0,0,0.35)]'} ${item.remove ? 'opacity-55 grayscale outline-2 outline-dashed outline-red-600' : item.existing ? 'opacity-65 grayscale outline-2 outline-dashed outline-slate-500' : ''} ${isSel ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent' : 'hover:ring-1 hover:ring-primary/40'}`}
                     style={(item.rot || 0) % 90 ? { left: item.cx - box.uw / 2, top: item.cy - box.uh / 2, width: box.uw, height: box.uh, transform: `rotate(${item.rot}deg)` } : { left: item.cx - box.w / 2, top: item.cy - box.h / 2, width: box.w, height: box.h }}
                     onPointerDown={(event) => startItemDrag(event, item)}
@@ -5840,7 +6110,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     <ApperIcon name="X" size={14} />
                   </button>
                 </div>
-                <ComponentList compact autoFocus onPick={(type) => { addItem(type, ctxMenu.world); setCtxMenu(null); }} />
+                <ComponentList compact autoFocus myParts={myParts} onPick={(type, preset) => { addItem(type, ctxMenu.world, preset); setCtxMenu(null); }} />
               </div>
             )}
 
@@ -5922,9 +6192,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           <div className="dp-print-only dp-side-list text-black text-[9px] leading-tight">
             {(() => {
               // Symbol legend: only what's on this drawing.
-              const types = [...new Set(items.filter((i) => i.type !== 'zonearea').map((i) => i.type))];
+              const types = [...new Set(items.filter((i) => i.type !== 'zonearea' && i.type !== 'custom').map((i) => i.type))];
+              const customs = [...new Map(items.filter((i) => i.type === 'custom').map((i) => [`${i.customTag || 'CP'}|${i.customName || ''}`, i])).values()];
               const airs = [...new Set(sketch.filter((x) => x.kind === 'smduct').map((x) => x.air || 'supply'))];
-              if (!types.length && !airs.length) return null;
+              if (!types.length && !airs.length && !customs.length) return null;
               return (
                 <div className="mb-2">
                   <div className="font-bold uppercase tracking-wider text-[10px] border-b-2 border-black pb-1 mb-1">Legend</div>
@@ -5933,6 +6204,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       <div key={`air-${a}`} className="flex items-center gap-1">
                         <span className="inline-block h-2.5 w-5 shrink-0 border" style={{ background: SM_FILL[a] || SM_FILL.supply, borderColor: CASING[a] || CASING.supply }} />
                         <span>{`${(AIR_NAME[a] || a).replace(/^./, (c) => c.toUpperCase())} duct`}</span>
+                      </div>
+                    ))}
+                    {customs.map((i) => (
+                      <div key={`cp-${i.id}`} className="flex items-center gap-1">
+                        <span className="inline-flex size-4 shrink-0 items-center justify-center border border-current text-[6px] font-bold">×</span>
+                        <span className="truncate">{`${i.customTag || 'CP'} ${i.customName || 'Custom part'}`}</span>
                       </div>
                     ))}
                     {types.map((t) => {
@@ -6191,6 +6468,29 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       <TagColourPicker value={selected.labelColor} onChange={(c) => updateItem(selected.id, { labelColor: c || undefined })} />
                     </div>
                   )}
+                  {selected.type === 'custom' && (
+                    <div className="space-y-2 rounded-md border border-border p-2">
+                      <label className="flex flex-col gap-1 text-xs">
+                        <span className="text-muted-foreground">Part name</span>
+                        <Input className="h-9" value={selected.customName || ''} onChange={(event) => updateItem(selected.id, { customName: event.target.value })} />
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <label className="flex flex-col gap-1 text-xs">
+                          <span className="text-muted-foreground">Tag</span>
+                          <Input className="h-9" value={selected.customTag || ''} onChange={(event) => updateItem(selected.id, { customTag: event.target.value.toUpperCase().slice(0, 6) })} />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          <span className="text-muted-foreground">Size</span>
+                          <Input className="h-9" placeholder="e.g. 600x300" value={selected.customSize || ''} onChange={(event) => updateItem(selected.id, { customSize: event.target.value })} />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          <span className="text-muted-foreground">Qty</span>
+                          <Input className="h-9" type="number" min="1" inputMode="numeric" value={selected.qty ?? 1} onChange={(event) => updateItem(selected.id, { qty: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                        </label>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">{`Parts list: ${Number(selected.qty) > 0 ? Number(selected.qty) : 1} × ${customLine(selected)}`}</p>
+                    </div>
+                  )}
                   {!(selected.type === 'indoor' || selected.type === 'coilsection') && (
                     <label className="flex flex-col gap-1 text-xs">
                       <span className="text-muted-foreground">Airflow (L/s)</span>
@@ -6445,7 +6745,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           )}
           {rightTab === 'selection' && !selected && !selectedConn && selectedSketch && (
             <div className="space-y-3">
-              <div className="text-sm font-semibold">{{ wall: 'Wall', room: 'Room', dim: 'Measurement', smduct: `${SM_MATS[smMat(selectedSketch)]} run`, callout: 'Callout', pin: `Site note ${pinNo[selectedSketch.id] || ''}` }[selectedSketch.kind] || 'Text label'}</div>
+              <div className="text-sm font-semibold">{{ wall: 'Wall', room: 'Room', dim: 'Measurement', smduct: `${SM_MATS[smMat(selectedSketch)]} run`, callout: 'Callout', pin: `Site note ${pinNo[selectedSketch.id] || ''}`, tmeasure: 'Takeoff length', tcount: `Count ${takeoff2.countNo[selectedSketch.id] || ''}` }[selectedSketch.kind] || 'Text label'}</div>
+              {(selectedSketch.kind === 'tmeasure' || selectedSketch.kind === 'tcount') && (
+                <div className="space-y-2 text-xs">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-muted-foreground">What it is (goes on the parts list)</span>
+                    <Input className="h-9" list={selectedSketch.kind === 'tmeasure' ? 'dp-to-len' : 'dp-to-count'} value={selectedSketch.label || ''} onChange={(event) => updateSketch(selectedSketch.id, { label: event.target.value })} />
+                  </label>
+                  {selectedSketch.kind === 'tmeasure' && (
+                    <div>
+                      <span className="font-semibold">{`${fmtM(toLenM(selectedSketch.pts || [], ppm))} m`}</span>
+                      <span className="text-muted-foreground">{` · ${Math.max(0, (selectedSketch.pts?.length || 1) - 1)} straight(s)`}</span>
+                      {!scale && <div className="text-[11px] text-amber-700">Not to scale yet — set the scale for real metres.</div>}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">Drag to move · Delete removes it.</p>
+                </div>
+              )}
               {selectedSketch.kind === 'dim' && (
                 <div className="text-xs">
                   <span className="font-semibold">{`${(Math.hypot(selectedSketch.x2 - selectedSketch.x1, selectedSketch.y2 - selectedSketch.y1) / ppm).toFixed(2)} m`}</span>
@@ -6792,6 +7108,51 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               <p className="text-[11px] text-muted-foreground">R / Shift+R rotate · Esc clears.</p>
             </div>
           )}
+          {rightTab === 'selection' && !selected && !selectedConn && !selectedSketch && !allSel && (sketchTool === 'tlen' || sketchTool === 'tcount' || takeoff2.any) && (
+            <div className="space-y-2 mb-3 rounded-md border border-border p-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">Takeoff</span>
+                <div className="flex gap-1">
+                  <Button size="sm" variant={sketchTool === 'tlen' ? 'default' : 'outline'} className="h-7 px-2 text-xs" onClick={() => setSketchTool('tlen')}><ApperIcon name="Route" size={13} />Length</Button>
+                  <Button size="sm" variant={sketchTool === 'tcount' ? 'default' : 'outline'} className="h-7 px-2 text-xs" onClick={() => setSketchTool('tcount')}><ApperIcon name="Hash" size={13} />Count</Button>
+                </div>
+              </div>
+              {sketchTool === 'tlen' && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-muted-foreground">Measuring</span>
+                  <Input className="h-9" list="dp-to-len" placeholder="e.g. 600x300 S/A duct" value={toLen} onChange={(event) => setToLen(event.target.value)} />
+                </label>
+              )}
+              {sketchTool === 'tcount' && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-muted-foreground">Counting</span>
+                  <Input className="h-9" list="dp-to-count" placeholder="e.g. Indoor unit" value={toCount} onChange={(event) => setToCount(event.target.value)} />
+                </label>
+              )}
+              {sketchTool === 'tlen' && !scale && <p className="text-[11px] text-amber-700">Set the scale (K) on the plan first, or lengths won't be real metres.</p>}
+              {takeoff2.any ? (
+                <table className="w-full">
+                  <tbody>
+                    {[...takeoff2.lengths.entries()].map(([label, { m, runs: n }]) => (
+                      <tr key={`l-${label}`} className="border-b border-border/60 last:border-0">
+                        <td className="py-1 pr-2"><span className="inline-block size-2.5 rounded-full mr-1.5 align-middle" style={{ backgroundColor: toColor(label) }} />{label}<div className="text-[10px] text-muted-foreground">{`${n} run(s)`}</div></td>
+                        <td className="py-1 text-right font-semibold tabular-nums whitespace-nowrap">{scale ? `${fmtM(m)} m` : `${n} runs`}</td>
+                      </tr>
+                    ))}
+                    {[...takeoff2.counts.entries()].map(([label, n]) => (
+                      <tr key={`c-${label}`} className="border-b border-border/60 last:border-0">
+                        <td className="py-1 pr-2"><span className="inline-block size-2.5 rounded-full mr-1.5 align-middle" style={{ backgroundColor: toColor(label) }} />{label}</td>
+                        <td className="py-1 text-right font-semibold tabular-nums">{n}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : <p className="text-muted-foreground">Nothing measured or counted yet.</p>}
+              <p className="text-[11px] text-muted-foreground">These go on the parts list under Takeoff. Tap a line or marker to rename or delete it.</p>
+            </div>
+          )}
+          <datalist id="dp-to-len">{TO_LEN_PRESETS.map((x) => <option key={x} value={x} />)}</datalist>
+          <datalist id="dp-to-count">{TO_COUNT_PRESETS.map((x) => <option key={x} value={x} />)}</datalist>
           {rightTab === 'selection' && !selected && !selectedConn && !selectedSketch && !allSel && (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">Select a component or duct run. Drag empty space to pan, pinch or scroll to zoom.</p>
@@ -7026,6 +7387,110 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         kwOf={modelKw}
         onGenerate={generateAuto}
       />
+      <Dialog open={!!customDlg} onOpenChange={(open) => { if (!open) setCustomDlg(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New custom part</DialogTitle>
+            <DialogDescription>For anything not in the library, e.g. a blank off plate. It goes on the plan and the parts list.</DialogDescription>
+          </DialogHeader>
+          {customDlg && (
+            <form className="space-y-3 text-sm" onSubmit={(event) => { event.preventDefault(); createCustomPart(); }}>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Part name</span>
+                <Input autoFocus className="h-9" placeholder="e.g. Blank off plate" value={customDlg.name} onChange={(event) => setCustomDlg((d) => ({ ...d, name: event.target.value }))} />
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Tag on plan</span>
+                  <Input className="h-9" placeholder={tagFromName(customDlg.name)} value={customDlg.tag} onChange={(event) => setCustomDlg((d) => ({ ...d, tag: event.target.value.toUpperCase().slice(0, 6) }))} />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Size</span>
+                  <Input className="h-9" placeholder="e.g. 600x300" value={customDlg.size} onChange={(event) => setCustomDlg((d) => ({ ...d, size: event.target.value }))} />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Qty</span>
+                  <Input className="h-9" type="number" min="1" inputMode="numeric" value={customDlg.qty} onChange={(event) => setCustomDlg((d) => ({ ...d, qty: event.target.value }))} />
+                </label>
+              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={customDlg.save} onChange={(event) => setCustomDlg((d) => ({ ...d, save: event.target.checked }))} />
+                Keep it in my parts (Custom parts in the library) for next time
+              </label>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setCustomDlg(null)}>Cancel</Button>
+                <Button type="submit">Add part</Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!scaleDlg} onOpenChange={(open) => { if (!open) setScaleDlg(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set the scale</DialogTitle>
+            <DialogDescription>Type the scale from the title block, or measure a dimension you know.</DialogDescription>
+          </DialogHeader>
+          {scaleDlg && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Drawing scale</span>
+                  <div className="flex items-center gap-1">
+                    <span className="font-semibold">1 :</span>
+                    <Input className="h-9" list="dp-ratios" inputMode="numeric" value={scaleDlg.ratio} onChange={(event) => setScaleDlg((d) => ({ ...d, ratio: event.target.value.replace(/[^0-9.]/g, '') }))} />
+                    <datalist id="dp-ratios">{DRAWING_RATIOS.map((n) => <option key={n} value={n} />)}</datalist>
+                  </div>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">At sheet size</span>
+                  <select className="h-9 rounded-md border border-input bg-background px-2" value={scaleDlg.paper} onChange={(event) => setScaleDlg((d) => ({ ...d, paper: event.target.value }))}>
+                    {Object.entries(ISO_SHEETS).map(([k, [a, b]]) => <option key={k} value={k}>{`${k} (${a} × ${b})${sheetName(sheet) === k ? ' — this PDF' : ''}`}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {[50, 100, 200].map((n) => <Button key={n} size="sm" variant={Number(scaleDlg.ratio) === n ? 'default' : 'outline'} className="h-7 px-2 text-xs" onClick={() => setScaleDlg((d) => ({ ...d, ratio: String(n) }))}>{`1:${n}`}</Button>)}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {sheet ? `This PDF page is ${sheetName(sheet) || `${sheet.w} × ${sheet.h} mm`}. ` : 'Photo or scan: pick the sheet size it was printed on. '}
+                If the title block says “1:100 @ A1” but this copy is A3, pick A1 — the app allows for the reduction.
+              </p>
+              {!background && <p className="text-xs text-amber-700">Load the plan first.</p>}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setScaleDlg(null); startScale(); }}>
+              <ApperIcon name="Ruler" size={15} />
+              Measure a known dimension
+            </Button>
+            <Button disabled={!background} onClick={applyRatioScale}>Apply scale</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!pdfSplit} onOpenChange={(open) => { if (!open && !pdfSplit?.busy) { pdfSplit?.pdf?.destroy?.(); setPdfSplit(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{`This PDF has ${pdfSplit?.pages || ''} pages`}</DialogTitle>
+            <DialogDescription>{`Page 1 is on ${page.Name}. Put each other page on its own level so you don't have to load them one by one.`}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50svh] space-y-2 overflow-y-auto">
+            {(pdfSplit?.names || []).map((nm, i) => (
+              <label key={i} className="grid grid-cols-[4.5rem_1fr] items-center gap-2 text-sm">
+                <span className="text-muted-foreground">{`Page ${i + 2}`}</span>
+                <Input className="h-9" value={nm} disabled={pdfSplit?.busy} placeholder="Level name, e.g. First floor" onChange={(event) => { const v = event.target.value; setPdfSplit((j) => (j ? { ...j, names: j.names.map((x, k) => (k === i ? v : x)) } : j)); }} />
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={pdfSplit?.busy} onClick={() => { pdfSplit?.pdf?.destroy?.(); setPdfSplit(null); }}>Just page 1</Button>
+            <Button disabled={pdfSplit?.busy} onClick={splitPdfToLevels}>
+              <ApperIcon name={pdfSplit?.busy ? 'Loader2' : 'Layers'} size={15} className={pdfSplit?.busy ? 'animate-spin' : ''} />
+              {pdfSplit?.busy ? 'Adding levels…' : `Add ${(pdfSplit?.pages || 1) - 1} levels`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={printDialog} onOpenChange={setPrintDialog}>
         <DialogContent>
           <DialogHeader>

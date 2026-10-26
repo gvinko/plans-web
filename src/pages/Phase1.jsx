@@ -221,6 +221,25 @@ export default function Phase1() {
     return true;
   }
 
+  // A multi-page PDF: each extra page becomes a new level with that page as its plan.
+  async function addLevelsWithPlans(list) {
+    if (!activeProject) return 0;
+    const made = [];
+    for (const { name, file, sheet } of list) {
+      const up = await sdk.storage.upload(file);
+      const res = await sdk.table('plan_pages_c').create({
+        Name: name,
+        projectId_c: activeProject.Id,
+        level_c: name,
+        drawingJson_c: sheet ? JSON.stringify({ items: [], connections: [], joins: [], sketch: [], scale: null, sheet }) : '[]',
+        planFile_c: sdk.storage.toUpdateFormat([up]),
+      });
+      if (res.data?.length) made.push(res.data[0]);
+    }
+    if (made.length) setProjectPages((current) => [...current, ...made]);
+    return made.length;
+  }
+
   // Save customer / job details edited from inside the drawing.
   async function saveProject(patch) {
     if (!activeProject) return false;
@@ -248,6 +267,7 @@ export default function Phase1() {
         levels={projectPages}
         onSwitchLevel={switchLevel}
         onAddLevel={addLevel}
+        onAddLevelsWithPlans={addLevelsWithPlans}
         onSave={saveDrawing}
         onSaveProject={saveProject}
         onBack={() => { setActivePage(null); setActiveProject(null); setProjectPages([]); }}
