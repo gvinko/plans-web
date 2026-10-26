@@ -17,6 +17,9 @@ test('pdf text items become lines', () => {
     { str: 'All ductwork', transform: [1, 0, 0, 1, 0, 680] },
   ]);
   assert.equal(t, '4.3.1 General\nAll ductwork');
+  // pdf.js marks line ends with hasEOL as well as moving down: still one line break, so sentences carry on.
+  const t2 = pageTextFromItems([{ str: 'dampers to AS 1682 at', hasEOL: true, transform: [1, 0, 0, 1, 0, 700] }, { str: 'all fire walls.', transform: [1, 0, 0, 1, 0, 686] }]);
+  assert.equal(t2, 'dampers to AS 1682 at\nall fire walls.');
 });
 
 test('scanned detection', () => {

@@ -9,7 +9,7 @@ export function pageTextFromItems(items) {
   for (const it of items || []) {
     const str = it.str ?? '';
     const y = Array.isArray(it.transform) ? it.transform[5] : null;
-    if (lastY !== null && y !== null && Math.abs(y - lastY) > 2) out += '\n';
+    if (lastY !== null && y !== null && Math.abs(y - lastY) > 2) { if (!out.endsWith('\n')) out += '\n'; } // one break per line (hasEOL may have added it)
     else if (out && !out.endsWith(' ') && !out.endsWith('\n') && str && !str.startsWith(' ')) out += ' ';
     out += str;
     if (it.hasEOL) out += '\n';
