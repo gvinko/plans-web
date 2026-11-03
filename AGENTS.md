@@ -77,7 +77,7 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - With a drawing tool on (e.g. SM duct), pressing a part's free duct connection starts a run from it; pressing the part body moves it. A tap (no drag) with SM duct on selects the run or part under it. Don't go back to "any press on a part starts drawing" — it stopped parts moving.
 - The toolbar and the hint line under it keep the same height whatever is selected (controls go `invisible`, not removed), so the drawing doesn't jump under the pointer.
 - The Rotate button and connection dots on a selected part sit clear of it, so small parts (transitions) can still be grabbed.
-- To test a branch before it goes live: run the "Build Ductplanner" workflow on that branch (Actions → Run workflow). It publishes the build to the `build-check` branch.
+- To test a branch before it goes live: push it as `claude/...` (or run the "Build Ductplanner" workflow on it). The build goes to the `build-check` branch.
 
 ## Tap-by-tap sheet metal runs (19 Oct 2026)
 

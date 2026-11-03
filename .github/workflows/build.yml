@@ -2,7 +2,7 @@ name: Build Ductplanner
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'claude/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
       - run: npm run build
       # Publish the built site to the build-preview branch so it can be tested offline.
       - name: Publish build to build-preview branch
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
           cd dist
           git init -q -b build-preview
@@ -34,7 +34,7 @@ jobs:
           git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" build-preview
       # Manual run on a work branch: publish that build to build-check so it can be tested before it goes live.
       - name: Publish branch build to build-check
-        if: github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+        if: github.ref_name != 'main' && github.event_name != 'pull_request'
         run: |
           cd dist
           git init -q -b build-check
