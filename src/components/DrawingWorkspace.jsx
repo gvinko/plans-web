@@ -19,8 +19,8 @@ import AutoLayoutDialog from '@/components/AutoLayoutDialog';
 import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, WALLS, GLAZING, calcRoomLoad } from '@/lib/heatLoad';
 import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
-import { buildTakeoff, takeoffLink } from '@/lib/wbTakeoff';
-import { networkAirflow } from '@/lib/airflow';
+import { buildTakeoff, takeoffLink, bomFor, jobEquipment } from '@/lib/wbTakeoff';
+import { networkAirflow, unitScale } from '@/lib/airflow';
 import { pageTextFromItems, looksScanned } from '@/lib/specs';
 import SpecsDialog from '@/components/SpecsDialog';
 
@@ -2498,14 +2498,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // Airflow stage 2: outlets get their room's share of L/s (unless typed), and each sheet metal
   // run's L/s is the sum of what it feeds. A typed run L/s always wins.
   const airflow = useMemo(() => {
+    const unitsLps = items.filter((i) => !i.remove && (i.type === 'indoor' || i.type === 'coilsection')).reduce((n, i) => n + unitLps(i), 0);
+    const factor = unitScale(unitsLps, rooms.reduce((n, r) => n + r.kw, 0), LPS_PER_KW);
     const supplyIn = (r) => items.filter((i) => !i.remove && getTool(i.type).role === 'supplyTerm' && i.cx >= r.x1 && i.cx <= r.x2 && i.cy >= r.y1 && i.cy <= r.y2);
     const roomLps = (it) => {
       const r = rooms.find((x) => x.kw > 0 && it.cx >= x.x1 && it.cx <= x.x2 && it.cy >= x.y1 && it.cy <= x.y2);
       if (!r) return null;
       const n = supplyIn(r).length || 1;
-      return Math.round((r.kw * LPS_PER_KW) / n);
+      return Math.round((r.kw * LPS_PER_KW * factor) / n);
     };
-    return networkAirflow({ sketch, items, connections, joins }, { roleOf: (t) => getTool(t)?.role, roomLps });
+    return networkAirflow({ sketch, items, connections, joins }, { roleOf: (t) => getTool(t)?.role, roomLps, unitLps });
   }, [sketch, items, connections, joins, rooms]);
   const runLs = (s) => (Number(s?.ls) > 0 ? Number(s.ls) : airflow.runs.get(s?.id)?.lps || 0);
 
@@ -2515,6 +2517,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const byId = Object.fromEntries(items.map((i) => [i.id, i]));
     const isUnit = (i) => i && (i.type === 'indoor' || i.type === 'coilsection') && !i.remove;
     const lengthsKnown = !!(scale || sketch.length);
+    const smGroups = smNetworks({ sketch, items, ppm }); // parts tied together by sheet metal runs
     const network = (start) => {
       const seen = new Set([start]);
       const queue = [start];
@@ -2530,6 +2533,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           if (j.a.itemId === id) next.push(j.b.itemId);
           if (j.b.itemId === id) next.push(j.a.itemId);
         });
+        smGroups.forEach((g) => { if (g.itemIds.includes(id)) next.push(...g.itemIds); });
         next.forEach((n) => {
           if (seen.has(n) || !byId[n] || byId[n].remove) return;
           seen.add(n);
@@ -2544,7 +2548,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const lps = unitLps(u);
       const net = [...network(u.id)].map((id) => byId[id]);
       const outlets = net.filter((i) => getTool(i.type).role === 'supplyTerm');
-      const grilles = net.filter((i) => i.type === 'return');
+      const grilles = net.filter((i) => getTool(i.type).role === 'returnTerm' || i.type === 'rafilterbox');
       if (!lps) {
         out.push({ level: 'info', group: 'Airflow', title: `${name}: choose the model`, detail: 'Pick the unit model (or type its rated airflow) to check outlets and return air.', itemId: u.id });
         return;
@@ -2554,6 +2558,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       } else {
         const cap = outlets.reduce((n, o) => {
           const c = ductAt(o.id);
+          if (!c && Number(o.airflow) > 0) return n + Number(o.airflow); // on sheet metal: its design flow
           const neck = o.type === 'supply' ? Number(String(o.spec?.neck || '250').match(/\d+/)?.[0]) : null;
           return n + ductLps(ductRatingMm(c) || neck || 250);
         }, 0);
@@ -2675,11 +2680,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
   // Send the parts list to WorkBrain, which prices it from the WorkBrain Rates sheet.
   function sendToWorkBrain() {
-    const pkg = buildTakeoff({ equipment, project: project || {}, page });
+    const job = jobEquipment(equipment, page, levels);
+    const pkg = buildTakeoff({ equipment: job.equipment, project: project || {}, page, drawing: job.levels > 1 ? `All levels (${job.levels})` : undefined });
     if (!pkg.lines.length) { toast.error('Nothing to send yet.'); return; }
     const win = window.open(takeoffLink(pkg), 'workbrain');
     if (!win) { toast.error('Pop-up blocked', { description: 'Allow pop-ups for Ductplanner, then try again.' }); return; }
-    toast.success(`Sent ${pkg.lines.length} lines to WorkBrain`, { description: pkg.job.wbJobRef ? `Job ${pkg.job.wbJobRef}` : 'Not linked to a WorkBrain job yet — open this job from WorkBrain to link it.' });
+    toast.success(`Sent ${pkg.lines.length} lines to WorkBrain${job.levels > 1 ? ` from ${job.levels} levels` : ''}`, { description: pkg.job.wbJobRef ? `Job ${pkg.job.wbJobRef}` : 'Not linked to a WorkBrain job yet — open this job from WorkBrain to link it.' });
+    if (job.missing.length) toast.warning(`Not included: ${job.missing.join(', ')}`, { description: 'Open each of those levels once so its parts are saved, then send again.', duration: 12000 });
   }
 
   // ---- Duct re-routing: slide a straight section sideways; the run stays square ----
@@ -4708,7 +4715,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const payload = JSON.stringify({ items, connections, joins, scale, sheet, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
     lastSavedRef.current = payload;
     let ok = false;
-    try { ok = await onSave(payload, planFile, photos); } catch { ok = false; }
+    try { ok = await onSave(payload, planFile, photos, bomFor(equipment)); } catch { ok = false; }
     if (ok) {
       dirtyRef.current = false;
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }

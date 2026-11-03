@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { networkAirflow } from '../src/lib/airflow.js';
+import { networkAirflow, unitScale } from '../src/lib/airflow.js';
 
 const roles = { indoor: 'unit', supply: 'supplyTerm', return: 'returnTerm', eggcrate: 'exhaustTerm', exhfan: 'fit', roofcowl: 'anyTerm', vcd: 'fit' };
 const roleOf = (t) => roles[t] || 'fit';
@@ -62,4 +62,50 @@ test('exhaust: rooted at the fan, discharge to the roof cowl carries the whole s
 test('a system with no unit or fan is left alone', () => {
   const { runs } = networkAirflow({ sketch: [run('R', port('s'), null)], items: [{ id: 's', type: 'supply', airflow: 50 }] }, { roleOf });
   assert.equal(runs.size, 0);
+});
+
+const sup = (id, lps) => ({ id, type: 'supply', airflow: lps });
+
+test('outside air is what is supplied but not returned, not supply plus return', () => {
+  const items = [{ id: 'u', type: 'indoor' }, sup('s', 1000), { id: 'r', type: 'return', airflow: 800 }, { id: 'oa', type: 'roofcowl' }];
+  const sketch = [run('A', port('u'), port('s')), run('B', port('u'), port('r')), run('C', port('u'), port('oa'))];
+  const { runs } = networkAirflow({ sketch, items }, { roleOf });
+  assert.equal(runs.get('C').lps, 200);
+});
+
+test('with supply and return balanced, outside air gets no made-up figure', () => {
+  const items = [{ id: 'u', type: 'indoor' }, sup('s', 600), { id: 'r', type: 'return', airflow: 600 }, { id: 'oa', type: 'roofcowl' }];
+  const sketch = [run('A', port('u'), port('s')), run('B', port('u'), port('r')), run('C', port('u'), port('oa'))];
+  const { runs } = networkAirflow({ sketch, items }, { roleOf });
+  assert.equal(runs.get('C'), undefined);
+});
+
+test('a blank return grille takes the unit airflow, shared between grilles', () => {
+  const items = [{ id: 'u', type: 'indoor' }, sup('s', 500), { id: 'r1', type: 'return' }, { id: 'r2', type: 'return' }];
+  const sketch = [run('A', port('u'), port('s')), run('B', port('u'), port('r1')), run('C', port('u'), port('r2'))];
+  const { runs, terminals } = networkAirflow({ sketch, items }, { roleOf, unitLps: () => 700 });
+  assert.equal(runs.get('B').lps, 350);
+  assert.equal(runs.get('B').missing, 0);
+  assert.equal(terminals.get('r1').source, 'unit');
+});
+
+test('with no unit airflow known, a blank return takes the supply total', () => {
+  const items = [{ id: 'u', type: 'indoor' }, sup('s', 500), { id: 'r', type: 'return' }];
+  const sketch = [run('A', port('u'), port('s')), run('B', port('u'), port('r'))];
+  const { runs } = networkAirflow({ sketch, items }, { roleOf });
+  assert.equal(runs.get('B').lps, 500);
+});
+
+test('a typed return grille is left alone', () => {
+  const items = [{ id: 'u', type: 'indoor' }, sup('s', 500), { id: 'r1', type: 'return', airflow: 300 }, { id: 'r2', type: 'return' }];
+  const sketch = [run('A', port('u'), port('s')), run('B', port('u'), port('r1')), run('C', port('u'), port('r2'))];
+  const { runs } = networkAirflow({ sketch, items }, { roleOf, unitLps: () => 700 });
+  assert.equal(runs.get('B').lps, 300);
+  assert.equal(runs.get('C').lps, 400);
+});
+
+test('room airflow is scaled so the rooms add up to what the units move', () => {
+  assert.equal(unitScale(700, 10, 50), 1.4);
+  assert.equal(unitScale(0, 10, 50), 1);
+  assert.equal(unitScale(700, 0, 50), 1);
 });

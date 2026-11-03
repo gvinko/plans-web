@@ -201,9 +201,10 @@ export default function Phase1() {
     toast.success(`${name} added`, { description: 'Load its plan or sketch it. Switch levels from the drop-down at the top.' });
   }
 
-  async function saveDrawing(drawingJson, planFiles, photoFiles) {
+  async function saveDrawing(drawingJson, planFiles, photoFiles, bom) {
     if (!activePage) return false;
     const record = { Id: activePage.Id, drawingJson_c: drawingJson };
+    if (bom) record.bom_c = bom;
     if (Array.isArray(planFiles)) record.planFile_c = sdk.storage.toUpdateFormat(planFiles);
     if (Array.isArray(photoFiles)) record.sitePhotos_c = sdk.storage.toUpdateFormat(photoFiles);
     let res = await sdk.table('plan_pages_c').update(record);
@@ -216,7 +217,7 @@ export default function Phase1() {
     if (res.messages?.length) setMessage(res.messages.join(' '));
     if (!res.data?.length) return false;
     const saved = res.data[0] || {};
-    const patch = { drawingJson_c: drawingJson, ModifiedOn: saved.ModifiedOn || new Date().toISOString() };
+    const patch = { drawingJson_c: drawingJson, ...(bom ? { bom_c: bom } : {}), ModifiedOn: saved.ModifiedOn || new Date().toISOString() };
     setActivePage((current) => ({ ...current, ...patch }));
     setProjectPages((current) => current.map((p) => (p.Id === activePage.Id ? { ...p, ...patch } : p)));
     return true;

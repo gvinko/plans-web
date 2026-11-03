@@ -1,7 +1,8 @@
 // Backup and restore: every project, level, drawing, plan image and site photo
-// in one zip. Restore merges — it adds or overwrites, it never deletes.
+// in one zip. Restore merges and never replaces a different or newer job: see restorePlan.js.
 import JSZip from 'jszip';
 import { db } from '@/services/localDb';
+import { planRestore } from '@/lib/restorePlan';
 
 const LAST_KEY = 'ductplanner-last-backup';
 const FOLDER_DB = 'ductplanner-settings';
@@ -48,7 +49,7 @@ export async function buildBackupZip() {
   z.file('backup.json', JSON.stringify(manifest, null, 1));
   z.file('README.txt',
       'Ductplanner backup\n\nTo restore: open Ductplanner > Backup > Restore from backup, and pick this zip.\n'
-      + 'Restoring adds or updates projects; it never deletes anything already in the app.\n\n'
+      + 'Restoring adds jobs or updates older copies of them; it never removes or replaces other work.\n\n'
       + `Projects: ${projects.length}  Levels: ${pages.length}  Images: ${files.length}\nMade: ${manifest.exportedAt}\n`);
   // A readable copy of each drawing, filed by job, so a single job can be found without the app.
   for (const pg of pages) {
@@ -160,10 +161,13 @@ export async function restoreBackup(file) {
     const buf = await zf.async('arraybuffer');
     fileRows.push({ key: f.key, name: f.name, type: f.type, size: f.size, addedOn: f.addedOn, blob: new Blob([buf], { type: f.type || 'image/jpeg' }) });
   }
+  let summary;
   await db.transaction('rw', db.projects, db.plan_pages, db.files, async () => {
-    if (manifest.projects?.length) await db.projects.bulkPut(manifest.projects);
-    if (manifest.pages?.length) await db.plan_pages.bulkPut(manifest.pages);
+    const plan = planRestore(manifest, { projects: await db.projects.toArray(), pages: await db.plan_pages.toArray() });
+    summary = plan.summary;
+    if (plan.projects.length) await db.projects.bulkPut(plan.projects);
+    if (plan.pages.length) await db.plan_pages.bulkPut(plan.pages);
     if (fileRows.length) await db.files.bulkPut(fileRows);
   });
-  return { projects: manifest.projects?.length || 0, levels: manifest.pages?.length || 0, files: fileRows.length, exportedAt: manifest.exportedAt };
+  return { ...summary, projects: manifest.projects?.length || 0, levels: manifest.pages?.length || 0, files: fileRows.length, exportedAt: manifest.exportedAt };
 }

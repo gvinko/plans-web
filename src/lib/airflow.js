@@ -7,12 +7,19 @@ const TERMINAL = new Set(['supplyTerm', 'returnTerm', 'exhaustTerm']);
 const ROOT_ROLES = new Set(['unit', 'section']);
 const ROOT_TYPES = new Set(['exhfan']);
 
+// Room shares come from the load at a rule-of-thumb L/s per kW. The units on the plan set the
+// real airflow, so scale the shares to it (same split the auto layout uses).
+export function unitScale(unitsLps, loadKw, lpsPerKw) {
+  const base = loadKw * lpsPerKw;
+  return unitsLps > 0 && base > 0 ? unitsLps / base : 1;
+}
+
 /**
  * @param {{ sketch:any[], items:any[], connections?:any[], joins?:any[] }} d
- * @param {{ roleOf:(type:string)=>string, roomLps?:(item:any)=>number|null }} o
+ * @param {{ roleOf:(type:string)=>string, roomLps?:(item:any)=>number|null, unitLps?:(item:any)=>number }} o
  * @returns {{ runs: Map<string,{lps:number, outlets:number, missing:number, from:'auto'}>, terminals: Map<string,{lps:number, source:'typed'|'room'|null}> }}
  */
-export function networkAirflow({ sketch, items, connections = [], joins = [] }, { roleOf, roomLps }) {
+export function networkAirflow({ sketch, items, connections = [], joins = [] }, { roleOf, roomLps, unitLps }) {
   const isService = (c) => c && (c.type === 'pipe' || c.type === 'drain' || c.type === 'power');
   const byId = new Map(items.map((i) => [i.id, i]));
   const adj = new Map();
@@ -75,7 +82,21 @@ export function networkAirflow({ sketch, items, connections = [], joins = [] }, 
     const root = comp.find((n) => isRoot(n) && ROOT_ROLES.has(roleOf(byId.get(n.slice(2)).type))) || comp.find(isRoot);
     if (!root) return; // no unit or fan in this system: can't tell which way air flows
     const flowOf = (n) => (n.startsWith('i:') ? terminals.get(n.slice(2)) : null);
-    const total = comp.reduce((t, n) => t + (flowOf(n)?.lps || 0), 0);
+    const roleAt = (n) => (n.startsWith('i:') ? roleOf(byId.get(n.slice(2))?.type) : null);
+    const sumRole = (role) => comp.reduce((t, n) => t + (roleAt(n) === role ? flowOf(n)?.lps || 0 : 0), 0);
+    const hasUnit = ROOT_ROLES.has(roleAt(root));
+    // Return grilles left blank share what the unit moves (else what's being supplied).
+    if (hasUnit) {
+      const blank = comp.filter((n) => roleAt(n) === 'returnTerm' && flowOf(n) && !(flowOf(n).lps > 0));
+      const moved = Math.max(0, ...comp.filter((n) => ROOT_ROLES.has(roleAt(n)) && !byId.get(n.slice(2)).remove).map((n) => Number(unitLps?.(byId.get(n.slice(2)))) || 0));
+      const left = (moved || sumRole('supplyTerm')) - sumRole('returnTerm');
+      if (blank.length && left > 0) blank.forEach((n) => terminals.set(n.slice(2), { lps: left / blank.length, source: 'unit' }));
+    }
+    // A unit's louvre brings in what is supplied but not returned. Balanced, it's a design choice,
+    // so there's no figure to give. A fan's louvre or cowl carries everything the fan moves.
+    const total = hasUnit
+      ? Math.max(0, sumRole('supplyTerm') - sumRole('returnTerm'))
+      : comp.reduce((t, n) => t + (flowOf(n)?.lps || 0), 0);
     // Depth-first from the root; subtree sums give each run's flow.
     const parent = new Map([[root, null]]);
     const order = [];

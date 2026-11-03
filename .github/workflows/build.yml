@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund
+      - run: npm test
       - run: npm run build
       # Publish the built site to the build-preview branch so it can be tested offline.
       - name: Publish build to build-preview branch

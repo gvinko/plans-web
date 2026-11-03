@@ -156,3 +156,11 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - Plan text per level: `plan_pages_c.planText_c` (page 1 text when a plan PDF is loaded; split pages get their own). Images/scans store ''. Plans loaded before 26 Oct have none until reloaded.
 - `src/lib/specs.js`: `searchSources`, `scanWatch` (`WATCH` rules + "My words" in localStorage `dp-watch-words`), `crossCheck` against the level's BOM (incl. Takeoff + Custom parts). Keyword matching only — no AI, no network. Tests: `test/specs.test.mjs`.
 - Scanned PDFs (no text) are flagged, not OCR'd.
+
+## Audit fixes (3 Nov 2026)
+
+- Restore: `src/lib/restorePlan.js` `planRestore()` decides row by row. Ids are per-device counters, so the same Id is not the same job (same job = same `CreatedOn`, else same name). Different job → new Id. Same job, backup newer → update. Same job, changed here → `(restored …)` copy with no WorkBrain link. Never go back to `bulkPut` of the raw backup. Tests: `test/restore.test.mjs`.
+- Checks tab walks sheet metal systems too (`smGroups` from `smNetworks`). Return air counts role `returnTerm` and `rafilterbox`.
+- Airflow: blank return grilles share the unit airflow (`unitLps` option; source 'unit'). A unit's louvre / cowl run = supply − return, no figure when balanced. Room shares are scaled to what the units on the level move (`unitScale`).
+- WorkBrain: each save stores the level's list in `plan_pages_c.bom_c` (`bomFor`). Send to WorkBrain adds every level (`jobEquipment`); a drawn level with no `bom_c` yet is named in a warning until it's opened and saved once. CSV and copy are still the open level only.
+- `npm test` runs all tests, and CI runs it before the build.

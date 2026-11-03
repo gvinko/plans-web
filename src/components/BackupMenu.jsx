@@ -78,7 +78,7 @@ export default function BackupMenu() {
     setBusy(true);
     try {
       const r = await restoreBackup(file);
-      toast.success('Backup restored', { description: `${r.projects} projects, ${r.levels} levels, ${r.files} images. Reloading…` });
+      toast.success('Backup restored', { description: `${r.added} added, ${r.updated} updated, ${r.copied} kept as restored copies, ${r.skipped} already up to date. Reloading…` });
       setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
       toast.error('Restore failed', { description: err?.message || 'Check the file and try again.' });
@@ -127,7 +127,7 @@ export default function BackupMenu() {
             Restore from backup…
           </DropdownMenuItem>
           <div className="px-2 pb-1.5 pt-1 text-[11px] leading-snug text-muted-foreground">
-            {`Drawings are saved in this browser on this computer. A backup is made automatically each week when you open the app (if a folder is set) — otherwise this button turns amber after ${BACKUP_EVERY_DAYS} days. Restoring adds or updates jobs; it never deletes any.`}
+            {`Drawings are saved in this browser on this computer. A backup is made automatically each week when you open the app (if a folder is set) — otherwise this button turns amber after ${BACKUP_EVERY_DAYS} days. Restoring adds jobs or updates older copies of them. If a job has changed here since the backup, the backup comes in as a separate “(restored)” copy.`}
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
