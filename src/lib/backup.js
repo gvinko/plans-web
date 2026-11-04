@@ -3,6 +3,7 @@
 import JSZip from 'jszip';
 import { db } from '@/services/localDb';
 import { planRestore } from '@/lib/restorePlan';
+import { prepareRestoredFiles } from '@/lib/restoreFiles';
 
 const LAST_KEY = 'ductplanner-last-backup';
 const FOLDER_DB = 'ductplanner-settings';
@@ -164,10 +165,13 @@ export async function restoreBackup(file) {
   let summary;
   await db.transaction('rw', db.projects, db.plan_pages, db.files, async () => {
     const plan = planRestore(manifest, { projects: await db.projects.toArray(), pages: await db.plan_pages.toArray() });
+    const existingFileKeys = await db.files.toCollection().primaryKeys();
+    const safe = prepareRestoredFiles(plan, fileRows, existingFileKeys,
+      (key) => `${key}--restored-${crypto.randomUUID()}`);
     summary = plan.summary;
-    if (plan.projects.length) await db.projects.bulkPut(plan.projects);
-    if (plan.pages.length) await db.plan_pages.bulkPut(plan.pages);
-    if (fileRows.length) await db.files.bulkPut(fileRows);
+    if (safe.projects.length) await db.projects.bulkPut(safe.projects);
+    if (safe.pages.length) await db.plan_pages.bulkPut(safe.pages);
+    if (safe.files.length) await db.files.bulkPut(safe.files);
   });
   return { ...summary, projects: manifest.projects?.length || 0, levels: manifest.pages?.length || 0, files: fileRows.length, exportedAt: manifest.exportedAt };
 }
