@@ -21,6 +21,7 @@ import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
 import { buildTakeoff, takeoffLink, bomFor, jobEquipment } from '@/lib/wbTakeoff';
 import { networkAirflow, unitScale } from '@/lib/airflow';
+import { normDeg, planAngleFrom, rotatePt, snapToPlan, squareToPlan } from '@/lib/angle';
 import { pageTextFromItems, looksScanned } from '@/lib/specs';
 import SpecsDialog from '@/components/SpecsDialog';
 
@@ -647,6 +648,7 @@ const SHORTCUTS = [
   ['Ctrl + D', 'Duplicate the selected part'],
   ['Arrow keys', 'Nudge the selected part (hold Shift for bigger steps)'],
   ['R', 'Rotate the selected part 90°'],
+  ['[ / ]', 'Turn the selected part 1° (hold Shift for 5°)'],
   ['Delete', 'Delete the selected part or duct'],
   ['1 / 2 / 3', 'Draw supply / return / flex duct'],
   ['4 / 5', 'Draw exhaust / outside air duct'],
@@ -846,7 +848,8 @@ function portInfo(item, portId, ppm) {
   const lx = (def.fx - 0.5) * b.uw;
   const ly = (def.fy - 0.5) * b.uh;
   const r = ((Math.round((item.rot || 0) / 90) * 90) % 360 + 360) % 360;
-  const [x, y] = r === 90 ? [-ly, lx] : r === 180 ? [-lx, -ly] : r === 270 ? [ly, -lx] : [lx, ly];
+  const free = (item.rot || 0) % 90 !== 0; // turned to suit a plan that isn't square on the sheet
+  const [x, y] = free ? rotatePt(lx, ly, item.rot) : r === 90 ? [-ly, lx] : r === 180 ? [-lx, -ly] : r === 270 ? [ly, -lx] : [lx, ly];
   const dir = DIR_ORDER[(DIR_ORDER.indexOf(def.dir) + r / 90) % 4];
   return { x: item.cx + x, y: item.cy + y, dir, air: def.air || null, service: def.service || null, joinOnly: !!def.joinOnly, id: def.id };
 }
@@ -1801,6 +1804,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [customDlg, setCustomDlg] = useState(null); // { name, tag, size, qty, save, at } — new custom part // { ratio, paper } — set scale from 1:100 @ A1
   const [scaleDraft, setScaleDraft] = useState(null);
   const [showLabels, setShowLabels] = useState(true);
+  const [planAngle, setPlanAngle] = useState(0); // the building's angle on the sheet, from Line up with wall
   const [showFab, setShowFab] = useState(false); // shop detail: sheet pieces, joints, centre line
   // Plan text: size multiplier and colour ('' = the default black / duct colour). Saved with the drawing.
   const [textStyle, setTextStyle] = useState({ size: 0.7, color: '' });
@@ -1917,11 +1921,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const t = setTimeout(() => {
       if (!dirtyRef.current) return; // already saved
       try {
-        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, sheet, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
+        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
       } catch { /* storage full or blocked */ }
     }, 800);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, draftKey]);
+  }, [items, connections, joins, scale, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, draftKey]);
 
   // Saving is on this device now, so losing signal no longer matters.
   // Autosave: a couple of seconds after any change (drawing, plan, photos), save it.
@@ -1929,7 +1933,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (!dirtyRef.current || planBusy) return undefined;
     const t = setTimeout(() => { if (dirtyRef.current) saveRef.current?.({ auto: true }); }, 1500);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy]);
+  }, [items, connections, joins, scale, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy]);
   // Leaving the tab or closing the window: save straight away.
   useEffect(() => {
     const flush = () => { if (dirtyRef.current) saveRef.current?.({ auto: true }); };
@@ -1970,7 +1974,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (hit && Math.hypot(hit.x - x1, hit.y - y1) > 4) return { x2: hit.x, y2: hit.y, target: hit };
     if (free) return { x2: skSnap(p.x), y2: skSnap(p.y), target: null };
     const len = Math.hypot(p.x - x1, p.y - y1);
-    const ang = Math.round(Math.atan2(p.y - y1, p.x - x1) / (Math.PI / 4)) * (Math.PI / 4);
+    const ang = snapToPlan(Math.atan2(p.y - y1, p.x - x1), planAngle);
     const g = (ppm * 50) / 1000;
     const l = Math.round(len / g) * g;
     return { x2: x1 + Math.cos(ang) * l, y2: y1 + Math.sin(ang) * l, target: null };
@@ -2089,6 +2093,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setSheet(saved.sheet?.w ? saved.sheet : null);
         setShowLabels(saved.showLabels ?? true);
         setShowFab(!!saved.showFab);
+        setPlanAngle(Number(saved.planAngle) || 0);
         setTextStyle({ size: 0.7, color: '', ...(saved.textStyle || {}) });
         setLayout({ orient: 'landscape', side: 'beside', page2: false, title: '', kind: 'concept', dwgNo: '', refs: '', ...(saved.layout || {}) });
         setPickEdit(saved.pickEdit || null);
@@ -2759,7 +2764,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const v = viewRef.current;
     const cx = at ? at.x : el ? (el.clientWidth / 2 - v.x) / v.z : WORLD_W / 2;
     const cy = at ? at.y : el ? (el.clientHeight / 2 - v.y) / v.z : WORLD_H / 2;
-    const draft = { id: crypto.randomUUID(), type, cx, cy, rot: 0, spec: defaultSpec(getTool(type)) };
+    const draft = { id: crypto.randomUUID(), type, cx, cy, rot: type === 'zonearea' ? 0 : normDeg(planAngle), spec: defaultSpec(getTool(type)) };
     if (type === 'custom' && preset) Object.assign(draft, { customName: preset.name, customTag: preset.tag || tagFromName(preset.name), customSize: preset.size || '', qty: Number(preset.qty) > 0 ? Number(preset.qty) : 1 });
     if (type === 'zonearea') {
       // Automatically take the next zone that isn't coloured yet.
@@ -2905,6 +2910,73 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return { ...item, cx: pivot.x - dy, cy: pivot.y + dx, rot: ((item.rot || 0) + 90) % 360, label: item.label ? { dx: -item.label.dy, dy: item.label.dx } : undefined };
     }));
     markDirty();
+  }
+
+  // Turn a part (and anything joined to it) to an exact angle. Parts fitted in a run follow the run.
+  function turnGroups(current, targets) {
+    const done = new Set();
+    let next = current;
+    targets.forEach(({ id, angle }) => {
+      const lead = next.find((i) => i.id === id);
+      if (!lead || done.has(id) || lead.onRun || lead.type === 'zonearea') return;
+      const group = groupOf(id);
+      group.forEach((g) => done.add(g));
+      const delta = normDeg(angle) - (lead.rot || 0);
+      if (!delta) return;
+      next = next.map((item) => {
+        if (!group.includes(item.id)) return item;
+        const [dx, dy] = rotatePt(item.cx - lead.cx, item.cy - lead.cy, delta);
+        const [lx, ly] = item.label ? rotatePt(item.label.dx, item.label.dy, delta) : [0, 0];
+        return { ...item, cx: lead.cx + dx, cy: lead.cy + dy, rot: normDeg((item.rot || 0) + delta), label: item.label ? { dx: lx, dy: ly } : undefined };
+      });
+    });
+    return next;
+  }
+
+  function setPartAngle(angle, id = selectedId) {
+    if (!id || !Number.isFinite(Number(angle))) return;
+    setItems((current) => turnGroups(current, [{ id, angle: Number(angle) }]));
+    markDirty();
+  }
+
+  function squareAllToPlan() {
+    setItems((current) => turnGroups(current, current.map((i) => ({ id: i.id, angle: squareToPlan(i.rot, planAngle) }))));
+    markDirty();
+    toast.success(`Parts lined up with the plan (${planAngle}°)`);
+  }
+
+  // Line up with wall: tap two points along any wall of the building.
+  function startWallAlign() {
+    setScaleDraft({ a: null, b: null, mm: '', align: true, partId: selectedId });
+    setSelectedId(null);
+    setSelectedConnId(null);
+    setPendingPort(null);
+  }
+
+  // Rotate handle: drag to any angle, a plain tap still turns it 90°.
+  function startRotateDrag(event, item) {
+    event.stopPropagation();
+    const c = canvasRef.current?.getBoundingClientRect();
+    const v = viewRef.current;
+    const centre = { x: (c?.left || 0) + v.x + item.cx * v.z, y: (c?.top || 0) + v.y + item.cy * v.z };
+    const at = (e) => (Math.atan2(e.clientY - centre.y, e.clientX - centre.x) * 180) / Math.PI;
+    const from = at(event);
+    const base = item.rot || 0;
+    const sx = event.clientX;
+    const sy = event.clientY;
+    let moved = false;
+    const move = (e) => {
+      if (!moved && Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return;
+      moved = true;
+      setPartAngle(Math.round(base + at(e) - from), item.id);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (!moved) rotateSelected();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
   }
 
   // Rough outdoor footprint from the system's kW rating (edit to the spec sheet).
@@ -3199,6 +3271,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (key === 'c' && selected?.type === 'exhfan' && selected.onRun) { updateItem(selected.id, { canvas: selected.canvas === false }); return; }
       if (key === 'p') { setPenMode((v) => !v); return; }
       if (event.key === 'r' || event.key === 'R') rotateSelected();
+      else if ('[]{}'.includes(event.key) && selected) setPartAngle((selected.rot || 0) + ('[{'.includes(event.key) ? -1 : 1) * (event.shiftKey ? 5 : 1));
       else if (event.key === '+' || event.key === '=') zoomCentre(1.25);
       else if (event.key === '-' || event.key === '_') zoomCentre(1 / 1.25);
       else if (event.key === '0') fitView();
@@ -3373,6 +3446,20 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
 
   function addScalePoint(p) {
+    if (scaleDraft?.align && scaleDraft.a) {
+      if (Math.hypot(p.x - scaleDraft.a.x, p.y - scaleDraft.a.y) < 20) { toast.error('Those two points are too close — pick further along the wall.'); return; }
+      const pa = planAngleFrom(scaleDraft.a, p);
+      const id = scaleDraft.partId;
+      setPlanAngle(pa);
+      setScaleDraft(null);
+      if (id) {
+        setItems((current) => turnGroups(current, [{ id, angle: squareToPlan(current.find((i) => i.id === id)?.rot, pa) }]));
+        setSelectedId(id);
+      }
+      markDirty();
+      toast.success(`Plan angle set to ${pa}°`, { description: 'New parts and sheet metal runs now follow it.' });
+      return;
+    }
     setScaleDraft((d) => {
       if (!d) return d;
       if (!d.a) return { ...d, a: p };
@@ -4135,7 +4222,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const c = P({ x: it.cx, y: it.cy });
       const w = b.w * k;
       const h = b.h * k;
-      dxf.poly('EQUIP', [{ x: c.x - w / 2, y: c.y - h / 2 }, { x: c.x + w / 2, y: c.y - h / 2 }, { x: c.x + w / 2, y: c.y + h / 2 }, { x: c.x - w / 2, y: c.y + h / 2 }], true);
+      const free = (it.rot || 0) % 90 !== 0 ? it.rot : 0;
+      dxf.poly('EQUIP', [[-w, -h], [w, -h], [w, h], [-w, h]].map(([x, y]) => { const [dx, dy] = rotatePt(x / 2, y / 2, free); return { x: c.x + dx, y: c.y + dy }; }), true);
       dxf.text('TEXT', c.x - w / 2, c.y + h / 2 + th * 1.2, th * 0.9, `${tags[it.id] || ''} ${shortSpec(it) || ''}`.trim());
     });
     const blob = new Blob([dxf.toString()], { type: 'application/dxf' });
@@ -4712,7 +4800,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return;
     }
     setStatus('Saving…');
-    const payload = JSON.stringify({ items, connections, joins, scale, sheet, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
+    const payload = JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
     lastSavedRef.current = payload;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos, bomFor(equipment)); } catch { ok = false; }
@@ -5023,7 +5111,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           {scaleDraft ? (
             <div className="flex items-center gap-1.5 rounded-md border border-primary bg-primary/5 px-2 py-0.5">
               <span className="text-xs whitespace-nowrap">
-                {!scaleDraft.a ? 'Tap the start of a known dimension' : !scaleDraft.b ? 'Now tap the end' : 'Real length (mm):'}
+                {scaleDraft.align ? (!scaleDraft.a ? 'Tap a point on a wall' : 'Now tap further along the same wall') : !scaleDraft.a ? 'Tap the start of a known dimension' : !scaleDraft.b ? 'Now tap the end' : 'Real length (mm):'}
               </span>
               {scaleDraft.a && scaleDraft.b && (
                 <form onSubmit={applyScale} className="flex gap-1">
@@ -5031,7 +5119,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   <Button type="submit" size="sm" className="h-7">Apply</Button>
                 </form>
               )}
-              {scaleDraft.a && <Button variant="ghost" size="sm" className="h-7 px-1.5" title="Restart" onClick={() => setScaleDraft({ a: null, b: null, mm: '' })}><ApperIcon name="RotateCcw" size={14} /></Button>}
+              {scaleDraft.a && <Button variant="ghost" size="sm" className="h-7 px-1.5" title="Restart" onClick={() => setScaleDraft((d) => ({ ...d, a: null, b: null, mm: '' }))}><ApperIcon name="RotateCcw" size={14} /></Button>}
               <Button variant="ghost" size="sm" className="h-7 px-1.5" title="Cancel (Esc)" onClick={() => setScaleDraft(null)}><ApperIcon name="X" size={14} /></Button>
             </div>
           ) : (
@@ -6018,12 +6106,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 return (
                   <button
                     type="button"
-                    aria-label="Rotate 90 degrees"
-                    title="Rotate 90° (R)"
+                    aria-label="Rotate"
+                    title="Tap to turn 90° (R) · drag to any angle"
                     className="absolute size-9 rounded-full bg-primary text-primary-foreground shadow flex items-center justify-center touch-none"
                     style={{ left: selected.cx + box.w / 2 + 4 * s, top: selected.cy - box.h / 2 - 4 * s, transform: `translate(0, -100%) scale(${s})`, transformOrigin: 'bottom left' }}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => { event.stopPropagation(); rotateSelected(); }}
+                    onPointerDown={(event) => startRotateDrag(event, selected)}
+                    onClick={(event) => event.stopPropagation()}
                   >
                     <ApperIcon name="RotateCw" size={15} />
                   </button>
@@ -6580,6 +6668,27 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 </div>
               )}
               <StatusPicker noun="Part" value={statusOf(selected)} onChange={(patch) => updateItem(selected.id, patch)} />
+              {!selected.onRun && selected.type !== 'zonearea' && (
+                <div className="grid gap-1.5 rounded-md border border-border p-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium">Angle</span>
+                    <Button variant="outline" size="sm" className="h-8 px-2" aria-label="Turn 1 degree back" onClick={() => setPartAngle((selected.rot || 0) - 1)}>−1°</Button>
+                    <Input className="h-8 w-20" type="number" step="0.5" aria-label="Part angle in degrees" value={selected.rot || 0} onChange={(event) => { if (event.target.value !== '') setPartAngle(event.target.value); }} />
+                    <Button variant="outline" size="sm" className="h-8 px-2" aria-label="Turn 1 degree on" onClick={() => setPartAngle((selected.rot || 0) + 1)}>+1°</Button>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={startWallAlign}>
+                    <ApperIcon name="Ruler" size={14} />
+                    Line up with wall
+                  </Button>
+                  {!!planAngle && (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Button variant="outline" size="sm" onClick={() => setPartAngle(squareToPlan(selected.rot, planAngle))}>Square to plan</Button>
+                      <Button variant="outline" size="sm" onClick={squareAllToPlan}>Square all parts</Button>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">{planAngle ? `Plan angle ${planAngle}°. New parts and sheet metal runs follow it.` : 'Tap two points along a wall to set the plan angle.'}</p>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={rotateSelected}>
                   <ApperIcon name="RotateCw" size={14} />

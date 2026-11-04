@@ -96,11 +96,11 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - TEXT control: `textStyle` {size multiplier (default 0.7), color ('' = default)} saved with the drawing; `ann()` applies the size, labels and duct tags use the colour.
 - SHOP toggle (`showFab`, saved with the drawing) turns on sheet pieces, numbers, TDF joints, centre line, lengths and transition sizes.
 - Parts draw as plain white outlines once the plan is to scale (no app-tile shadow / rounding).
-- Known gap: parts rotate in 90° steps, so a transition or fan on a sloped run won't line up. Keep runs at 0/45/90 near parts.
+- Parts can sit at any angle (see Plans not square on the sheet). Transitions dropped on a sloped run still need a straight run end.
 
 ## Parts, layout and tools (19 Oct 2026 evening)
 
-- Dampers / fans / flex connections fit into sheet metal runs at any angle (`smSeat`, rot in degrees) and also when first dropped on a run (`addItem` → `seated()`). `portInfo` and `itemBox` round rot to 90° steps; angled parts rotate as a whole box. VCD casing is 150 mm along the run.
+- Dampers / fans / flex connections fit into sheet metal runs at any angle (`smSeat`, rot in degrees) and also when first dropped on a run (`addItem` → `seated()`). `itemBox` rounds rot to 90° steps; angled parts rotate as a whole box and `portInfo` follows the true angle (its `dir` is the nearest of n/e/s/w). VCD casing is 150 mm along the run.
 - Canvas connections: `canvasJoints` (either side of a fan fitted in a run, and where a run ends on a fan's port), on by default, counted in the BOM.
 - Every part panel: W × D × H (`dims`, `heightMm`), `airflow`, `model`, `supplier`, `notes`, and `hideLabel`. Runs: `hideTag` hides the size tag. Per-tag colour: part `labelColor`, run `tagColor` ('' / undefined = follow TEXT colour), picked with `TagColourPicker` in the part / run panel. TEXT menu has "Tap tags to hide them" (`tagErase`, not saved) and "Show N hidden tags".
 - Page layout in Export PDF (`layout`: orient, side beside/below/none, title, page2), plan window from `planBox()`. Pick slip editor (`pickEdit`: rows, deliver, needed, po, notes; Reset from drawing). Both saved with the drawing.
@@ -164,3 +164,10 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - Airflow: blank return grilles share the unit airflow (`unitLps` option; source 'unit'). A unit's louvre / cowl run = supply − return, no figure when balanced. Room shares are scaled to what the units on the level move (`unitScale`).
 - WorkBrain: each save stores the level's list in `plan_pages_c.bom_c` (`bomFor`). Send to WorkBrain adds every level (`jobEquipment`); a drawn level with no `bom_c` yet is named in a warning until it's opened and saved once. CSV and copy are still the open level only.
 - `npm test` runs all tests, and CI runs it before the build.
+
+## Plans not square on the sheet (4 Nov 2026)
+
+- `item.rot` can be any angle. `src/lib/angle.js` holds the maths; tests in `test/angle.test.mjs`.
+- `planAngle` (-45 to 45, saved with the drawing, default 0) is the building's angle. Line up with wall (`startWallAlign`) sets it from two tapped points and squares the selected part. New parts start at it, and sheet metal draft snap (`snapToPlan`) is 0/45/90° to it.
+- `setPartAngle` / `turnGroups` turn a part and anything joined to it. Parts with `onRun` and zone areas are skipped. Rotate handle: tap = 90°, drag = any angle. `[` `]` = 1°, Shift = 5°.
+- Flex routes are still square to the sheet.
