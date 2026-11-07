@@ -10,13 +10,13 @@ This audit used the `test/playwright-browser-audit-20261107` branch only. It did
 | --- | --- | --- |
 | Node engineering tests | PASS — 32/32 | `npm test` and Actions browser-audit run 17 |
 | Production build | PASS | `npm run build` and Actions build run 101 |
-| Chromium browser audit before accessibility gate | PASS — 3/3 | Actions run 17, artifact `playwright-audit-results` |
+| Chromium browser audit including accessibility gate | PASS — 4/4 | Actions run 19, artifact `playwright-audit-results` |
 | Isolated manual browser smoke | PASS | Created/reopened a synthetic project with FCU, condenser, diffuser and return grille |
 | Gitleaks | PASS | Security run 2 |
 | Semgrep community JavaScript rules | PASS | Security run 2 |
 | OSV dependency scan | FINDINGS | See security section |
 
-The browser audit captures full-page screenshots and retains trace/video/test output on failure. It fails on console exceptions and local HTTP failures. A new axe-core check has been added for critical WCAG 2.0/2.1 AA violations; its cloud result must be read from the Actions run created by commit `b582964`.
+The browser audit captures full-page screenshots and retains trace/video/test output on failure. It fails on console exceptions and local HTTP failures. The axe-core check passed with no critical WCAG 2.0/2.1 AA violation on the dashboard in Actions run 19.
 
 ## Confirmed data-protection behaviour
 
