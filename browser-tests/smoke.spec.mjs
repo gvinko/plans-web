@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
 test('loads the app without uncaught exceptions or failed local assets', async ({ page }) => {
   const failures = [];
@@ -20,6 +21,15 @@ test('renders usable content in a desktop browser', async ({ page }) => {
   const visibleText = (await page.locator('body').innerText()).trim();
   expect(visibleText.length).toBeGreaterThan(10);
   await page.screenshot({ path: test.info().outputPath('desktop-home.png'), fullPage: true });
+});
+
+test('dashboard has no critical WCAG 2.0/2.1 AA accessibility violations', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  const criticalViolations = results.violations.filter(({ impact }) => impact === 'critical');
+  expect(criticalViolations).toEqual([]);
 });
 
 test('creates, saves, refreshes and reopens an isolated synthetic project', async ({ page }) => {
