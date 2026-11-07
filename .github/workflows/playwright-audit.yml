@@ -1,6 +1,8 @@
 name: Independent Playwright browser audit
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: ['test/playwright-browser-audit-*']
   workflow_dispatch:
@@ -17,11 +19,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --no-audit --no-fund
-      - run: npm install --no-save --no-package-lock @playwright/test
+      - run: npm ci --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
       - run: npm test
-      - run: npm run build
+      - name: Build and retain diagnostic log
+        shell: bash
+        run: set -o pipefail; npm run build 2>&1 | tee build.log
       - run: npx playwright test --config playwright.config.mjs
       - uses: actions/upload-artifact@v4
         if: always()
@@ -30,4 +33,5 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            build.log
           retention-days: 14
