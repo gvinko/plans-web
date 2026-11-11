@@ -1,0 +1,27 @@
+name: Plans to Print validation
+
+on:
+  push:
+    branches:
+      - plans-to-print-rebuild
+      - plans-to-print-integration-audit
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:geometry
+      - run: npm run test:zip
+      - run: npm run build
+      - run: node scripts/pwa-manifest-test.mjs

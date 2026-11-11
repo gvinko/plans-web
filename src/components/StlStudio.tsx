@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import { createStlAsset, deleteStlAsset, updateStlAssetTransform } from '../db/repository';
+import { createStlAsset, deleteStlAsset, saveStlAssetJoiningPlan, updateStlAssetTransform } from '../db/repository';
 import type { StlAsset } from '../db/schema';
 import type { PrinterProfile } from '../lib/printers/profiles';
 import { createSplitPlan } from '../lib/printers/splitPlanner';
+import { splitMeshForPrinter, type PrintablePart, type PrintableSplit } from '../lib/printers/meshSplitter';
+import { createJoiningPlan, type JoinMode, type JoiningPlan } from '../lib/printers/joinPlanner';
+import { applyJoiningPlan } from '../lib/printers/joinGeometry';
+import { recoverSavedJoiningParts } from '../lib/printers/joinRecovery';
+import { restoreUnjoinedParts } from '../lib/printers/joinState';
 import { stlSplitSourceKey } from '../lib/printers/splitSourceKey';
-import { splitMeshForPrinter, type PrintablePart } from '../lib/printers/meshSplitter';
 import { createStoredZip } from '../lib/export/zip';
 import {
   exportBinaryStl,
@@ -32,6 +36,11 @@ const DEFAULT_TRANSFORM: MeshTransform = {
   rotateYDeg: 0,
   rotateZDeg: 0,
 };
+
+function sameTransform(a: MeshTransform | null, b: MeshTransform): boolean {
+  return a !== null && a.scaleX === b.scaleX && a.scaleY === b.scaleY && a.scaleZ === b.scaleZ
+    && a.rotateXDeg === b.rotateXDeg && a.rotateYDeg === b.rotateYDeg && a.rotateZDeg === b.rotateZDeg;
+}
 
 interface TransformNumberInputProps {
   value: number;
@@ -82,6 +91,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const saveTransformTimerRef = useRef<number | null>(null);
   const pendingTransformRef = useRef<{ assetId: string; value: MeshTransform } | null>(null);
+  const savedTransformRef = useRef<MeshTransform | null>(null);
   // All writes are serialized to prevent stale edits overwriting newer ones.
   const transformWritesRef = useRef<Promise<void>>(Promise.resolve());
   const outstandingWritesRef = useRef(0);
@@ -94,6 +104,11 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
   const [loading, setLoading] = useState(false);
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
   const [splitParts, setSplitParts] = useState<PrintablePart[]>([]);
+  const [rawSplit, setRawSplit] = useState<PrintableSplit | null>(null);
+  const [joiningMode, setJoiningMode] = useState<JoinMode>('dovetail-pins');
+  const [joinClearanceMm, setJoinClearanceMm] = useState(printer.defaultFitClearanceMm);
+  const [joiningPlan, setJoiningPlan] = useState<JoiningPlan | null>(null);
+  const printerSignatureRef = useRef(`${printer.id}:${printer.defaultFitClearanceMm}`);
   const activeAssetIdRef = useRef(activeAssetId);
   activeAssetIdRef.current = activeAssetId;
   const geometryKey = stlSplitSourceKey(activeAssetId, transform, printer);
@@ -108,9 +123,19 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     () => (mesh ? transformMesh(mesh, transform) : null),
     [mesh, transform],
   );
-  useEffect(() => {
+  function clearPrintableParts() {
     setSplitParts([]);
-  }, [mesh, transform, printer]);
+    setRawSplit(null);
+    setJoiningPlan(null);
+  }
+
+  useEffect(() => {
+    const nextSignature = `${printer.id}:${printer.defaultFitClearanceMm}:${printer.buildVolumeMm.x}:${printer.buildVolumeMm.y}:${printer.buildVolumeMm.z}`;
+    if (printerSignatureRef.current === nextSignature) return;
+    printerSignatureRef.current = nextSignature;
+    clearPrintableParts();
+    setJoinClearanceMm(printer.defaultFitClearanceMm);
+  }, [printer.id, printer.defaultFitClearanceMm, printer.buildVolumeMm.x, printer.buildVolumeMm.y, printer.buildVolumeMm.z]);
 
   const splitPlan = transformed
     ? createSplitPlan(
@@ -219,6 +244,8 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
       const parsed = await parseStlFile(file);
       const asset = await createStlAsset(projectId, file);
       setActiveAssetId(asset.id);
+      savedTransformRef.current = DEFAULT_TRANSFORM;
+      clearPrintableParts();
       setMesh(parsed);
       setTransform(DEFAULT_TRANSFORM);
       setPitch(-25);
@@ -240,12 +267,34 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
       const file = new File([asset.sourceFile], `${asset.name}.stl`, { type: 'model/stl' });
       const parsed = await parseStlFile(file);
       if (!isValidMeshTransform(asset.transform)) throw new Error('Saved STL transform is invalid. Restore or re-import this model.');
+      let restored: Awaited<ReturnType<typeof recoverSavedJoiningParts>> | null = null;
+      let restoreWarning: string | null = null;
+      if (asset.joiningPlan) {
+        try {
+          restored = await recoverSavedJoiningParts(parsed, asset.transform, printer, asset.joiningPlan);
+        } catch (error) {
+          restoreWarning = error instanceof Error ? error.message : 'Saved connector geometry needs to be regenerated.';
+        }
+      }
       setActiveAssetId(asset.id);
+      savedTransformRef.current = asset.transform;
+      clearPrintableParts();
       setMesh(parsed);
       setTransform(asset.transform);
+      if (restored) {
+        setRawSplit(restored.split);
+        setSplitParts(restored.parts);
+        setJoiningPlan(restored.plan);
+      }
+      setJoiningMode(asset.joiningPlan?.mode ?? 'dovetail-pins');
+      setJoinClearanceMm(asset.joiningPlan?.clearanceMm ?? printer.defaultFitClearanceMm);
       setPitch(-25);
       setYaw(35);
-      setStatus(`Opened ${asset.name} · saved in this project`);
+      setStatus(restored
+        ? `Opened ${asset.name} · restored ${restored.plan.joints.length} saved joining boundaries`
+        : restoreWarning
+          ? `Opened ${asset.name} · ${restoreWarning}`
+          : `Opened ${asset.name} · saved in this project`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not reopen this STL.');
     } finally {
@@ -275,17 +324,21 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
       .finally(() => { outstandingWritesRef.current -= 1; });
     transformWritesRef.current = nextWrite;
     await nextWrite;
+    if (activeAssetIdRef.current === pending.assetId) savedTransformRef.current = pending.value;
   }
 
   useEffect(() => {
     if (!activeAssetId || !mesh) return;
+    if (sameTransform(savedTransformRef.current, transform)) return;
     const assetId = activeAssetId;
     const name = mesh.name;
-    pendingTransformRef.current = { assetId, value: { ...transform } };
+    const value = { ...transform };
+    pendingTransformRef.current = { assetId, value };
     if (saveTransformTimerRef.current !== null) window.clearTimeout(saveTransformTimerRef.current);
     saveTransformTimerRef.current = window.setTimeout(() => {
       void flushPendingTransform()
         .then(() => {
+          savedTransformRef.current = value;
           if (activeAssetIdRef.current === assetId) setStatus(`Saved edits for ${name}`);
         })
         .catch((error) => setStatus(error instanceof Error ? error.message : 'Could not save STL edits.'));
@@ -329,6 +382,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
       return;
     }
     if (activeAssetId) pendingTransformRef.current = { assetId: activeAssetId, value: next };
+    clearPrintableParts();
     setTransform(next);
   }
 
@@ -388,6 +442,16 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     }
   }
 
+  function updateTransform(next: MeshTransform) {
+    clearPrintableParts();
+    setTransform(next);
+  }
+
+  function invalidateJoiningPlan() {
+    setJoiningPlan(null);
+    if (rawSplit) setSplitParts(restoreUnjoinedParts(rawSplit));
+  }
+
   async function generatePrintableParts() {
     if (!transformed || !splitPlan?.required) return;
     setLoading(true);
@@ -401,9 +465,33 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
       const result = splitMeshForPrinter(transformed, printer);
       if (geometryKeyRef.current !== sourceKey) return;
       setSplitParts(result.parts);
+      setRawSplit(result);
+      setJoiningPlan(null);
       setStatus(`${result.parts.length} printable parts created and topology-checked. Download each STL below.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not safely split this STL.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function generateJoiningPlan() {
+    if (!activeAssetId || splitParts.length < 2) return;
+    const sourceKey = geometryKeyRef.current;
+    setLoading(true);
+    try {
+      await flushPendingTransform();
+      const source = rawSplit ?? (splitPlan ? { plan: splitPlan, parts: splitParts } : null);
+      if (!source) throw new Error('Generate fresh split parts before making connectors.');
+      const plan = createJoiningPlan(source.parts, printer, joiningMode, joinClearanceMm);
+      const joined = await applyJoiningPlan(source, plan);
+      if (geometryKeyRef.current !== sourceKey) return;
+      await saveStlAssetJoiningPlan(activeAssetId, plan, `${mesh?.name ?? 'model'}:${splitParts.length}`);
+      setSplitParts(joined);
+      setJoiningPlan(plan);
+      setStatus(`${plan.joints.length} joining boundaries generated, topology-checked and saved.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not make joining plan.');
     } finally {
       setLoading(false);
     }
@@ -413,7 +501,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     try {
       const file = exportBinaryStl(part.mesh, part.mesh.name + '.stl');
       download(file, file.name);
-      setStatus(`Exported ${file.name}. Part has no assembly connectors yet.`);
+      setStatus(`Exported ${file.name}${joiningPlan ? ' with assembly connectors.' : '.'}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not safely export this part.');
     }
@@ -425,7 +513,10 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
       model: transformed.name,
       units: 'mm',
       printer: printer.name,
-      warning: 'Alignment pins, connectors and clips are NOT included. Validate and orient each part in your slicer.',
+      warning: joiningPlan
+        ? 'Connector geometry is included in these STL files. Validate orientation and sliced layers before printing.'
+        : 'No connector geometry is included. Validate and orient each part in your slicer.',
+      joining: joiningPlan ? { mode: joiningPlan.mode, clearanceMm: joiningPlan.clearanceMm, joints: joiningPlan.joints } : null,
       parts: splitParts.map((part) => ({
         filename: part.mesh.name + '.stl',
         number: part.partNumber,
@@ -440,7 +531,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
     const json = JSON.stringify(assemblyManifest(), null, 2);
     const file = new Blob([json], { type: 'application/json' });
     download(file, transformed.name.replace(/[^a-z0-9._-]+/gi, '-') + '-assembly.json');
-    setStatus('Exported assembly offsets. Joinery has not been generated.');
+    setStatus(joiningPlan ? 'Exported assembly offsets and saved joining plan.' : 'Exported assembly offsets. Generate a joining plan to include connector data.');
   }
 
   async function downloadPartPackage() {
@@ -462,7 +553,9 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
         'Each part STL uses a local origin at its bounding-box minimum.',
         'Open assembly.json for each part position in the original assembly.',
         'Import each STL into your slicer and check bed fit, layer preview and orientation.',
-        'THIS PACKAGE DOES NOT CONTAIN PINS, SOCKETS, CLIPS OR OTHER CONNECTORS.',
+        joiningPlan
+          ? `JOINING GEOMETRY INCLUDED: ${joiningPlan.mode} · clearance ${joiningPlan.clearanceMm.toFixed(2)} mm · ${joiningPlan.joints.length} boundaries. Use assembly.json for connector locations.`
+          : 'No joining plan has been generated. Align and bond parts manually.',
         'Unsupported/complex cut geometries are blocked earlier, not silently exported.',
         '',
       ].join('\n');
@@ -622,7 +715,7 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
                   if (factor >= 1) {
                     setStatus('Model already fits the printer with a 2 mm safety margin on each side.');
                   } else if (factor > 0 && Number.isFinite(factor)) {
-                    setTransform({
+                    updateTransform({
                       ...transform,
                       scaleX: transform.scaleX * factor,
                       scaleY: transform.scaleY * factor,
@@ -677,10 +770,27 @@ export default function StlStudio({ projectId, printer, onClose }: StlStudioProp
                   <p className="mt-2 text-[11px] text-slate-400">
                     Safe mode: closed, consistently oriented STL meshes with one convex contour per cut.
                     Up to 12 parts and 60,000 source triangles. Unsupported shapes are rejected without export.
-                    Printed parts do not include locating pins, clips, or sockets yet.
+                    Connector geometry is generated only after you choose a joining mode below.
                   </p>
                   {splitParts.length > 0 && (
                     <div className="mt-3 space-y-2">
+                      <div className="rounded border border-violet-800 bg-violet-950/30 p-2">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-200">Joining</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <select value={joiningMode} onChange={(event) => { setJoiningMode(event.target.value as JoinMode); invalidateJoiningPlan(); }} className="rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs">
+                            <option value="dovetail-pins">Dovetail + pins</option>
+                            <option value="pins">Pins only</option>
+                            <option value="clips" disabled>Removable clips (coming soon)</option>
+                          </select>
+                          <label className="text-[10px] text-slate-400">Clearance (mm)
+                            <input type="number" step="0.05" min="0.08" value={joinClearanceMm} onChange={(event) => { setJoinClearanceMm(Number(event.target.value)); invalidateJoiningPlan(); }} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100" />
+                          </label>
+                        </div>
+                        <button type="button" disabled={loading} onClick={() => void generateJoiningPlan()} className="mt-2 w-full rounded bg-violet-700 px-2 py-1.5 text-xs font-semibold hover:bg-violet-600 disabled:opacity-50">
+                          {joiningPlan ? 'Regenerate joining plan' : 'Generate joining plan'}
+                        </button>
+                        <p className="mt-2 text-[10px] text-slate-400">{joiningPlan ? `${joiningPlan.joints.length} boundaries generated for ${joiningPlan.mode}.` : 'Create printer-tolerance-aware connector geometry before exporting the assembly package.'}</p>
+                      </div>
                       <div className="text-xs font-medium text-emerald-300">
                         {splitParts.length} closed parts ready for individual download
                       </div>
