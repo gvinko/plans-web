@@ -153,8 +153,20 @@ async function run(label, contextOpts, file, expectExact) {
         const eb = await end.boundingBox();
         const coords = () => page.locator('line[data-wall-line]').evaluateAll((els) => els.map((e) => ['x1', 'y1', 'x2', 'y2'].map((k) => e.getAttribute(k)).join()).join(';'));
         const before = await coords();
-        await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2); await page.mouse.down(); await page.mouse.move(eb.x + eb.width / 2 + 23, eb.y + eb.height / 2 + 23, { steps: 4 }); await page.mouse.up();
-        check(T('drag a wall end'), (await coords()) !== before);
+        const fx = eb.x + eb.width / 2; const fy = eb.y + eb.height / 2;
+        if (contextOpts.hasTouch) {
+          // a real finger drag on the phone
+          const cdp = await ctx.newCDPSession(page);
+          const pt = (x, y) => [{ x, y, id: 1 }];
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(fx, fy) });
+          for (let i = 1; i <= 5; i += 1) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pt(fx + i * 5, fy + i * 5) });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        } else {
+          await page.mouse.move(fx, fy); await page.mouse.down(); await page.mouse.move(fx + 23, fy + 23, { steps: 4 }); await page.mouse.up();
+        }
+        const moved = (await coords()) !== before;
+        check(T(contextOpts.hasTouch ? 'drag a wall end with a finger' : 'drag a wall end'), moved);
+        if (!moved) throw new Error('wall end did not move');
         await page.waitForTimeout(600); await page.keyboard.press('Control+z'); await page.waitForTimeout(300);
       }
       await clickMid(page, page.locator('line[data-est="1"]').first());

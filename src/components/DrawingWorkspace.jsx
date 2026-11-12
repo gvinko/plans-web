@@ -5525,9 +5525,6 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       <g key={s.id}>
                         <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke="transparent" strokeWidth={16} style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} />
                         <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={s.est && !sel ? '#d97706' : col} strokeWidth={5} strokeLinecap={s.est ? 'butt' : 'square'} strokeDasharray={s.est ? '14 6' : undefined} data-est={s.est ? '1' : undefined} data-wall-line />
-                        {sel && [1, 2].map((end) => (
-                          <circle key={end} cx={s[`x${end}`]} cy={s[`y${end}`]} r={7 * Math.min(inv, 2.5)} fill="#fff" stroke="#2563eb" strokeWidth={2 * Math.min(inv, 2.5)} style={{ pointerEvents: live || 'all', cursor: 'crosshair' }} data-wall-end={end} onPointerDown={(event) => startWallEnd(event, s, end)} />
-                        ))}
                         {sel && (
                           <text x={(s.x1 + s.x2) / 2} y={(s.y1 + s.y2) / 2 - 10} textAnchor="middle" fontSize="12" fontWeight="700" fill="#2563eb" stroke="#fff" strokeWidth={3} paintOrder="stroke">{`${fmtM(len)} m`}</text>
                         )}
@@ -5847,6 +5844,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     </text>
                   );
                 })}
+                {/* end handles of the selected wall, above everything so other walls at a corner don't cover them */}
+                {selectedSketch?.kind === 'wall' && !sketchTool && !scaleDraft && [1, 2].map((end) => (
+                  <g key={`we${end}`} data-wall-end={end} style={{ pointerEvents: 'all', cursor: 'crosshair', touchAction: 'none' }} onPointerDown={(event) => startWallEnd(event, selectedSketch, end)}>
+                    <circle cx={selectedSketch[`x${end}`]} cy={selectedSketch[`y${end}`]} r={20 * inv} fill="transparent" />
+                    <circle cx={selectedSketch[`x${end}`]} cy={selectedSketch[`y${end}`]} r={8 * inv} fill="#fff" stroke="#2563eb" strokeWidth={2.5 * inv} />
+                  </g>
+                ))}
                 {/* Flexible canvas connections either side of inline fans fitted in a run */}
                 {canvasJoints.map((cj) => {
                   // Flexible canvas connection: a 150 mm band across the duct with a zig-zag, at any angle.
