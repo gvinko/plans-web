@@ -312,7 +312,7 @@ export function inkMask(img, { suppressGraph = true, threshold = 0.74 } = {}) {
   return mask;
 }
 
-// Size of one graph-paper square in pixels, from the coloured grid lines. null when there's no clear grid.
+// Size of one graph-paper square in pixels, from the evenly spaced faint lines. null when there's no clear grid.
 export function gridPitch(img) {
   const { w, h } = img;
   const { lo, hi } = levels(img);
@@ -320,7 +320,9 @@ export function gridPitch(img) {
   for (let y = 0; y < h; y += 1) {
     for (let x = 0; x < w; x += 1) {
       const p = y * w + x;
-      if (hi[p] > 0.8 && hi[p] - lo[p] > 0.07) { col[x] += 1; row[y] += 1; }
+      // faint marks: tinted graph lines, or pale grey ones. Dark pencil is left out; what pencil
+      // does get in isn't evenly spaced, so it doesn't show up as a repeat.
+      if ((hi[p] > 0.8 && hi[p] - lo[p] > 0.04) || (lo[p] < 0.93 && hi[p] > 0.72)) { col[x] += 1; row[y] += 1; }
     }
   }
   const period = (sig) => {
