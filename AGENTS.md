@@ -171,3 +171,15 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - `planAngle` (-45 to 45, saved with the drawing, default 0) is the building's angle. Line up with wall (`startWallAlign`) sets it from two tapped points and squares the selected part. New parts start at it, and sheet metal draft snap (`snapToPlan`) is 0/45/90° to it.
 - `setPartAngle` / `turnGroups` turn a part and anything joined to it. Parts with `onRun` and zone areas are skipped. Rotate handle: tap = 90°, drag = any angle. `[` `]` = 1°, Shift = 5°.
 - Flex routes are still square to the sheet.
+
+## Sketch to Plan (12 Nov 2026)
+
+- Toolbar **Sketch** button → `SketchToPlanDialog.jsx`: photo (JPG / PNG / WebP, or page 1 of a PDF) → drag the page corners → walls found → tap walls on/off, type what any writing says → say what one graph square is worth (or skip) → Open in PlanDroid.
+- All the image work is `src/lib/sketchPlan.js`: plain JS on pixel arrays, no OpenCV, no OCR, no AI, no network. Stages: `findPaper`, `warpImage`, `cleanImage`, `inkMask`, `gridPitch`, `detectWalls`, `findRooms`, `findNotes`, `analyseSketch`, `toSketchItems`. Tests: `test/sketchplan.test.mjs` (synthetic sheets).
+- The result is ordinary sketch items: `wall` and `room` with `est: true` (and `conf` 0–1 on walls). `est` items draw dashed orange until verified (`verifySketch`); the Checks tab counts them. Old drawings have no `est` and are unaffected.
+- Writing is boxed, never read. A typed label becomes a room `name`, a room `zone`, or a `text` item — only what the user picks. Numbers are never turned into sizes, loads or airflow.
+- Scale: `scaleFromGrid` gives `{ pxPerM, grid: { squareMm } }` only from the mm the user types for one square. No figure typed → no scale, and the dialog says so.
+- `planFile` after a sketch: `[0]` = the image shown under the drawing, `[1]` = the upload byte-for-byte (`sketch-original-…`). Keep `[0]` as the shown image.
+- `bgOpacity` (saved with the drawing, default 1) is the plan image's see-through slider in the toolbar.
+- Wall editing added for this: round end handles on a selected wall (`startWallEnd`, drag kind `wallend`: joins to a wall end or wall, else stays square, Shift = any angle) and **Split in two** (`splitWall`).
+- Known limits: walls more than about 7° off square, curved walls, doors and windows are not found; very faint lines and lines hidden under hatching are missed; rooms come in as rectangles (an L-shaped room is its biggest rectangle, flagged). Browser test: `node test/e2e/sketch-to-plan.e2e.mjs <url>` (needs Playwright; not part of `npm test`).

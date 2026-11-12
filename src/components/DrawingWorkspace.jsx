@@ -24,6 +24,7 @@ import { networkAirflow, unitScale } from '@/lib/airflow';
 import { normDeg, planAngleFrom, rotatePt, snapToPlan, squareToPlan } from '@/lib/angle';
 import { pageTextFromItems, looksScanned } from '@/lib/specs';
 import SpecsDialog from '@/components/SpecsDialog';
+import SketchToPlanDialog, { sketchFileProblem } from '@/components/SketchToPlanDialog';
 
 const COLORBOND = ['Basalt', 'Blue Ocean', 'Classic Cream', 'Cottage Green', 'Cove', 'Deep Ocean', 'Dune', 'Evening Haze', 'Galvanised', 'Gully', 'Headland', 'Ironstone', 'Jasper', 'Mangrove', 'Manor Red', 'Monument', 'Night Sky', 'Pale Eucalypt', 'Paperbark', 'Shale Grey', 'Surfmist', 'Terrain', 'Wallaby', 'Windspray', 'Woodland'];
 const isService = (conn) => !!conn && (conn.type === 'pipe' || conn.type === 'drain' || conn.type === 'power');
@@ -1800,6 +1801,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [scaleDlg, setScaleDlg] = useState(null);
   const [myParts, setMyParts] = useState(readMyParts);
   const [specOpen, setSpecOpen] = useState(false);
+  const [s2p, setS2p] = useState(null); // Sketch to Plan: { file, image } while its dialog is open
+  const s2pRef = useRef(null);
+  const [bgOpacity, setBgOpacity] = useState(1); // how solid the plan image is (saved with the drawing)
   const [specBusy, setSpecBusy] = useState('');
   const [customDlg, setCustomDlg] = useState(null); // { name, tag, size, qty, save, at } — new custom part // { ratio, paper } — set scale from 1:100 @ A1
   const [scaleDraft, setScaleDraft] = useState(null);
@@ -1921,11 +1925,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const t = setTimeout(() => {
       if (!dirtyRef.current) return; // already saved
       try {
-        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
+        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, bgOpacity }) }));
       } catch { /* storage full or blocked */ }
     }, 800);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, draftKey]);
+  }, [items, connections, joins, scale, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, bgOpacity, draftKey]);
 
   // Saving is on this device now, so losing signal no longer matters.
   // Autosave: a couple of seconds after any change (drawing, plan, photos), save it.
@@ -1933,7 +1937,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (!dirtyRef.current || planBusy) return undefined;
     const t = setTimeout(() => { if (dirtyRef.current) saveRef.current?.({ auto: true }); }, 1500);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy]);
+  }, [items, connections, joins, scale, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, bgOpacity, planFile, photos, planBusy]);
   // Leaving the tab or closing the window: save straight away.
   useEffect(() => {
     const flush = () => { if (dirtyRef.current) saveRef.current?.({ auto: true }); };
@@ -2084,6 +2088,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setScale(null);
         setSheet(null);
         setClimate(DEFAULT_CLIMATE);
+        setBgOpacity(1);
       } else {
         setItems(migrateItems(saved.items));
         setConnections(saved.connections ?? []);
@@ -2094,6 +2099,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setShowLabels(saved.showLabels ?? true);
         setShowFab(!!saved.showFab);
         setPlanAngle(Number(saved.planAngle) || 0);
+        setBgOpacity(saved.bgOpacity > 0 && saved.bgOpacity <= 1 ? saved.bgOpacity : 1);
         setTextStyle({ size: 0.7, color: '', ...(saved.textStyle || {}) });
         setLayout({ orient: 'landscape', side: 'beside', page2: false, title: '', kind: 'concept', dwgNo: '', refs: '', ...(saved.layout || {}) });
         setPickEdit(saved.pickEdit || null);
@@ -2599,6 +2605,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     });
     const cap = items.filter((i) => !i.remove && (i.type === 'indoor' || i.type === 'coilsection' || i.type === 'splitindoor')).reduce((n, i) => n + unitKw(i), 0);
     const load = rooms.reduce((n, r) => n + r.kw, 0);
+    {
+      const n = sketch.filter((x) => x.est).length;
+      if (n) out.push({ level: 'info', group: 'Sketch to Plan', title: `${n} wall${n === 1 ? '' : 's'} / room${n === 1 ? '' : 's'} from the sketch not checked yet`, detail: 'Dashed orange lines came from the photo. Select one and Mark verified, or Verify all once the plan looks right.' });
+    }
     if (!rooms.length) {
       out.push({ level: 'info', group: 'Heat load', title: 'No rooms to estimate', detail: 'Draw zone areas or sketch rooms to scale.' });
     } else if (cap) {
@@ -3413,6 +3423,79 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (!scale) toast.message('Plan loaded', { description: 'Tap “Set scale” (K): type the scale from the title block, e.g. 1:100 @ A1, or mark a known dimension.' });
   }
 
+  // ---- Sketch to Plan: a photo of a hand-drawn plan becomes walls and rooms (src/lib/sketchPlan.js) ----
+  async function pickSketch(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const bad = sketchFileProblem(file);
+    if (bad) { setStatus(bad); toast.error('Sketch not opened', { description: bad }); return; }
+    if ((background || sketch.some((x) => x.kind === 'wall' || x.kind === 'room')) && !window.confirm('This level already has a plan. Sketch to Plan swaps the plan image for your sketch and adds the walls it finds. Parts, ducts and anything already drawn stay. Continue?')) return;
+    let image = file;
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      setStatus('Rendering PDF page 1…');
+      try {
+        const res = await pdfFileToJpeg(file);
+        res.pdf?.destroy?.();
+        image = res.blob;
+      } catch (err) {
+        toast.error('PDF could not be read', { description: err?.message || 'unknown error' });
+        return;
+      }
+    }
+    setS2p({ file, image });
+  }
+
+  async function finishSketch({ original, underlay, items: found, scale: sc, counts }) {
+    setS2p(null);
+    setPlanBusy(true);
+    setStatus('Saving sketch…');
+    try {
+      // [0] is the image shown under the drawing; [1] is the upload exactly as it came, never changed.
+      const shown = await sdk.storage.upload(new File([underlay], 'plan.jpg', { type: 'image/jpeg' }));
+      const kept = await sdk.storage.upload(new File([original], `sketch-original-${original.name || 'photo'}`, { type: original.type || 'application/octet-stream' }));
+      if (!shown || !kept) throw new Error('No file returned');
+      setPlanFile([{ ...shown, size: shown.size || underlay.size, name: 'plan.jpg', type: 'image/jpeg' }, kept]);
+      setBackground(URL.createObjectURL(underlay));
+    } catch (err) {
+      setPlanBusy(false);
+      setStatus(`Could not store sketch: ${err?.message || 'unknown error'}`);
+      toast.error('Sketch could not be stored', { description: `${err?.message || 'unknown error'} — nothing was changed.` });
+      return;
+    }
+    setSheet(null);
+    onSavePageText?.(page.Id, '');
+    setSketch((current) => [...current, ...found]);
+    if (sc) setScale(sc);
+    setBgOpacity(0.5);
+    setSelectedSketchId(null);
+    fitView();
+    setPlanBusy(false);
+    markDirty('Sketch plan added · check the dashed walls');
+    toast.success('Sketch turned into a plan', { description: `${counts.walls} walls and ${counts.rooms} rooms added, dashed orange until you check them.${sc ? '' : ' Set the scale next (K).'}` });
+  }
+
+  const estCount = sketch.filter((x) => x.est).length;
+  function verifySketch(id) {
+    setSketch((current) => current.map((x) => (x.est && (!id || x.id === id) ? { ...x, est: undefined, conf: undefined } : x)));
+    markDirty();
+  }
+  function splitWall(wall) {
+    const mx = (wall.x1 + wall.x2) / 2;
+    const my = (wall.y1 + wall.y2) / 2;
+    const a = { ...wall, id: crypto.randomUUID(), x2: mx, y2: my };
+    const b = { ...wall, id: crypto.randomUUID(), x1: mx, y1: my };
+    setSketch((current) => current.flatMap((x) => (x.id === wall.id ? [a, b] : [x])));
+    setSelectedSketchId(a.id);
+    markDirty();
+  }
+  function startWallEnd(event, wall, end) {
+    if (fingerOnly(event)) return;
+    event.stopPropagation();
+    dragRef.current = { kind: 'wallend', id: wall.id, end, sx: event.clientX, sy: event.clientY, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
   // ---- Scale from the drawing's stated scale (1:100 @ A1) ----
   function openScaleDlg() {
     const auto = sheetName(sheet);
@@ -3589,6 +3672,34 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (drag.kind === 'erase') {
       const now = Date.now();
       if (now - drag.last > 60) { drag.last = now; eraseAt(p); }
+      return;
+    }
+    if (drag.kind === 'wallend') {
+      // Drag one end of a wall: it joins to a nearby wall end or wall, else stays square (Shift = any angle).
+      const wall = sketch.find((x) => x.id === drag.id);
+      if (!wall) return;
+      const fx = drag.end === 1 ? wall.x2 : wall.x1;
+      const fy = drag.end === 1 ? wall.y2 : wall.y1;
+      let { x, y } = p;
+      let best = null;
+      let bd = 12 / view.z;
+      const others = sketch.filter((o) => o.kind === 'wall' && o.id !== wall.id);
+      others.forEach((o) => [[o.x1, o.y1], [o.x2, o.y2]].forEach(([ex, ey]) => { const d = Math.hypot(ex - x, ey - y); if (d < bd) { bd = d; best = { x: ex, y: ey }; } }));
+      if (!best) {
+        others.forEach((o) => {
+          const L2 = (o.x2 - o.x1) ** 2 + (o.y2 - o.y1) ** 2;
+          if (!L2) return;
+          const t = clamp(((x - o.x1) * (o.x2 - o.x1) + (y - o.y1) * (o.y2 - o.y1)) / L2, 0, 1);
+          const qx = o.x1 + t * (o.x2 - o.x1);
+          const qy = o.y1 + t * (o.y2 - o.y1);
+          const d = Math.hypot(qx - x, qy - y);
+          if (d < bd) { bd = d; best = { x: qx, y: qy }; }
+        });
+      }
+      if (best) { x = best.x; y = best.y; } else if (!event.shiftKey) { if (Math.abs(x - fx) < Math.abs(y - fy)) x = fx; else y = fy; }
+      drag.joined = !!best;
+      setSketch((current) => current.map((s) => (s.id === drag.id ? { ...s, [`x${drag.end}`]: x, [`y${drag.end}`]: y } : s)));
+      markDirty();
       return;
     }
     if (drag.kind === 'sketchmove') {
@@ -3778,6 +3889,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return;
     }
     if (drag?.kind === 'sketchmove') return;
+    if (drag?.kind === 'wallend') { if (drag.joined) toast.message('Wall joined'); return; }
     if (drag?.kind === 'smpoint') {
       if (drag.end && drag.target) {
         setSketch((current) => current.map((r) => (r.id === drag.id ? { ...r, [drag.end]: smLinkFrom(drag.target) } : r)));
@@ -4800,7 +4912,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return;
     }
     setStatus('Saving…');
-    const payload = JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
+    const payload = JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, bgOpacity });
     lastSavedRef.current = payload;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos, bomFor(equipment)); } catch { ok = false; }
@@ -5103,6 +5215,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             <ApperIcon name={planBusy ? 'Loader' : 'ImagePlus'} size={15} className={planBusy ? 'animate-spin' : ''} />
             <span className="hidden xl:inline">{planBusy ? 'Loading…' : 'Plan'}</span>
           </Button>
+          <input ref={s2pRef} type="file" accept="image/jpeg,image/png,image/webp,.pdf,application/pdf" className="hidden" data-testid="s2p-file" onChange={pickSketch} />
+          <Button variant="outline" size="sm" className="h-8 px-2" disabled={planBusy} title="Sketch to Plan: photo of a hand-drawn plan → walls and rooms you can edit" data-testid="s2p-button" onClick={() => s2pRef.current?.click()}>
+            <ApperIcon name="PencilRuler" size={15} />
+            <span className="hidden xl:inline">Sketch</span>
+          </Button>
+          {background && (
+            <input type="range" min="0.1" max="1" step="0.05" value={bgOpacity} aria-label="Plan image see-through" title="How solid the plan image is under the drawing" data-testid="bg-opacity" className="w-16 accent-primary" onChange={(event) => { setBgOpacity(Number(event.target.value)); markDirty(); }} />
+          )}
           {background && (
             <Button variant="ghost" size="sm" className="h-8 px-2" title="Remove the plan image" onClick={() => { setBackground(''); setPlanFile([]); markDirty('Plan removed · unsaved changes'); }}>
               <ApperIcon name="ImageOff" size={15} />
@@ -5325,7 +5445,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               style={{ width: WORLD_W, height: WORLD_H, transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}
             >
               {background ? (
-                <img src={background} alt="Uploaded plan" draggable={false} onLoad={(event) => { const im = event.currentTarget; if (im.naturalHeight) setBgAspect(im.naturalWidth / im.naturalHeight); }} className="absolute inset-0 size-full object-contain pointer-events-none select-none" />
+                <img src={background} alt="Uploaded plan" draggable={false} onLoad={(event) => { const im = event.currentTarget; if (im.naturalHeight) setBgAspect(im.naturalWidth / im.naturalHeight); }} className="absolute inset-0 size-full object-contain pointer-events-none select-none" style={{ opacity: bgOpacity }} />
               ) : (
                 <div
                   className="absolute inset-0 opacity-40 pointer-events-none"
@@ -5404,7 +5524,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     return (
                       <g key={s.id}>
                         <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke="transparent" strokeWidth={16} style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} />
-                        <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={col} strokeWidth={5} strokeLinecap="square" />
+                        <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={s.est && !sel ? '#d97706' : col} strokeWidth={5} strokeLinecap={s.est ? 'butt' : 'square'} strokeDasharray={s.est ? '14 6' : undefined} data-est={s.est ? '1' : undefined} data-wall-line />
                         {sel && (
                           <text x={(s.x1 + s.x2) / 2} y={(s.y1 + s.y2) / 2 - 10} textAnchor="middle" fontSize="12" fontWeight="700" fill="#2563eb" stroke="#fff" strokeWidth={3} paintOrder="stroke">{`${fmtM(len)} m`}</text>
                         )}
@@ -5712,7 +5832,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     return (
                       <g key={s.id}>
                         <rect x={s.x1} y={s.y1} width={w} height={h} fill="none" stroke="transparent" strokeWidth={16} style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} />
-                        <rect x={s.x1} y={s.y1} width={w} height={h} fill="none" stroke={col} strokeWidth={4} />
+                        <rect x={s.x1} y={s.y1} width={w} height={h} fill="none" stroke={s.est && !sel ? '#d97706' : col} strokeWidth={s.est ? 2.5 : 4} strokeDasharray={s.est ? '10 6' : undefined} />
                         <text x={s.x1 + w / 2} y={s.y1 + h / 2} textAnchor="middle" fontSize="14" fontWeight="700" fill={col} stroke="#fff" strokeWidth={3} paintOrder="stroke">{s.name || ''}</text>
                         <text x={s.x1 + w / 2} y={s.y1 + h / 2 + 16} textAnchor="middle" fontSize="11" fill="#475569" stroke="#fff" strokeWidth={3} paintOrder="stroke">{`${fmtM(w / ppm)} × ${fmtM(h / ppm)} m${showLoads ? ` · ≈${roomLoadKw((w / ppm) * (h / ppm), s).toFixed(1)} kW` : ''}`}</text>
                       </g>
@@ -5724,6 +5844,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     </text>
                   );
                 })}
+                {/* end handles of the selected wall, above everything so other walls at a corner don't cover them */}
+                {selectedSketch?.kind === 'wall' && !sketchTool && !scaleDraft && [1, 2].map((end) => (
+                  <g key={`we${end}`} data-wall-end={end} style={{ pointerEvents: 'all', cursor: 'crosshair', touchAction: 'none' }} onPointerDown={(event) => startWallEnd(event, selectedSketch, end)}>
+                    <circle cx={selectedSketch[`x${end}`]} cy={selectedSketch[`y${end}`]} r={20 * inv} fill="transparent" />
+                    <circle cx={selectedSketch[`x${end}`]} cy={selectedSketch[`y${end}`]} r={8 * inv} fill="#fff" stroke="#2563eb" strokeWidth={2.5 * inv} />
+                  </g>
+                ))}
                 {/* Flexible canvas connections either side of inline fans fitted in a run */}
                 {canvasJoints.map((cj) => {
                   // Flexible canvas connection: a 150 mm band across the duct with a zig-zag, at any angle.
@@ -6984,6 +7111,21 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   </>
                 );
               })()}
+              {selectedSketch.est && (
+                <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs space-y-1.5" data-testid="est-panel">
+                  <div>{`From your sketch — not checked yet${selectedSketch.conf != null ? ` (line clarity ${Math.round(selectedSketch.conf * 100)}%)` : ''}. Move or fix it, then mark it verified.`}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button size="sm" className="h-7" onClick={() => verifySketch(selectedSketch.id)}>Mark verified</Button>
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => verifySketch(null)}>{`Verify all (${estCount})`}</Button>
+                  </div>
+                </div>
+              )}
+              {selectedSketch.kind === 'wall' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="outline" className="h-7" title="Cut this wall into two at its middle, so one half can be moved or deleted" onClick={() => splitWall(selectedSketch)}><ApperIcon name="Scissors" size={13} />Split in two</Button>
+                  <span className="text-[11px] text-muted-foreground">Drag a round end to stretch it or join it to another wall.</span>
+                </div>
+              )}
               {selectedSketch.kind === 'wall' && (
                 <div className="text-xs text-muted-foreground">{`Length ${fmtM(Math.hypot(selectedSketch.x2 - selectedSketch.x1, selectedSketch.y2 - selectedSketch.y1) / ppm)} m`}</div>
               )}
@@ -7560,6 +7702,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         kwOf={modelKw}
         onGenerate={generateAuto}
       />
+      <SketchToPlanDialog open={!!s2p} onOpenChange={(v) => { if (!v) setS2p(null); }} source={s2p} worldW={WORLD_W} worldH={WORLD_H} onDone={finishSketch} />
       {onSaveDocs && (
         <SpecsDialog
           open={specOpen}
