@@ -49,6 +49,9 @@ async function newProject(page, name) {
   await page.getByTestId('s2p-button').waitFor();
 }
 const count = (page, sel) => page.locator(sel).count();
+// wait (up to 4 s) for something to become true, so slow devices don't fail on timing
+async function until(fn) { for (let i = 0; i < 40; i += 1) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; }
+const SETTLE = 900; // the editor records an undo step ~0.4 s after a change
 // a third of the way along, so the tap lands clear of the junctions in the middle of a wall
 async function clickMid(page, locator) { const b = await locator.boundingBox(); await page.mouse.click(b.x + b.width * 0.3, b.y + b.height * 0.3); }
 
@@ -134,22 +137,22 @@ async function run(label, contextOpts, file, expectExact) {
     const panel = await page.getByTestId('est-panel').isVisible().catch(() => false);
     check(T('selecting a detected wall shows it is unverified'), panel);
     if (panel) {
+      const nLines = () => count(page, 'line[data-wall-line]');
+      await page.waitForTimeout(SETTLE);
       await page.getByRole('button', { name: 'Split in two' }).click();
-      check(T('split a wall'), (await count(page, 'line[data-wall-line]')) === lines0 + 1);
-      await page.waitForTimeout(600);
+      check(T('split a wall'), await until(async () => (await nLines()) === lines0 + 1));
+      await page.waitForTimeout(SETTLE);
       await page.keyboard.press('Control+z');
-      await page.waitForTimeout(300);
-      check(T('undo'), (await count(page, 'line[data-wall-line]')) === lines0);
+      check(T('undo'), await until(async () => (await nLines()) === lines0));
       await page.keyboard.press('Control+y');
-      await page.waitForTimeout(300);
-      const redo = (await count(page, 'line[data-wall-line]')) === lines0 + 1;
-      if (!redo) { await page.keyboard.press('Control+Shift+z'); await page.waitForTimeout(300); }
-      check(T('redo'), (await count(page, 'line[data-wall-line]')) === lines0 + 1);
-      await page.keyboard.press('Control+z'); await page.waitForTimeout(300);
+      check(T('redo'), await until(async () => (await nLines()) === lines0 + 1));
+      await page.keyboard.press('Control+z');
+      await until(async () => (await nLines()) === lines0);
       // drag one end of the selected wall
       await clickMid(page, page.locator('line[data-est="1"]').first());
       const end = page.locator('[data-wall-end="2"]');
       if (await end.count()) {
+        await page.evaluate(() => window.scrollTo(0, 0)); // on a phone the panel below scrolls the plan under the toolbar
         const eb = await end.boundingBox();
         const coords = () => page.locator('line[data-wall-line]').evaluateAll((els) => els.map((e) => ['x1', 'y1', 'x2', 'y2'].map((k) => e.getAttribute(k)).join()).join(';'));
         const before = await coords();
@@ -164,17 +167,17 @@ async function run(label, contextOpts, file, expectExact) {
         } else {
           await page.mouse.move(fx, fy); await page.mouse.down(); await page.mouse.move(fx + 23, fy + 23, { steps: 4 }); await page.mouse.up();
         }
-        const moved = (await coords()) !== before;
+        const moved = await until(async () => (await coords()) !== before);
         check(T(contextOpts.hasTouch ? 'drag a wall end with a finger' : 'drag a wall end'), moved);
         if (!moved) throw new Error('wall end did not move');
-        await page.waitForTimeout(600); await page.keyboard.press('Control+z'); await page.waitForTimeout(300);
+        await page.waitForTimeout(SETTLE); await page.keyboard.press('Control+z'); await until(async () => (await coords()) === before);
       }
       await clickMid(page, page.locator('line[data-est="1"]').first());
       await page.getByRole('button', { name: 'Mark verified' }).click();
-      check(T('mark one wall verified'), (await count(page, 'line[data-est="1"]')) === est0 - 1);
+      check(T('mark one wall verified'), await until(async () => (await count(page, 'line[data-est="1"]')) === est0 - 1));
       await clickMid(page, page.locator('line[data-est="1"]').first());
       await page.getByRole('button', { name: /Verify all/ }).click();
-      check(T('verify all'), (await count(page, 'line[data-est="1"]')) === 0);
+      check(T('verify all'), await until(async () => (await count(page, 'line[data-est="1"]')) === 0));
     }
 
     // save, reload, reopen
