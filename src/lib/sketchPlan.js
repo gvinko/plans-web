@@ -668,17 +668,19 @@ export function toSketchItems(result, { worldW, worldH, newId, includeRooms = tr
   const fit = fitInWorld(result.w, result.h, worldW, worldH);
   const X = (x) => Number((fit.dx + x * fit.k).toFixed(1));
   const Y = (y) => Number((fit.dy + y * fit.k).toFixed(1));
-  const items = [];
-  for (const s of result.walls) {
-    if (s.off) continue;
-    items.push({ id: newId(), kind: 'wall', x1: X(s.x1), y1: Y(s.y1), x2: X(s.x2), y2: Y(s.y2), est: true, conf: s.conf });
-  }
+  // Rooms go in first (drawn underneath) and sit just inside the walls, so a tap on a wall
+  // picks the wall and a tap just inside it picks the room.
+  const inset = 5;
   const rooms = [];
   if (includeRooms) {
     for (const r of result.rooms) {
-      const el = { id: newId(), kind: 'room', x1: X(r.x1), y1: Y(r.y1), x2: X(r.x2), y2: Y(r.y2), name: '', est: true };
-      rooms.push(el); items.push(el);
+      rooms.push({ id: newId(), kind: 'room', x1: X(r.x1) + inset, y1: Y(r.y1) + inset, x2: X(r.x2) - inset, y2: Y(r.y2) - inset, name: '', est: true });
     }
+  }
+  const items = [...rooms];
+  for (const s of result.walls) {
+    if (s.off) continue;
+    items.push({ id: newId(), kind: 'wall', x1: X(s.x1), y1: Y(s.y1), x2: X(s.x2), y2: Y(s.y2), est: true, conf: s.conf });
   }
   for (const l of labels) {
     const text = String(l.text || '').trim();

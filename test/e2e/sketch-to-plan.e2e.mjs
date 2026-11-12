@@ -49,7 +49,8 @@ async function newProject(page, name) {
   await page.getByTestId('s2p-button').waitFor();
 }
 const count = (page, sel) => page.locator(sel).count();
-async function clickMid(page, locator) { const b = await locator.boundingBox(); await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); }
+// a third of the way along, so the tap lands clear of the junctions in the middle of a wall
+async function clickMid(page, locator) { const b = await locator.boundingBox(); await page.mouse.click(b.x + b.width * 0.3, b.y + b.height * 0.3); }
 
 async function run(label, contextOpts, file, expectExact) {
   const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined });
