@@ -171,3 +171,11 @@ Owner: Gerad (Echo Air Conditioning). He's an HVAC sales and design engineer, no
 - `planAngle` (-45 to 45, saved with the drawing, default 0) is the building's angle. Line up with wall (`startWallAlign`) sets it from two tapped points and squares the selected part. New parts start at it, and sheet metal draft snap (`snapToPlan`) is 0/45/90° to it.
 - `setPartAngle` / `turnGroups` turn a part and anything joined to it. Parts with `onRun` and zone areas are skipped. Rotate handle: tap = 90°, drag = any angle. `[` `]` = 1°, Shift = 5°.
 - Flex routes are still square to the sheet.
+
+## Advantage Air Exact Air (16 Nov 2026)
+
+- Parts `earbig` (Big, 1 in / up to 6 out), `earmini` (Mini, 1 in / 2 out) in Fittings and `earclip` (Clip-in zone, 1 in / 1 out) in Zoning & controls. These are the bodies Echo fits with MyPlace.
+- All rules live in `src/lib/exactAir.js` (sizes, outlet limits, ports, parts-list lines); tests in `test/exactair.test.mjs`. Symbol: `ExactAirSymbol.jsx`.
+- Spec keys: `inlet`, `outs` ("3 outlets"), `o1`–`o6` size, `d1`–`d6` damper (Zone 1–8 / Manual damper / No damper), `cable`. Clip-in: `inlet`, `outlet`, `zone`, `cable`. Port ids `in`, `o1`–`o6` (clip-in `w` / `e`, so it cuts into a flex run like a zone motor).
+- Big body = three faces; a face takes one large outlet (14"/16") or a pair up to 12". `earOptions` only offers sizes that still fit and `earNormalize` shrinks extras to 12" when the count changes. The face layout is read from the E-BEAR 1 data sheet — check against the price book before changing.
+- Catalogue fields can now carry `def` (default value), `show(spec)` (hide in the panel) and `ear` (options from `earOptions`).

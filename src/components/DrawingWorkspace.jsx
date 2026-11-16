@@ -24,6 +24,8 @@ import { networkAirflow, unitScale } from '@/lib/airflow';
 import { normDeg, planAngleFrom, rotatePt, snapToPlan, squareToPlan } from '@/lib/angle';
 import { pageTextFromItems, looksScanned } from '@/lib/specs';
 import SpecsDialog from '@/components/SpecsDialog';
+import ExactAirSymbol from '@/components/ExactAirSymbol';
+import { EAR, earLines, earNormalize, earOptions, earPortMm, earPorts, earShort, earSpecs, earZones } from '@/lib/exactAir';
 
 const COLORBOND = ['Basalt', 'Blue Ocean', 'Classic Cream', 'Cottage Green', 'Cove', 'Deep Ocean', 'Dune', 'Evening Haze', 'Galvanised', 'Gully', 'Headland', 'Ironstone', 'Jasper', 'Mangrove', 'Manor Red', 'Monument', 'Night Sky', 'Pale Eucalypt', 'Paperbark', 'Shale Grey', 'Surfmist', 'Terrain', 'Wallaby', 'Windspray', 'Woodland'];
 const isService = (conn) => !!conn && (conn.type === 'pipe' || conn.type === 'drain' || conn.type === 'power');
@@ -238,6 +240,8 @@ const CATALOG = [
     items: [
       { type: 'bto', label: 'BTO', tag: 'BTO', role: 'fit', specs: [{ key: 'size', label: 'Size', sheet: 'BTO', options: BTO_SIZES, short: compact }] },
       { type: 'dbto', label: 'DBTO', tag: 'DBTO', role: 'fit', specs: [{ key: 'size', label: 'Size', sheet: 'DBTO', options: DBTO_SIZES, short: compact }] },
+      { type: 'earbig', label: 'Exact Air — Big (1 in, up to 6 out)', tag: 'EAR', role: 'fit', specs: earSpecs('earbig') },
+      { type: 'earmini', label: 'Exact Air — Mini (1 in, 2 out)', tag: 'EAR', role: 'fit', specs: earSpecs('earmini') },
       { type: 'reducer', label: 'Reducer', tag: 'RED', role: 'fit', sheet: 'Reducers' },
       { type: 'cushion', label: 'Cushion Box', tag: 'CB', role: 'fit', sheet: 'Cushion Box' },
       { type: 'flexconn', label: 'Flexible Canvas Connection', tag: 'FC', role: 'fit', specs: [{ key: 'kind', label: 'Type', sheet: 'Flexible Connection', options: ['Neoprene / canvas 150mm', 'Neoprene / canvas 100mm'] }] },
@@ -247,6 +251,7 @@ const CATALOG = [
   {
     group: 'Zoning & controls',
     items: [
+      { type: 'earclip', label: 'Exact Air Zone — Clip-in (1 in, 1 out)', tag: 'EZ', role: 'fit', specs: earSpecs('earclip') },
       {
         type: 'zone', label: 'Zone Motor', tag: 'ZM', role: 'fit',
         specs: [
@@ -487,6 +492,7 @@ function spread(n, fy, dir, air, prefix) {
 // Connection points in the part's own (unrotated) frame: fx/fy are fractions of
 // its width/depth, dir is the way a duct leaves. They rotate with the part.
 function portDefs(item) {
+  if (EAR[item.type]) return earPorts(item.type, item.spec || {});
   switch (item.type) {
     case 'indoor':
       return [
@@ -686,6 +692,7 @@ function sizeLabel(mm) {
 }
 
 function fieldDefault(field) {
+  if (field.def != null) return field.def;
   if (field.dependsOn) return 'None';
   if (field.groups) return field.placeholder;
   return field.options[0];
@@ -696,6 +703,7 @@ function getSpec(item, field) {
 }
 
 function specOptions(tool, field, item) {
+  if (field.ear) return earOptions(tool.type, field.key, item.spec || {});
   if (field.dependsOn !== 'size' || tool.type !== 'return') return field.options;
   const grille = getSpec(item, tool.specs.find((f) => f.key === 'size'));
   return field.options.filter((o) => o === 'None' || o.startsWith(`${grille} -`) || o.startsWith(`${grille} Box`));
@@ -742,6 +750,7 @@ function shortSpec(item) {
   if (item.type === 'outdoor') return item.outdoorModel || (item.suits ? `to suit ${item.suits}` : '');
   if (FAN_TYPES.has(item.type) && (item.fanModel || '').trim()) return item.fanModel.trim();
   if (item.type === 'transition') { const t = transDims(item); return `${t.a.label}→${t.b.label}`; }
+  if (EAR[item.type]) return earShort(item.type, item.spec || {});
   if (item.ductSize && item.onRun) return item.ductSize;
   const tool = getTool(item.type);
   const field = (tool.specs || []).find((f) => f.short);
@@ -758,6 +767,7 @@ function outdoorBody(item) {
 // Plan footprint in mm, unrotated [W, D]
 function footprintMm(item) {
   if (item.dims?.w && item.dims?.d) return [item.dims.w, item.dims.d];
+  if (EAR[item.type]) return EAR[item.type].foot;
   if (item.type === 'indoor') { const p = indoorPreset(item.spec?.model); return [p.w, p.d]; }
   if (item.type === 'splitindoor') {
     // Approximate head sizes by capacity; floor consoles are narrower and deeper.
@@ -869,6 +879,7 @@ function inchesInText(text) {
 
 function portSizeMm(item, portId) {
   const spec = item.spec || {};
+  if (EAR[item.type]) return earPortMm(item.type, spec, portId);
   switch (item.type) {
     case 'saplenum':
     case 'raplenum':
@@ -2219,6 +2230,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const add = (name, qty = 1) => lines.set(name, (lines.get(name) || 0) + qty);
     items.forEach((item) => {
       const tool = getTool(item.type);
+      if (EAR[item.type]) { earLines(item.type, item.spec || {}).forEach((l) => add(l.name, l.qty)); return; }
       if (!tool.specs?.length) { add(tool.sheet || tool.label); return; }
       const fan = fanLine(item, tool);
       if (fan) add(fan);
@@ -2319,6 +2331,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         add(group, customLine(item), Number(item.qty) > 0 ? Number(item.qty) : 1, item.notes ? { note: item.notes } : {});
         return;
       }
+      if (EAR[item.type]) { earLines(item.type, item.spec || {}).forEach((l) => add(group, l.name, l.qty)); return; }
       if (item.type === 'rafilterbox') {
         const face = item.spec?.face || '1190x590mm';
         const filter = item.spec?.filter || 'G4 pleated';
@@ -2791,7 +2804,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     setSelectedConnId(null);
     setPendingPort(null);
     markDirty();
-    if (type === 'zone' && at) cutIn(next);
+    if ((type === 'zone' || type === 'earclip') && at) cutIn(next);
   }
 
   function removeMyPart(m) {
@@ -2812,7 +2825,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // Auto cut-in: a free zone motor dropped on a supply run splits the run through
   // itself — turned in line, sized to the duct, both halves reconnected.
   function cutIn(zone) {
-    if (zone.type !== 'zone') return false;
+    if (zone.type !== 'zone' && zone.type !== 'earclip') return false;
     if (connections.some((c) => c.from.itemId === zone.id || c.to.itemId === zone.id)) return false;
     if (joins.some((j) => j.a.itemId === zone.id || j.b.itemId === zone.id)) return false;
     let best = null;
@@ -2847,8 +2860,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const uy = (p1.y - p0.y) / best.len;
     const along = clamp((best.qx - p0.x) * ux + (best.qy - p0.y) * uy, half, best.len - half);
     const size = r.conn.size || getDuct(r.conn.type).defaultSize;
-    const zSize = ZONE_SIZES.find((s) => s.includes(`(${size}mm)`));
-    const placed = { ...zone, cx: p0.x + ux * along, cy: p0.y + uy * along, rot: best.horiz ? 0 : 90, spec: { ...zone.spec, ...(zSize ? { size: zSize } : {}) } };
+    const clip = zone.type === 'earclip';
+    const zSize = clip ? earOptions('earclip', 'inlet').find((s) => s.includes(`(${size}mm)`)) : ZONE_SIZES.find((s) => s.includes(`(${size}mm)`));
+    const placed = { ...zone, cx: p0.x + ux * along, cy: p0.y + uy * along, rot: best.horiz ? 0 : 90, spec: { ...zone.spec, ...(zSize ? (clip ? { inlet: zSize, outlet: zSize } : { size: zSize }) : {}) } };
     const pw = portInfo(placed, 'w', ppm);
     const pe = portInfo(placed, 'e', ppm);
     const up = Math.hypot(pw.x - p0.x, pw.y - p0.y) <= Math.hypot(pe.x - p0.x, pe.y - p0.y) ? 'w' : 'e';
@@ -3126,7 +3140,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const tool = getTool(selected.type);
     setItems((current) => current.map((item) => {
       if (item.id !== selected.id) return item;
-      const spec = { ...(item.spec || {}), [key]: value };
+      const spec = EAR[item.type] ? earNormalize(item.type, { ...(item.spec || {}), [key]: value }) : { ...(item.spec || {}), [key]: value };
       const next = { ...item, spec };
       (tool.specs || []).forEach((f) => {
         if (f.dependsOn === key && !specOptions(tool, f, next).includes(getSpec(next, f))) spec[f.key] = 'None';
@@ -3857,7 +3871,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         setItems((current) => current.map((item) => (item.id === me.id ? { ...item, onRun: undefined, ...(item.ductSize ? { ductSize: undefined, dims: undefined } : {}) } : item)));
       }
     }
-    if (me.type === 'zone' && cutIn(me)) return;
+    if ((me.type === 'zone' || me.type === 'earclip') && cutIn(me)) return;
     const b = itemBox(me, ppm);
     const boxes = boxesExcept(items, [me.id]);
     const heavyOverlap = boxes.some((o) => {
@@ -4949,7 +4963,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return `${model && model !== CHOOSE_MODEL ? model : getTool(i.type).label}${kw ? ` — ${kw} kW cooling` : ''}`;
     });
     const outdoor = live.filter((i) => i.type === 'outdoor').map((i) => i.outdoorModel || 'Outdoor unit');
-    const zones = [...new Set(live.filter((i) => i.type === 'zone' || i.type === 'zonearea').map((i) => i.spec?.zone).filter(Boolean))];
+    const zones = [...new Set(live.flatMap((i) => (EAR[i.type] ? earZones(i.type, i.spec || {}) : i.type === 'zone' || i.type === 'zonearea' ? [i.spec?.zone] : [])).filter(Boolean))];
     const roomsByZone = zones.map((z) => ({ z, rooms: [...new Set(live.filter((i) => i.type === 'zonearea' && i.spec?.zone === z && i.room).map((i) => i.room))] }));
     const outlets = count((i) => getTool(i.type).role === 'supplyTerm');
     const returns = count((i) => getTool(i.type).role === 'returnTerm');
@@ -5013,6 +5027,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (WALL_TYPES.has(item.type)) {
       const [w, d] = footprintMm(item);
       return <WallGrillePlan kind={item.type} w={w} d={d} className={ROLE_TONE[getTool(item.type).role] || 'text-slate-900'} />;
+    }
+    if (EAR[item.type]) {
+      const [w, d] = footprintMm(item);
+      return <ExactAirSymbol type={item.type} spec={item.spec || {}} w={w} d={d} zoneColor={zoneColor} className={ROLE_TONE.fit} />;
     }
     if (item.type === 'transition') {
       return <TransitionPlan t={transDims(item)} className={ROLE_TONE.fit} />;
@@ -6024,7 +6042,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         {item.remove ? <span className="text-red-600">RM </span> : item.existing ? <span className="text-slate-500">EX </span> : null}
                         {tags[item.id]}
                         {sub && <span className={`font-medium ${(item.labelColor || textStyle.color) ? 'opacity-75' : 'text-slate-600'}`} style={{ fontSize: '0.85em' }}>{` ${sub}`}</span>}
-                        {item.type === 'zone' && zoneColor(item.spec?.zone) && <span className="font-bold" style={{ color: zoneColor(item.spec.zone) }}>{` ${item.spec.zone.replace('Zone ', 'Z')}`}</span>}
+                        {(item.type === 'zone' || item.type === 'earclip') && zoneColor(item.spec?.zone) && <span className="font-bold" style={{ color: zoneColor(item.spec.zone) }}>{` ${item.spec.zone.replace('Zone ', 'Z')}`}</span>}
                       </>
                     )}
                   </div>
@@ -6466,7 +6484,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         : selectedTool.label}
                 </div>
               </div>
-              {(selectedTool.specs || []).map((field) => {
+              {selected.type === 'earbig' && <p className="text-[11px] leading-snug text-muted-foreground">Three outlet faces: each takes one large outlet (14" or 16") or a pair up to 12". So 6 x 12" or 3 x 16" at most.</p>}
+              {(selectedTool.specs || []).filter((field) => !field.show || field.show(selected.spec || {})).map((field) => {
                 const value = getSpec(selected, field);
                 return (
                   <label key={field.key} className="flex flex-col gap-1 text-xs">

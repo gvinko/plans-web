@@ -102,6 +102,41 @@ export default function HvacSymbol({ type, size = 22, className = '', stretch = 
         </svg>
       );
 
+    case 'earbig':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="12" height="11" rx="2" />
+          <rect x="9.5" y="1.5" width="5" height="4.5" />
+          <rect x="1.5" y="7" width="4.5" height="3.5" />
+          <rect x="1.5" y="12.5" width="4.5" height="3.5" />
+          <rect x="18" y="7" width="4.5" height="3.5" />
+          <rect x="18" y="12.5" width="4.5" height="3.5" />
+          <rect x="7" y="17" width="4" height="5" />
+          <rect x="13" y="17" width="4" height="5" />
+        </svg>
+      );
+
+    case 'earmini':
+      return (
+        <svg {...common}>
+          <rect x="4" y="7" width="16" height="9" rx="1.5" />
+          <rect x="9" y="2" width="6" height="5" />
+          <rect x="5" y="16" width="5" height="6" />
+          <rect x="14" y="16" width="5" height="6" />
+        </svg>
+      );
+
+    case 'earclip':
+      return (
+        <svg {...common}>
+          <rect x="7" y="5" width="10" height="14" rx="1" />
+          <rect x="2" y="8" width="5" height="8" />
+          <rect x="17" y="8" width="5" height="8" />
+          <line x1="12" y1="5" x2="12" y2="19" strokeWidth="1.6" />
+          <rect x="14.5" y="1.5" width="5" height="3.5" rx="0.5" fill="currentColor" stroke="none" />
+        </svg>
+      );
+
     case 'reducer':
     case 'transition':
       return (
