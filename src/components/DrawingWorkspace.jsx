@@ -240,8 +240,8 @@ const CATALOG = [
     items: [
       { type: 'bto', label: 'BTO', tag: 'BTO', role: 'fit', specs: [{ key: 'size', label: 'Size', sheet: 'BTO', options: BTO_SIZES, short: compact }] },
       { type: 'dbto', label: 'DBTO', tag: 'DBTO', role: 'fit', specs: [{ key: 'size', label: 'Size', sheet: 'DBTO', options: DBTO_SIZES, short: compact }] },
-      { type: 'earbig', label: 'Exact Air — Big (1 in, up to 6 out)', tag: 'EAR', role: 'fit', specs: earSpecs('earbig') },
-      { type: 'earmini', label: 'Exact Air — Mini (1 in, 2 out)', tag: 'EAR', role: 'fit', specs: earSpecs('earmini') },
+      { type: 'earbig', label: 'Exact Air — Big (1 in, up to 6 out)', tag: 'BEAR', role: 'fit', specs: earSpecs('earbig') },
+      { type: 'earmini', label: 'Exact Air — Mini (1 in, 2 out)', tag: 'MEAR', role: 'fit', specs: earSpecs('earmini') },
       { type: 'reducer', label: 'Reducer', tag: 'RED', role: 'fit', sheet: 'Reducers' },
       { type: 'cushion', label: 'Cushion Box', tag: 'CB', role: 'fit', sheet: 'Cushion Box' },
       { type: 'flexconn', label: 'Flexible Canvas Connection', tag: 'FC', role: 'fit', specs: [{ key: 'kind', label: 'Type', sheet: 'Flexible Connection', options: ['Neoprene / canvas 150mm', 'Neoprene / canvas 100mm'] }] },
