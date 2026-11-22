@@ -20,6 +20,7 @@ import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, WALL
 import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
 import { DRAWING_INK, ductCornerRadius, roomDraftStyle, zoneAreaStyle } from '@/lib/drawingAppearance';
+import { elbowJointStrokes, sheetStockLengthMm, shouldShowShopElbowJoints } from '@/lib/sheetMetalJoints';
 import { buildTakeoff, takeoffLink, bomFor, jobEquipment } from '@/lib/wbTakeoff';
 import { networkAirflow, unitScale } from '@/lib/airflow';
 import { normDeg, planAngleFrom, rotatePt, snapToPlan, squareToPlan } from '@/lib/angle';
@@ -1519,7 +1520,7 @@ function smLayout(P, s, mm) {
 
 // Straight pieces cut from stock sheet lengths: each straight between bends starts fresh.
 function smPieces(segs, mm, sheetLen) {
-  const sheet = Number(sheetLen) || SM_DEFAULT_SHEET;
+  const sheet = sheetStockLengthMm(sheetLen);
   const tally = new Map();
   let count = 0;
   segs.forEach((g) => {
@@ -5512,7 +5513,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const k = Math.min(inv, 2.5);
                     // TDF flange joints every sheet length, restarting on each straight between bends.
                     const ticks = [];
-                    const sheetW = (Number(s.sheetLen) || SM_DEFAULT_SHEET) * mm;
+                    const sheetW = sheetStockLengthMm(s.sheetLen) * mm;
                     const seams = [];
                     if (mat === 'spiral') {
                       // Spiral lock-seam: short diagonal lines every 150 mm.
@@ -5539,7 +5540,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           const lenMm = Math.round((end - at) / mm / 5) * 5;
                           const p = (t, side) => `${g.a.x + u.x * t - u.y * hw * side},${g.a.y + u.y * t + u.x * hw * side}`;
                           const mid = (at + end) / 2;
-                          pieces.push({ no, full: end - at >= sheetW - 1e-6 || lenMm >= (Number(s.sheetLen) || SM_DEFAULT_SHEET) - 5, lenMm, poly: `${p(at, 1)} ${p(end, 1)} ${p(end, -1)} ${p(at, -1)}`, cx: g.a.x + u.x * mid, cy: g.a.y + u.y * mid, ang: (Math.atan2(u.y, u.x) * 180) / Math.PI, room: (end - at) / inv });
+                          pieces.push({ no, full: end - at >= sheetW - 1e-6 || lenMm >= sheetStockLengthMm(s.sheetLen) - 5, lenMm, poly: `${p(at, 1)} ${p(end, 1)} ${p(end, -1)} ${p(at, -1)}`, cx: g.a.x + u.x * mid, cy: g.a.y + u.y * mid, ang: (Math.atan2(u.y, u.x) * 180) / Math.PI, room: (end - at) / inv });
                         }
                       });
                     }
@@ -5557,6 +5558,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         }
                       });
                     }
+                    // Two visible SHOP flange joins isolate each square/radius elbow from the straight stock pieces.
+                    const elbowSeams = shouldShowShopElbowJoints({ showFab, scale, mat })
+                      ? elbowJointStrokes({ bends: lay.bends, points: P, widthPx: dw, pixelsPerMm: mm }) : [];
                     // Turning vanes: across the mitre on square bends, as arcs on radius bends.
                     const vanes = [];
                     const nV = smVaneCount(s);
@@ -5602,6 +5606,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         {showFab && <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.6 * pen} strokeDasharray={mat === 'spiral' ? `${14 * pen} ${4 * pen} ${2 * pen} ${4 * pen}` : `${8 * pen} ${4 * pen}`} style={{ pointerEvents: 'none' }} />}
                         {seams.length > 0 && <path d={seams.join(' ')} fill="none" stroke={edge} strokeOpacity={0.55} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />}
                         {ticks.length > 0 && <path d={ticks.join(' ')} fill="none" stroke={edge} strokeWidth={pen} style={{ pointerEvents: 'none' }} />}
+                        {elbowSeams.length > 0 && <path data-shop-elbow-joints={s.id} d={elbowSeams.join(' ')} fill="none" stroke={edge} strokeWidth={Math.max(1.6, 1.8 * pen)} style={{ pointerEvents: 'none' }} />}
                         {[[0, 1, s.capA && !s.a], [P.length - 1, P.length - 2, s.capB && !s.b]].map(([i, j, on]) => {
                           if (!on || !P[j]) return null;
                           const L = Math.hypot(P[i].x - P[j].x, P[i].y - P[j].y) || 1;
