@@ -3,6 +3,8 @@ import { Suspense, lazy } from 'react';
 import RootLayout from '@/layouts/RootLayout';
 import OwnerLayout from '@/layouts/OwnerLayout';
 import { Loader2 } from 'lucide-react';
+// Projects is the only page, so it ships with the first load (the heavy drawing editor inside it is lazy).
+import Projects from '@/pages/Phase1';
 
 const PageLoader = () => (
   <div className="h-screen flex items-center justify-center bg-background">
@@ -10,7 +12,6 @@ const PageLoader = () => (
   </div>
 );
 
-const Projects = lazy(() => import('@/pages/Phase1'));
 const NotFoundPage = lazy(() => import('@/pages/NotFound'));
 const wrap = (C) => <Suspense fallback={<PageLoader />}><C /></Suspense>;
 
