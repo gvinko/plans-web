@@ -1,0 +1,151 @@
+  duration_ms: 2.146677
+  type: 'test'
+  ...
+# Subtest: six 12" outlets fit, four 16" do not
+ok 18 - six 12" outlets fit, four 16" do not
+  ---
+  duration_ms: 0.843775
+  type: 'test'
+  ...
+# Subtest: a large outlet is only offered while a face is free
+ok 19 - a large outlet is only offered while a face is free
+  ---
+  duration_ms: 0.514801
+  type: 'test'
+  ...
+# Subtest: ports carry the picked sizes and every port id is unique
+ok 20 - ports carry the picked sizes and every port id is unique
+  ---
+  duration_ms: 0.691661
+  type: 'test'
+  ...
+# Subtest: parts list: body, adaptors, blanks, motors and cable
+ok 21 - parts list: body, adaptors, blanks, motors and cable
+  ---
+  duration_ms: 0.61093
+  type: 'test'
+  ...
+# Subtest: clip-in zone is 1 in 1 out, inline, with its zone
+ok 22 - clip-in zone is 1 in 1 out, inline, with its zone
+  ---
+  duration_ms: 0.734792
+  type: 'test'
+  ...
+# Subtest: panel fields hide outlets past the count and default to their own zone
+ok 23 - panel fields hide outlets past the count and default to their own zone
+  ---
+  duration_ms: 0.614156
+  type: 'test'
+  ...
+# Subtest: old single-window rooms give the same load as before
+ok 24 - old single-window rooms give the same load as before
+  ---
+  duration_ms: 1.655119
+  type: 'test'
+  ...
+# Subtest: two windows add up; a south window adds less than a west one
+ok 25 - two windows add up; a south window adds less than a west one
+  ---
+  duration_ms: 0.817727
+  type: 'test'
+  ...
+# Subtest: double glazing and wall insulation lower the load
+ok 26 - double glazing and wall insulation lower the load
+  ---
+  duration_ms: 0.332701
+  type: 'test'
+  ...
+# Subtest: a different job with the same Id is added beside the local job, not over it
+ok 27 - a different job with the same Id is added beside the local job, not over it
+  ---
+  duration_ms: 2.011895
+  type: 'test'
+  ...
+# Subtest: a job not on this device keeps its Id; a clashing level gets a new one
+ok 28 - a job not on this device keeps its Id; a clashing level gets a new one
+  ---
+  duration_ms: 0.34804
+  type: 'test'
+  ...
+# Subtest: the same job, newer in the backup, updates in place
+ok 29 - the same job, newer in the backup, updates in place
+  ---
+  duration_ms: 0.230631
+  type: 'test'
+  ...
+# Subtest: an older backup of a job changed since is kept as a copy, local work untouched
+ok 30 - an older backup of a job changed since is kept as a copy, local work untouched
+  ---
+  duration_ms: 1.272856
+  type: 'test'
+  ...
+# Subtest: restoring a backup of what is already here changes nothing
+ok 31 - restoring a backup of what is already here changes nothing
+  ---
+  duration_ms: 0.319396
+  type: 'test'
+  ...
+# Subtest: new Ids never reuse one from the backup or this device
+ok 32 - new Ids never reuse one from the backup or this device
+  ---
+  duration_ms: 0.310149
+  type: 'test'
+  ...
+# Subtest: pdf text items become lines
+ok 33 - pdf text items become lines
+  ---
+  duration_ms: 1.554101
+  type: 'test'
+  ...
+# Subtest: scanned detection
+ok 34 - scanned detection
+  ---
+  duration_ms: 0.300972
+  type: 'test'
+  ...
+# Subtest: search finds words across line breaks, with page and clause
+ok 35 - search finds words across line breaks, with page and clause
+  ---
+  duration_ms: 2.359865
+  type: 'test'
+  ...
+# Subtest: watch list flags the gotchas
+ok 36 - watch list flags the gotchas
+  ---
+  duration_ms: 7.5593
+  type: 'test'
+  ...
+# Subtest: cross-check: spec items missing from the parts list come first
+ok 37 - cross-check: spec items missing from the parts list come first
+  ---
+  duration_ms: 1.01761
+  type: 'test'
+  ...
+# Subtest: bomFor keeps only what the list needs
+ok 38 - bomFor keeps only what the list needs
+  ---
+  duration_ms: 1.535055
+  type: 'test'
+  ...
+# Subtest: levels add up, matching lines by group and name
+ok 39 - levels add up, matching lines by group and name
+  ---
+  duration_ms: 0.413742
+  type: 'test'
+  ...
+# Subtest: a drawn level with no saved list is reported, an empty one is not
+ok 40 - a drawn level with no saved list is reported, an empty one is not
+  ---
+  duration_ms: 0.306673
+  type: 'test'
+  ...
+1..40
+# tests 40
+# suites 0
+# pass 40
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 210.83979
+exit=0

@@ -1,0 +1,29 @@
+
+added 412 packages in 25s
+
+> ductplanner@1.0.0 build
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.js:24:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.3.8 [32mbuilding client environment for production...[36m[39m
+transforming...
+✓ 2314 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/version.json                            0.06 kB │ gzip:   0.07 kB
+dist/index.html                              0.86 kB │ gzip:   0.47 kB
+dist/assets/echo-logo-BSx2eH0V.png          91.25 kB
+dist/assets/pdf.worker.min-yatZIOMy.mjs  1,375.83 kB
+dist/assets/index-D2-Qj8H9.css             124.24 kB │ gzip:  19.71 kB
+dist/assets/NotFound-DkBJ8XrE.js             1.06 kB │ gzip:   0.51 kB
+dist/assets/Phase1-DhN5BJb0.js             730.41 kB │ gzip: 212.78 kB
+dist/assets/index-Bohjw6Xf.js            1,555.93 kB │ gzip: 434.81 kB
+
+[33m[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[32m✓ built in 741ms[39m

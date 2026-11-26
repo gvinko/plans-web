@@ -1,0 +1,134 @@
+{
+  "desktop": {
+    "runs": 1,
+    "scores": {
+      "performance": 97,
+      "accessibility": 95,
+      "best-practices": 100,
+      "seo": 83
+    },
+    "metrics": {
+      "first-contentful-paint": "0.9 s",
+      "largest-contentful-paint": "1.2 s",
+      "total-blocking-time": "0 ms",
+      "cumulative-layout-shift": "0",
+      "speed-index": "0.9 s"
+    },
+    "failing": {
+      "performance": [
+        {
+          "id": "largest-contentful-paint",
+          "weight": 25,
+          "score": 0.91,
+          "display": "1.2 s"
+        },
+        {
+          "id": "first-contentful-paint",
+          "weight": 10,
+          "score": 0.9,
+          "display": "0.9 s"
+        },
+        {
+          "id": "speed-index",
+          "weight": 10,
+          "score": 0.98,
+          "display": "0.9 s"
+        }
+      ],
+      "accessibility": [
+        {
+          "id": "color-contrast",
+          "weight": 7,
+          "score": 0,
+          "display": ""
+        }
+      ],
+      "best-practices": [],
+      "seo": [
+        {
+          "id": "meta-description",
+          "weight": 1,
+          "score": 0,
+          "display": ""
+        },
+        {
+          "id": "robots-txt",
+          "weight": 1,
+          "score": 0,
+          "display": "18 errors found"
+        }
+      ]
+    },
+    "finalUrl": "http://localhost:4173/",
+    "runtimeError": null
+  },
+  "mobile": {
+    "runs": 3,
+    "scores": {
+      "performance": 68,
+      "accessibility": 93,
+      "best-practices": 100,
+      "seo": 82
+    },
+    "metrics": {
+      "first-contentful-paint": "3.9 s",
+      "largest-contentful-paint": "5.5 s",
+      "total-blocking-time": "170 ms",
+      "cumulative-layout-shift": "0",
+      "speed-index": "3.9 s"
+    },
+    "failing": {
+      "performance": [
+        {
+          "id": "largest-contentful-paint",
+          "weight": 25,
+          "score": 0.18,
+          "display": "5.5 s"
+        },
+        {
+          "id": "first-contentful-paint",
+          "weight": 10,
+          "score": 0.25,
+          "display": "3.9 s"
+        },
+        {
+          "id": "total-blocking-time",
+          "weight": 30,
+          "score": 0.93,
+          "display": "170 ms"
+        },
+        {
+          "id": "speed-index",
+          "weight": 10,
+          "score": 0.82,
+          "display": "3.9 s"
+        }
+      ],
+      "accessibility": [
+        {
+          "id": "button-name",
+          "weight": 10,
+          "score": 0,
+          "display": ""
+        }
+      ],
+      "best-practices": [],
+      "seo": [
+        {
+          "id": "meta-description",
+          "weight": 1,
+          "score": 0,
+          "display": ""
+        },
+        {
+          "id": "robots-txt",
+          "weight": 1,
+          "score": 0,
+          "display": "18 errors found"
+        }
+      ]
+    },
+    "finalUrl": "http://localhost:4173/",
+    "runtimeError": null
+  }
+}
