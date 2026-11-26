@@ -33,6 +33,9 @@ jobs:
           set -o pipefail
           mkdir -p "$GITHUB_WORKSPACE/lh"
           ( npm install --no-audit --no-fund && npm run build ) 2>&1 | tee "$GITHUB_WORKSPACE/lh/build.log"
+      - name: Bundle report
+        continue-on-error: true
+        run: npx vite build --sourcemap --outDir /tmp/an --emptyOutDir > /dev/null 2>&1 && node .github/audit/bundle-report.mjs /tmp/an > lh/bundle.txt
       - name: Project tests
         working-directory: ${{ env.APP_DIR }}
         continue-on-error: true
