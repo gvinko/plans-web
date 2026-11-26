@@ -1,0 +1,91 @@
+ INFO  Accepting connections at http://localhost:4173
+ HTTP  11/26/2026 1:26:49 AM ::1 GET /
+ HTTP  11/26/2026 1:26:49 AM ::1 Returned 200 in 12 ms
+ HTTP  11/26/2026 1:26:49 AM ::1 GET /
+ HTTP  11/26/2026 1:26:49 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:27:19 AM ::1 GET /
+ HTTP  11/26/2026 1:27:19 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:27:19 AM ::1 GET /assets/index-Drg1t0_l.js
+ HTTP  11/26/2026 1:27:19 AM ::1 GET /assets/rolldown-runtime-COiEfhsA.js
+ HTTP  11/26/2026 1:27:19 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:27:19 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:27:19 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:27:19 AM ::1 Returned 200 in 5 ms
+ HTTP  11/26/2026 1:27:19 AM ::1 GET /assets/Phase1-DSU04AZu.js
+ HTTP  11/26/2026 1:27:19 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:19 AM ::1 GET /version.json?t=1795656439475
+ HTTP  11/26/2026 1:27:19 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:19 AM ::1 GET /favicon.svg
+ HTTP  11/26/2026 1:27:19 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:27:22 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:27:22 AM ::1 Returned 304 in 1 ms
+ HTTP  11/26/2026 1:27:22 AM ::1 GET /robots.txt
+ HTTP  11/26/2026 1:27:22 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:23 AM ::1 GET /version.json?t=1795656443978
+ HTTP  11/26/2026 1:27:23 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:24 AM ::1 GET /assets/echo-logo-BSx2eH0V.png
+ HTTP  11/26/2026 1:27:24 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:30 AM ::1 GET /
+ HTTP  11/26/2026 1:27:30 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:30 AM ::1 GET /assets/index-Drg1t0_l.js
+ HTTP  11/26/2026 1:27:30 AM ::1 GET /assets/rolldown-runtime-COiEfhsA.js
+ HTTP  11/26/2026 1:27:30 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:27:30 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:30 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:30 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:30 AM ::1 GET /assets/Phase1-DSU04AZu.js
+ HTTP  11/26/2026 1:27:30 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:30 AM ::1 GET /version.json?t=1795656450856
+ HTTP  11/26/2026 1:27:30 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:27:30 AM ::1 GET /favicon.svg
+ HTTP  11/26/2026 1:27:30 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:33 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:27:33 AM ::1 Returned 304 in 1 ms
+ HTTP  11/26/2026 1:27:33 AM ::1 GET /robots.txt
+ HTTP  11/26/2026 1:27:33 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:35 AM ::1 GET /version.json?t=1795656455080
+ HTTP  11/26/2026 1:27:35 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:27:35 AM ::1 GET /assets/echo-logo-BSx2eH0V.png
+ HTTP  11/26/2026 1:27:35 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:41 AM ::1 GET /
+ HTTP  11/26/2026 1:27:41 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:41 AM ::1 GET /assets/index-Drg1t0_l.js
+ HTTP  11/26/2026 1:27:41 AM ::1 GET /assets/rolldown-runtime-COiEfhsA.js
+ HTTP  11/26/2026 1:27:41 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:27:41 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:41 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:41 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:42 AM ::1 GET /assets/Phase1-DSU04AZu.js
+ HTTP  11/26/2026 1:27:42 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:42 AM ::1 GET /version.json?t=1795656462010
+ HTTP  11/26/2026 1:27:42 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:42 AM ::1 GET /favicon.svg
+ HTTP  11/26/2026 1:27:42 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:44 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:27:44 AM ::1 Returned 304 in 1 ms
+ HTTP  11/26/2026 1:27:44 AM ::1 GET /robots.txt
+ HTTP  11/26/2026 1:27:44 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:27:46 AM ::1 GET /version.json?t=1795656466255
+ HTTP  11/26/2026 1:27:46 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:53 AM ::1 GET /
+ HTTP  11/26/2026 1:27:53 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:53 AM ::1 GET /assets/index-Drg1t0_l.js
+ HTTP  11/26/2026 1:27:53 AM ::1 GET /assets/rolldown-runtime-COiEfhsA.js
+ HTTP  11/26/2026 1:27:53 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:27:53 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:53 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:53 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:53 AM ::1 GET /assets/Phase1-DSU04AZu.js
+ HTTP  11/26/2026 1:27:53 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:53 AM ::1 GET /version.json?t=1795656473169
+ HTTP  11/26/2026 1:27:53 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:53 AM ::1 GET /assets/echo-logo-BSx2eH0V.png
+ HTTP  11/26/2026 1:27:53 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:27:53 AM ::1 GET /favicon.svg
+ HTTP  11/26/2026 1:27:53 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:27:55 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:27:55 AM ::1 Returned 304 in 0 ms
+ HTTP  11/26/2026 1:27:56 AM ::1 GET /robots.txt
+ HTTP  11/26/2026 1:27:56 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:27:57 AM ::1 GET /version.json?t=1795656477493
+ HTTP  11/26/2026 1:27:57 AM ::1 Returned 200 in 3 ms

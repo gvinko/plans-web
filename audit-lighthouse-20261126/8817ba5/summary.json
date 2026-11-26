@@ -1,0 +1,95 @@
+{
+  "desktop": {
+    "runs": 1,
+    "scores": {
+      "performance": 100,
+      "accessibility": 95,
+      "best-practices": 100,
+      "seo": 100
+    },
+    "metrics": {
+      "first-contentful-paint": "0.6 s",
+      "largest-contentful-paint": "0.7 s",
+      "total-blocking-time": "0 ms",
+      "cumulative-layout-shift": "0",
+      "speed-index": "0.6 s"
+    },
+    "failing": {
+      "performance": [
+        {
+          "id": "largest-contentful-paint",
+          "weight": 25,
+          "score": 0.99,
+          "display": "0.7 s"
+        },
+        {
+          "id": "first-contentful-paint",
+          "weight": 10,
+          "score": 0.98,
+          "display": "0.6 s"
+        }
+      ],
+      "accessibility": [
+        {
+          "id": "color-contrast",
+          "weight": 7,
+          "score": 0,
+          "display": ""
+        }
+      ],
+      "best-practices": [],
+      "seo": []
+    },
+    "finalUrl": "http://localhost:4173/",
+    "runtimeError": null
+  },
+  "mobile": {
+    "runs": 3,
+    "scores": {
+      "performance": 87,
+      "accessibility": 100,
+      "best-practices": 100,
+      "seo": 100
+    },
+    "metrics": {
+      "first-contentful-paint": "2.9 s",
+      "largest-contentful-paint": "3.2 s",
+      "total-blocking-time": "90 ms",
+      "cumulative-layout-shift": "0",
+      "speed-index": "2.9 s"
+    },
+    "failing": {
+      "performance": [
+        {
+          "id": "largest-contentful-paint",
+          "weight": 25,
+          "score": 0.72,
+          "display": "3.2 s"
+        },
+        {
+          "id": "first-contentful-paint",
+          "weight": 10,
+          "score": 0.52,
+          "display": "2.9 s"
+        },
+        {
+          "id": "total-blocking-time",
+          "weight": 30,
+          "score": 0.98,
+          "display": "90 ms"
+        },
+        {
+          "id": "speed-index",
+          "weight": 10,
+          "score": 0.95,
+          "display": "2.9 s"
+        }
+      ],
+      "accessibility": [],
+      "best-practices": [],
+      "seo": []
+    },
+    "finalUrl": "http://localhost:4173/",
+    "runtimeError": null
+  }
+}
