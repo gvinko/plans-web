@@ -1,6 +1,8 @@
 import { Link, Outlet } from 'react-router-dom';
 import ApperIcon from '@/components/ApperIcon';
-import BackupMenu from '@/components/BackupMenu';
+import { Suspense, lazy } from 'react';
+// The backup menu (Radix dropdown + JSZip) loads after the page shows.
+const BackupMenu = lazy(() => import('@/components/BackupMenu'));
 import ThemeToggle from '@/components/ThemeToggle';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { APP_CONFIG } from '@/config/app.config';
@@ -18,9 +20,9 @@ export default function OwnerLayout() {
             <span className="font-heading text-base font-semibold text-foreground">{APP_CONFIG.name}</span>
           </Link>
           <span className="hidden sm:block h-6 w-px bg-border" aria-hidden="true" />
-          <img src={ECHO_LOGO} alt="Echo Air Conditioning" className="hidden sm:block h-8 w-auto rounded-sm bg-white px-1" />
+          <img src={ECHO_LOGO} alt="Echo Air Conditioning" loading="lazy" decoding="async" className="hidden sm:block h-8 w-auto rounded-sm bg-white px-1" />
           <div className="ml-auto flex items-center gap-2">
-            <BackupMenu />
+            <Suspense fallback={<span className="inline-block h-8 w-9" aria-hidden="true" />}><BackupMenu /></Suspense>
             <ThemeToggle />
           </div>
         </div>

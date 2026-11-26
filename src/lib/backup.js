@@ -1,6 +1,7 @@
 // Backup and restore: every project, level, drawing, plan image and site photo
 // in one zip. Restore merges and never replaces a different or newer job: see restorePlan.js.
-import JSZip from 'jszip';
+// JSZip is loaded only when a backup is made or restored, to keep the app's first load small.
+const loadZip = () => import('jszip').then((m) => m.default);
 import { db } from '@/services/localDb';
 import { planRestore } from '@/lib/restorePlan';
 
@@ -45,6 +46,7 @@ export async function buildBackupZip() {
     pages,
     files: files.map(({ key, name, type, size, addedOn }) => ({ key, name, type, size, addedOn, path: `files/${key}` })),
   };
+  const JSZip = await loadZip();
   const z = new JSZip();
   z.file('backup.json', JSON.stringify(manifest, null, 1));
   z.file('README.txt',
@@ -149,6 +151,7 @@ export async function autoBackupIfDue() {
 }
 
 export async function restoreBackup(file) {
+  const JSZip = await loadZip();
   const z = await JSZip.loadAsync(await file.arrayBuffer());
   const entry = z.file('backup.json');
   if (!entry) throw new Error('This zip is not a Ductplanner backup (no backup.json inside).');

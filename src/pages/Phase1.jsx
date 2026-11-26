@@ -1,22 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import ApperIcon from '@/components/ApperIcon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useFetch } from '@/hooks/useFetch';
 import { sdk } from '@/services/sdk';
 import { db } from '@/services/localDb';
-import DrawingWorkspace from '@/components/DrawingWorkspace';
 import { toast } from 'sonner';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+
+// The drawing editor (and PDF.js) and the delete dialog load only when needed, so the projects list shows quickly.
+const DrawingWorkspace = lazy(() => import('@/components/DrawingWorkspace'));
+const DeleteProjectDialog = lazy(() => import('@/components/DeleteProjectDialog'));
 
 const PROJECT_FIELDS = ['Id', 'Name', 'suburb_c', 'address_c', 'phone_c', 'revision_c', 'wbJobId_c', 'wbJobRef_c', 'ModifiedOn'];
 
@@ -280,6 +273,7 @@ export default function Phase1() {
 
   if (activePage) {
     return (
+      <Suspense fallback={<div className="h-screen grid place-items-center bg-background text-muted-foreground text-sm">Opening drawing…</div>}>
       <DrawingWorkspace
         page={activePage}
         project={activeProject}
@@ -293,6 +287,7 @@ export default function Phase1() {
         onSaveProject={saveProject}
         onBack={() => { setActivePage(null); setActiveProject(null); setProjectPages([]); }}
       />
+      </Suspense>
     );
   }
 
@@ -383,22 +378,11 @@ export default function Phase1() {
         </section>
       </div>
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this project?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget ? `"${deleteTarget.Name}" and all its levels will be permanently deleted. This can't be undone.` : ''}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" disabled={deleting} onClick={(event) => { event.preventDefault(); deleteProject(); }}>
-              {deleting ? 'Deleting…' : 'Delete project'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {deleteTarget && (
+        <Suspense fallback={null}>
+          <DeleteProjectDialog target={deleteTarget} deleting={deleting} onClose={() => setDeleteTarget(null)} onConfirm={deleteProject} />
+        </Suspense>
+      )}
     </div>
   );
 }
