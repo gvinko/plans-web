@@ -1,6 +1,6 @@
-import { memo, useEffect, useState } from 'react';
+import { memo } from 'react';
 // Named imports keep the startup bundle small: `import * as Icons` pulled in every Lucide icon (~1 MB).
-// Add new icon names here. Any name not listed still works — the full set is loaded on demand.
+// Add new icon names to both lists below; an unlisted name renders nothing (and warns in dev).
 import {
   ArrowLeft, BoxSelect, Camera, Check, ChevronDown, ChevronRight, CircleCheck, ClipboardList, Copy, Download,
   DraftingCompass, Eraser, ExternalLink, EyeOff, FileCode2, FileDown, FileSearch, FileText, Focus, FolderInput,
@@ -21,23 +21,18 @@ const KNOWN = {
   Unlink, Upload, UserRound, Wand2, WifiOff, X, ZoomIn, ZoomOut,
 };
 
-let allIcons = null;
-let loading = null;
-const loadAll = () => (loading ||= import('lucide-react').then((m) => (allIcons = m)));
-
 const toPascal = (s) => (typeof s === 'string' ? s : '')
   .split('-')
   .map(w => w.charAt(0).toUpperCase() + w.slice(1))
   .join('');
 
 function ApperIcon({ name, size = 20, className = '', ...props }) {
-  const key = toPascal(name);
-  const Icon = KNOWN[key] || allIcons?.[key];
-  const [, setLoaded] = useState(false);
-  useEffect(() => {
-    if (key && !Icon && !allIcons) loadAll().then(() => setLoaded(true));
-  }, [key, Icon]);
-  if (!name || !Icon) return null;
+  if (!name) return null;
+  const Icon = KNOWN[toPascal(name)];
+  if (!Icon) {
+    if (import.meta.env.DEV) console.warn(`ApperIcon: "${name}" is not in the icon list`);
+    return null;
+  }
   return <Icon size={size} className={className} {...props} />;
 }
 export default memo(ApperIcon);
