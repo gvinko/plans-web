@@ -1,0 +1,93 @@
+ INFO  Accepting connections at http://localhost:4173
+ HTTP  11/26/2026 1:22:44 AM ::1 GET /
+ HTTP  11/26/2026 1:22:44 AM ::1 Returned 200 in 13 ms
+ HTTP  11/26/2026 1:22:44 AM ::1 GET /
+ HTTP  11/26/2026 1:22:44 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:02 AM ::1 GET /
+ HTTP  11/26/2026 1:23:02 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:23:02 AM ::1 GET /assets/index-DwZhb5_R.js
+ HTTP  11/26/2026 1:23:02 AM ::1 GET /assets/rolldown-runtime-pP25SEvz.js
+ HTTP  11/26/2026 1:23:02 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:23:02 AM ::1 Returned 200 in 3 ms
+ HTTP  11/26/2026 1:23:02 AM ::1 Returned 200 in 4 ms
+ HTTP  11/26/2026 1:23:02 AM ::1 Returned 200 in 9 ms
+ HTTP  11/26/2026 1:23:03 AM ::1 GET /assets/Phase1-BeFGqEa7.js
+ HTTP  11/26/2026 1:23:03 AM ::1 Returned 200 in 4 ms
+ HTTP  11/26/2026 1:23:03 AM ::1 GET /version.json?t=1795656183538
+ HTTP  11/26/2026 1:23:03 AM ::1 Returned 200 in 4 ms
+ HTTP  11/26/2026 1:23:03 AM ::1 GET /favicon.svg
+ HTTP  11/26/2026 1:23:03 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:06 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:23:06 AM ::1 Returned 304 in 3 ms
+ HTTP  11/26/2026 1:23:06 AM ::1 GET /robots.txt
+ HTTP  11/26/2026 1:23:06 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:08 AM ::1 GET /version.json?t=1795656188485
+ HTTP  11/26/2026 1:23:08 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:23:08 AM ::1 GET /assets/echo-logo-BSx2eH0V.png
+ HTTP  11/26/2026 1:23:08 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:16 AM ::1 GET /
+ HTTP  11/26/2026 1:23:16 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:23:16 AM ::1 GET /assets/index-DwZhb5_R.js
+ HTTP  11/26/2026 1:23:16 AM ::1 GET /assets/rolldown-runtime-pP25SEvz.js
+ HTTP  11/26/2026 1:23:16 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:16 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:23:16 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:23:16 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:16 AM ::1 GET /assets/Phase1-BeFGqEa7.js
+ HTTP  11/26/2026 1:23:16 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:16 AM ::1 GET /version.json?t=1795656196302
+ HTTP  11/26/2026 1:23:16 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:23:16 AM ::1 GET /favicon.svg
+ HTTP  11/26/2026 1:23:16 AM ::1 Returned 200 in 3 ms
+ HTTP  11/26/2026 1:23:19 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:23:19 AM ::1 Returned 304 in 1 ms
+ HTTP  11/26/2026 1:23:19 AM ::1 GET /robots.txt
+ HTTP  11/26/2026 1:23:19 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:20 AM ::1 GET /version.json?t=1795656200887
+ HTTP  11/26/2026 1:23:20 AM ::1 Returned 200 in 4 ms
+ HTTP  11/26/2026 1:23:21 AM ::1 GET /assets/echo-logo-BSx2eH0V.png
+ HTTP  11/26/2026 1:23:21 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:28 AM ::1 GET /
+ HTTP  11/26/2026 1:23:28 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:23:28 AM ::1 GET /assets/index-DwZhb5_R.js
+ HTTP  11/26/2026 1:23:28 AM ::1 GET /assets/rolldown-runtime-pP25SEvz.js
+ HTTP  11/26/2026 1:23:28 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:23:28 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:28 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:23:28 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:28 AM ::1 GET /assets/Phase1-BeFGqEa7.js
+ HTTP  11/26/2026 1:23:28 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:28 AM ::1 GET /version.json?t=1795656208947
+ HTTP  11/26/2026 1:23:28 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:23:28 AM ::1 GET /favicon.svg
+ HTTP  11/26/2026 1:23:28 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:31 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:23:31 AM ::1 Returned 304 in 1 ms
+ HTTP  11/26/2026 1:23:32 AM ::1 GET /robots.txt
+ HTTP  11/26/2026 1:23:32 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:33 AM ::1 GET /version.json?t=1795656213515
+ HTTP  11/26/2026 1:23:33 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:33 AM ::1 GET /assets/echo-logo-BSx2eH0V.png
+ HTTP  11/26/2026 1:23:33 AM ::1 Returned 200 in 0 ms
+ HTTP  11/26/2026 1:23:41 AM ::1 GET /
+ HTTP  11/26/2026 1:23:41 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:23:41 AM ::1 GET /assets/index-DwZhb5_R.js
+ HTTP  11/26/2026 1:23:41 AM ::1 GET /assets/rolldown-runtime-pP25SEvz.js
+ HTTP  11/26/2026 1:23:41 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:23:41 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:41 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:41 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:41 AM ::1 GET /assets/Phase1-BeFGqEa7.js
+ HTTP  11/26/2026 1:23:41 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:41 AM ::1 GET /version.json?t=1795656221313
+ HTTP  11/26/2026 1:23:41 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:23:41 AM ::1 GET /assets/echo-logo-BSx2eH0V.png
+ HTTP  11/26/2026 1:23:41 AM ::1 GET /favicon.svg
+ HTTP  11/26/2026 1:23:41 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:41 AM ::1 Returned 200 in 2 ms
+ HTTP  11/26/2026 1:23:44 AM ::1 GET /assets/index-D2-Qj8H9.css
+ HTTP  11/26/2026 1:23:44 AM ::1 Returned 304 in 1 ms
+ HTTP  11/26/2026 1:23:44 AM ::1 GET /robots.txt
+ HTTP  11/26/2026 1:23:44 AM ::1 Returned 200 in 1 ms
+ HTTP  11/26/2026 1:23:45 AM ::1 GET /version.json?t=1795656225987
+ HTTP  11/26/2026 1:23:45 AM ::1 Returned 200 in 2 ms

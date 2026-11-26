@@ -1,0 +1,41 @@
+
+== NotFound-BiJ4pHQu.js.map (source chars 1877)
+      1224 home/runner/work
+       653 lucide-react
+
+== Phase1-BeFGqEa7.js.map (source chars 1307305)
+    658435 pdfjs-dist
+    628324 home/runner/work
+     14132 @radix-ui/react-dialog
+      5526 @radix-ui/react-alert-dialog
+       888 @radix-ui/react-label
+
+== index-DwZhb5_R.js.map (source chars 1958595)
+    635226 react-dom
+    412099 react-router
+    276271 dexie
+    110492 tailwind-merge
+     69793 sonner
+     49708 lucide-react
+     48541 home/runner/work
+     37476 @radix-ui/react-menu
+     36286 @floating-ui/core
+     27946 @floating-ui/dom
+     22143 @radix-ui/react-collection
+     21177 @radix-ui/react-tooltip
+     19412 react
+     18116 tslib
+     16013 react-remove-scroll
+     14935 @radix-ui/react-dismissable-layer
+     14370 @radix-ui/react-popper
+     12595 @radix-ui/react-dropdown-menu
+     11246 @radix-ui/react-focus-scope
+     11183 @floating-ui/react-dom
+     10456 @radix-ui/react-roving-focus
+     10375 scheduler
+     10253 @floating-ui/utils
+      6871 aria-hidden
+      6846 @radix-ui/react-slot
+
+== jszip.min-B_TEw5bb.js.map (source chars 97781)
+     97781 jszip
