@@ -1,0 +1,89 @@
+{
+  "desktop": {
+    "runs": 1,
+    "scores": {
+      "performance": 100,
+      "accessibility": 95,
+      "best-practices": 100,
+      "seo": 100
+    },
+    "metrics": {
+      "first-contentful-paint": "0.6 s",
+      "largest-contentful-paint": "0.7 s",
+      "total-blocking-time": "0 ms",
+      "cumulative-layout-shift": "0.001",
+      "speed-index": "0.6 s"
+    },
+    "failing": {
+      "performance": [
+        {
+          "id": "largest-contentful-paint",
+          "weight": 25,
+          "score": 0.99,
+          "display": "0.7 s"
+        },
+        {
+          "id": "first-contentful-paint",
+          "weight": 10,
+          "score": 0.99,
+          "display": "0.6 s"
+        }
+      ],
+      "accessibility": [
+        {
+          "id": "color-contrast",
+          "weight": 7,
+          "score": 0,
+          "display": ""
+        }
+      ],
+      "best-practices": [],
+      "seo": []
+    },
+    "finalUrl": "http://localhost:4173/",
+    "runtimeError": null
+  },
+  "mobile": {
+    "runs": 3,
+    "scores": {
+      "performance": 89,
+      "accessibility": 100,
+      "best-practices": 100,
+      "seo": 100
+    },
+    "metrics": {
+      "first-contentful-paint": "2.8 s",
+      "largest-contentful-paint": "3.1 s",
+      "total-blocking-time": "20 ms",
+      "cumulative-layout-shift": "0.026",
+      "speed-index": "2.8 s"
+    },
+    "failing": {
+      "performance": [
+        {
+          "id": "largest-contentful-paint",
+          "weight": 25,
+          "score": 0.75,
+          "display": "3.1 s"
+        },
+        {
+          "id": "first-contentful-paint",
+          "weight": 10,
+          "score": 0.55,
+          "display": "2.8 s"
+        },
+        {
+          "id": "speed-index",
+          "weight": 10,
+          "score": 0.95,
+          "display": "2.8 s"
+        }
+      ],
+      "accessibility": [],
+      "best-practices": [],
+      "seo": []
+    },
+    "finalUrl": "http://localhost:4173/",
+    "runtimeError": null
+  }
+}
