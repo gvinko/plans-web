@@ -92,7 +92,7 @@ export default function BackupMenu() {
       <input ref={fileRef} type="file" accept=".zip,application/zip" className="hidden" onChange={onRestore} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant={due ? 'default' : 'outline'} size="sm" disabled={busy} className={due ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''}>
+          <Button variant={due ? 'default' : 'outline'} size="sm" disabled={busy} aria-label={due ? 'Backup due' : 'Backup'} className={due ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''}>
             <ApperIcon name={busy ? 'Loader2' : due ? 'TriangleAlert' : 'ShieldCheck'} size={15} className={busy ? 'animate-spin' : ''} />
             <span className="hidden sm:inline">{due ? 'Backup due' : 'Backup'}</span>
           </Button>
