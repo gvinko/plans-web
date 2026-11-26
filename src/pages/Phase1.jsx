@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import ApperIcon from '@/components/ApperIcon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useFetch } from '@/hooks/useFetch';
 import { sdk } from '@/services/sdk';
 import { db } from '@/services/localDb';
-import DrawingWorkspace from '@/components/DrawingWorkspace';
+// The drawing editor (and PDF.js) loads only when a project is opened, so the projects list shows quickly.
+const DrawingWorkspace = lazy(() => import('@/components/DrawingWorkspace'));
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -280,6 +281,7 @@ export default function Phase1() {
 
   if (activePage) {
     return (
+      <Suspense fallback={<div className="h-screen grid place-items-center bg-background text-muted-foreground text-sm">Opening drawing…</div>}>
       <DrawingWorkspace
         page={activePage}
         project={activeProject}
@@ -293,6 +295,7 @@ export default function Phase1() {
         onSaveProject={saveProject}
         onBack={() => { setActivePage(null); setActiveProject(null); setProjectPages([]); }}
       />
+      </Suspense>
     );
   }
 
