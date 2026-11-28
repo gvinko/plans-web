@@ -23,7 +23,7 @@ function readWbLaunch() {
 const PAGE_FIELDS = ['Id', 'Name', 'projectId_c', 'level_c', 'drawingJson_c', 'planFile_c', 'sitePhotos_c', 'ModifiedOn'];
 
 async function fetchProjects() {
-  const res = await sdk.table('projects_c').select(PROJECT_FIELDS).page(1, 100).fetch();
+  const res = await sdk.table('projects_c').select(PROJECT_FIELDS).all().fetch();
   if (!res.success) throw new Error(res.message);
   return res.data;
 }
@@ -77,9 +77,10 @@ export default function Phase1() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const pagesRes = await sdk.table('plan_pages_c').select(['Id', 'projectId_c']).page(1, 200).fetch();
+      const pagesRes = await sdk.table('plan_pages_c').select(['Id', 'projectId_c']).forProject(deleteTarget.Id).fetch();
+      if (!pagesRes.success) throw new Error(pagesRes.message);
       const pageIds = (pagesRes.data || []).filter((row) => String(row.projectId_c) === String(deleteTarget.Id)).map((row) => row.Id);
-      if (pageIds.length) await sdk.table('plan_pages_c').remove(pageIds);
+      if (pageIds.length && !(await sdk.table('plan_pages_c').remove(pageIds)).success) throw new Error('Could not delete project levels');
       const res = await sdk.table('projects_c').remove([deleteTarget.Id]);
       if (res && res.success === false) {
         toast.error('Could not delete the project', { description: (res.messages || []).join(' ') || res.message || 'Please try again.' });
@@ -135,7 +136,7 @@ export default function Phase1() {
 
   async function openProject(project) {
     setMessage('Opening…');
-    const res = await sdk.table('plan_pages_c').select(PAGE_FIELDS).page(1, 100).fetch();
+    const res = await sdk.table('plan_pages_c').select(PAGE_FIELDS).forProject(project.Id).fetch();
     if (!res.success) {
       setMessage(res.message || 'Could not load plan pages');
       return;
@@ -163,7 +164,7 @@ export default function Phase1() {
   // Each floor level is its own drawing page. Re-read from the server so plan / photo links are fresh.
   async function switchLevel(pageId) {
     if (!activeProject) return;
-    const res = await sdk.table('plan_pages_c').select(PAGE_FIELDS).page(1, 100).fetch();
+    const res = await sdk.table('plan_pages_c').select(PAGE_FIELDS).forProject(activeProject.Id).fetch();
     const pages = res.success
       ? res.data.filter((row) => String(row.projectId_c) === String(activeProject.Id)).sort((a, b) => a.Id - b.Id)
       : projectPages;
@@ -200,18 +201,12 @@ export default function Phase1() {
     if (bom) record.bom_c = bom;
     if (Array.isArray(planFiles)) record.planFile_c = sdk.storage.toUpdateFormat(planFiles);
     if (Array.isArray(photoFiles)) record.sitePhotos_c = sdk.storage.toUpdateFormat(photoFiles);
-    let res = await sdk.table('plan_pages_c').update(record);
-    if (!res.data?.length && (record.planFile_c || record.sitePhotos_c)) {
-      // If the files can't be attached, still save the drawing itself.
-      delete record.planFile_c;
-      delete record.sitePhotos_c;
-      res = await sdk.table('plan_pages_c').update(record);
-    }
+    const res = await sdk.table('plan_pages_c').update(record);
     if (res.messages?.length) setMessage(res.messages.join(' '));
     if (!res.data?.length) return false;
     const saved = res.data[0] || {};
     const patch = { drawingJson_c: drawingJson, ...(bom ? { bom_c: bom } : {}), ModifiedOn: saved.ModifiedOn || new Date().toISOString() };
-    setActivePage((current) => ({ ...current, ...patch }));
+    setActivePage((current) => current?.Id === record.Id ? { ...current, ...patch } : current);
     setProjectPages((current) => current.map((p) => (p.Id === activePage.Id ? { ...p, ...patch } : p)));
     return true;
   }
@@ -275,6 +270,7 @@ export default function Phase1() {
     return (
       <Suspense fallback={<div className="h-screen grid place-items-center bg-background text-muted-foreground text-sm">Opening drawing…</div>}>
       <DrawingWorkspace
+        key={activePage.Id}
         page={activePage}
         project={activeProject}
         levels={projectPages}

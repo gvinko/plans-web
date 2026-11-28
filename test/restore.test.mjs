@@ -74,3 +74,21 @@ test('new Ids never reuse one from the backup or this device', () => {
   assert.equal(new Set(ids).size, 2);
   assert.ok(!ids.includes(1) && !ids.includes(4));
 });
+
+test('one newer backup floor never overwrites a different newer local floor', () => {
+  const p = planRestore(
+    { projects: [job(1, 'Same', T1)], pages: [lvl(1, 1, T3), lvl(2, 1, T1, 'old floor')] },
+    { projects: [job(1, 'Same', T1)], pages: [lvl(1, 1, T1), lvl(2, 1, T2, 'new local floor')] },
+  );
+  assert.equal(p.summary.copied, 1);
+  assert.notEqual(p.projects[0].Id, 1);
+  assert.ok(p.pages.every(x => x.Id !== 1 && x.Id !== 2));
+});
+
+test('equal timestamps with different drawings are not silently skipped', () => {
+  const p = planRestore(
+    { projects: [job(1, 'Same', T1)], pages: [lvl(1, 1, T2, 'backup')] },
+    { projects: [job(1, 'Same', T1)], pages: [lvl(1, 1, T2, 'local')] },
+  );
+  assert.equal(p.summary.copied, 1);
+});

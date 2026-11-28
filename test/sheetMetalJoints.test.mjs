@@ -51,3 +51,11 @@ test('invalid width, missing tangent, malformed bends and unscaled values never 
   assert.deepEqual(elbowJointStrokes({ bends: [radius], points, widthPx: 40, pixelsPerMm: 0.1 }), []);
   assert.deepEqual(elbowJointStrokes({ bends: [{ ...square, u2: { x: NaN, y: 1 } }], points, widthPx: 40, pixelsPerMm: 0.1 }), []);
 });
+
+test('stock cut list includes a short remainder and never exceeds 2400 mm', async () => {
+  const { stockSections } = await import('../src/lib/sheetMetalJoints.js');
+  const parts = stockSections({ from: 0, to: 2401 }, 1, 2400);
+  assert.deepEqual(parts.map(p => p.lenMm), [2400, 1]);
+  assert.deepEqual(stockSections({ from: 200, to: 2650 }, 1, 2400).map(p => p.lenMm), [2400, 50]);
+  assert.equal(stockSections({ from: 0, to: 4800 }, 1, 2400).length, 2);
+});

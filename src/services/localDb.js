@@ -43,7 +43,7 @@ async function hydrateFiles(row) {
     for (const meta of row[f]) {
       if (!meta?.key) continue;
       const rec = await db.files.get(meta.key);
-      if (rec?.blob) list.push({ ...meta, url: fileUrl(meta.key, rec.blob) });
+      list.push(rec?.blob ? { ...meta, url: fileUrl(meta.key, rec.blob) } : { ...meta, missing: true });
     }
     out[f] = list;
   }
@@ -56,6 +56,7 @@ export const storage = {
     await db.files.put({ key, name: file.name || 'file', type: file.type || 'application/octet-stream', size: file.size, blob: file, addedOn: new Date().toISOString() });
     return { key, name: file.name || 'file', size: file.size, type: file.type, url: fileUrl(key, file) };
   },
+  async resolveFiles(files) { return (await hydrateFiles({ planFile_c: files })).planFile_c; },
   toUpdateFormat(files) {
     return (files || []).filter((f) => f?.key).map(({ key, name, size, type }) => ({ key, name, size, type }));
   },
@@ -65,12 +66,18 @@ export const storage = {
 function query(name) {
   let pageNo = 1;
   let pageSize = 1000;
+  let projectId;
   const q = {
     select() { return q; },
     page(n, size) { pageNo = n; pageSize = size; return q; },
+    all() { pageSize = null; return q; },
+    forProject(id) { projectId = String(id); pageSize = null; return q; },
     async fetch() {
       try {
-        const rows = await tableFor(name).orderBy('Id').offset((pageNo - 1) * pageSize).limit(pageSize).toArray();
+        let rows;
+        if (projectId !== undefined) rows = await tableFor(name).where('projectId_c').anyOf([projectId, Number(projectId)]).toArray();
+        else if (pageSize === null) rows = await tableFor(name).orderBy('Id').toArray();
+        else rows = await tableFor(name).orderBy('Id').offset((pageNo - 1) * pageSize).limit(pageSize).toArray();
         return { success: true, data: await Promise.all(rows.map(hydrateFiles)) };
       } catch (err) {
         return { success: false, message: err?.message || 'Could not read saved data', data: [] };
@@ -99,7 +106,12 @@ export const sdk = {
         try {
           const { Id, ...rest } = record;
           const patch = { ...rest, ModifiedOn: new Date().toISOString() };
-          const n = await t.update(Id, patch);
+          const n = await db.transaction('rw', t, db.files, async () => {
+            for (const f of fileFields) for (const meta of patch[f] || []) {
+              if (!(await db.files.get(meta.key))?.blob) throw new Error('Missing drawing attachment: ' + meta.name);
+            }
+            return t.update(Id, patch);
+          });
           if (!n && !(await t.get(Id))) return { success: false, messages: ['Record not found'], data: [] };
           return { success: true, data: [await hydrateFiles(await t.get(Id))] };
         } catch (err) {
@@ -108,12 +120,7 @@ export const sdk = {
       },
       async remove(ids) {
         try {
-          if (name === 'plan_pages_c') {
-            // Drop the page's image files too.
-            const rows = await t.bulkGet(ids);
-            const keys = rows.flatMap((r) => fileFields.flatMap((f) => (r?.[f] || []).map((m) => m.key))).filter(Boolean);
-            if (keys.length) await db.files.bulkDelete(keys);
-          }
+          // Leave image blobs intact: restored drawings can share attachment keys.
           await t.bulkDelete(ids);
           return { success: true };
         } catch (err) {

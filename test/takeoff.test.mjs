@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bomFor, jobEquipment } from '../src/lib/wbTakeoff.js';
+import { bomFor, jobEquipment, buildTakeoff } from '../src/lib/wbTakeoff.js';
 
 const here = { groups: [{ name: 'Outlets', rows: [{ name: 'Diffuser 250', qty: 3, note: 'x' }] }] };
 const drawn = JSON.stringify({ items: [{ id: 'a' }], sketch: [] });
@@ -29,4 +29,9 @@ test('a drawn level with no saved list is reported, an empty one is not', () => 
   ]);
   assert.deepEqual(missing, ['Level 2']);
   assert.equal(levels, 1);
+});
+
+test('oversized takeoff refuses silent truncation', () => {
+  const equipment = { groups: [{ name: 'Ductwork', rows: Array.from({length:501}, (_,i)=>({name:'Part '+i,qty:1})) }] };
+  assert.throws(() => buildTakeoff({ equipment }), /500 lines/);
 });

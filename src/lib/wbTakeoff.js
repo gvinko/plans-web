@@ -41,7 +41,10 @@ export function jobEquipment(equipment, page, levels = []) {
     const rows = groups.get(g.name);
     g.rows.forEach((r) => {
       const cur = rows.get(r.name);
-      if (cur) cur.qty += Number(r.qty) || 0;
+      if (cur) {
+        cur.qty += Number(r.qty) || 0;
+        if (r.note && !String(cur.note || '').split(' | ').includes(r.note)) cur.note = [cur.note, r.note].filter(Boolean).join(' | ');
+      }
       else rows.set(r.name, { name: r.name, qty: Number(r.qty) || 0, note: r.note });
     });
   });
@@ -64,8 +67,8 @@ export function buildTakeoff({ equipment, project = {}, page = {}, drawing }) {
       qty: Number(r.qty) || 0,
       note: clip(r.note, 200),
     })))
-    .filter((l) => l.ref && l.qty > 0)
-    .slice(0, MAX_LINES);
+    .filter((l) => l.ref && l.qty > 0);
+  if (lines.length > MAX_LINES) throw new Error('Take-off exceeds 500 lines — export the complete CSV instead.');
   return {
     format: 'ductplanner-takeoff',
     version: 1,

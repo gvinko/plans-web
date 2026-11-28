@@ -20,7 +20,7 @@ import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, WALL
 import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
 import { DRAWING_INK, ductCornerRadius, roomDraftStyle, zoneAreaStyle } from '@/lib/drawingAppearance';
-import { elbowJointStrokes, sheetStockLengthMm, shouldShowShopElbowJoints } from '@/lib/sheetMetalJoints';
+import { elbowJointStrokes, sheetStockLengthMm, stockSections, shouldShowShopElbowJoints } from '@/lib/sheetMetalJoints';
 import { buildTakeoff, takeoffLink, bomFor, jobEquipment } from '@/lib/wbTakeoff';
 import { networkAirflow, unitScale } from '@/lib/airflow';
 import { normDeg, planAngleFrom, rotatePt, snapToPlan, squareToPlan } from '@/lib/angle';
@@ -1476,7 +1476,7 @@ const smVaneCount = (s) => (s.vanes != null && s.vanes !== '' ? Number(s.vanes) 
 
 // Centre-line path plus, per segment, the straight part left once bends take their share.
 function smLayout(P, s, mm) {
-  const W = Math.max(3, smDims(s).w * mm);
+  const W = smDims(s).w * mm;
   const n = P.length;
   const lens = [];
   const us = [];
@@ -1505,6 +1505,10 @@ function smLayout(P, s, mm) {
       const en = { x: P[i].x + u2.x * tl, y: P[i].y + u2.y * tl };
       Object.assign(b, { radius: true, R, tl, st, en, c: { x: st.x + nT.x * R, y: st.y + nT.y * R }, sweep: cross > 0 ? 1 : 0 });
       cut[i] = tl;
+    } else {
+      const tl = Math.min(W / 2, lens[i - 1] / 3, lens[i] / 3);
+      Object.assign(b, { tl, st: { x: P[i].x - u1.x * tl, y: P[i].y - u1.y * tl }, en: { x: P[i].x + u2.x * tl, y: P[i].y + u2.y * tl } });
+      cut[i] = tl;
     }
     bends.push(b);
   }
@@ -1515,33 +1519,27 @@ function smLayout(P, s, mm) {
   }
   if (n > 1) d += ` L${P[n - 1].x},${P[n - 1].y}`;
   const segs = lens.map((L, i) => ({ a: P[i], u: us[i], from: cut[i], to: L - cut[i + 1] }));
-  return { d, bends, segs, W };
+  const length = segs.reduce((sum, g) => sum + Math.max(0, g.to - g.from), 0) + bends.reduce((sum, b) => sum + (b.radius ? b.R * b.deg * Math.PI / 180 : 2 * b.tl), 0);
+  return { d, bends, segs, W, length };
 }
 
 // Straight pieces cut from stock sheet lengths: each straight between bends starts fresh.
 function smPieces(segs, mm, sheetLen) {
-  const sheet = sheetStockLengthMm(sheetLen);
   const tally = new Map();
   let count = 0;
-  segs.forEach((g) => {
-    const len = (g.to - g.from) / mm;
-    if (len < 20) return;
-    const full = Math.floor(len / sheet + 1e-6);
-    let rem = Math.round((len - full * sheet) / 5) * 5;
-    if (rem < 20) rem = 0;
-    if (full) tally.set(sheet, (tally.get(sheet) || 0) + full);
-    if (rem) tally.set(rem, (tally.get(rem) || 0) + 1);
-    count += full + (rem ? 1 : 0);
-  });
+  segs.forEach(g => stockSections(g, mm, sheetLen).forEach(part => {
+    tally.set(part.lenMm, (tally.get(part.lenMm) || 0) + 1);
+    count += 1;
+  }));
   return { tally, count };
 }
 const smPiecesText = (tally) => [...tally.entries()].sort((x, y) => y[0] - x[0]).map(([len, q]) => `${q} x ${len}mm`).join(' + ');
 
-function smBendLabel(s, deg, w, h) {
+function smBendLabel(s, deg, w, h, b, mm) {
   const ninety = deg >= 67.5;
   const vanes = ninety && smVaneCount(s) > 0 ? ' c/w turning vanes' : '';
-  const kind = smIsRadius(s) ? `radius bend (R ${(Number(s.bendR) || 1).toFixed(1)}W)` : 'square bend';
-  return `Sheet metal ${ninety ? '90°' : '45°'} ${kind}${vanes} — ${w} x ${h} mm`;
+  const kind = (b ? b.radius : smIsRadius(s)) ? `radius bend${mm ? ` (R ${Math.round(b.R / mm)} mm)` : ''}` : 'square bend';
+  return `Sheet metal ${Math.round(deg)}° ${kind}${vanes} — ${w} x ${h} mm`;
 }
 
 // Eccentric (flat one side) reducer: shift this run's tied end sideways so one edge runs straight through.
@@ -1848,6 +1846,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const canvasRef = useRef(null);
   const rootRef = useRef(null);
   const lastSavedRef = useRef(null);
+  const revisionRef = useRef(0);
+  const savingRef = useRef(false);
+  const draftSnapshotRef = useRef(null);
+  const restoringDraftRef = useRef(false);
   const clipRef = useRef(null);
   const historyRef = useRef({ stack: [], index: -1 });
   // Heat load climate for this drawing, and the auto duct layout preview.
@@ -1916,7 +1918,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   useEffect(() => {
     if (restoringRef.current) { restoringRef.current = false; return undefined; }
     const t = setTimeout(() => {
-      const snapshot = JSON.stringify({ items, connections, joins, sketch });
+      const snapshot = JSON.stringify({ items, connections, joins, sketch, scale, planAngle });
       const h = historyRef.current;
       if (h.stack[h.index] === snapshot) return;
       h.stack = h.stack.slice(0, h.index + 1);
@@ -1925,20 +1927,20 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       h.index = h.stack.length - 1;
     }, 400);
     return () => clearTimeout(t);
-  }, [items, connections, joins, sketch]);
+  }, [items, connections, joins, sketch, scale, planAngle]);
   useEffect(() => { if (selectedId || selectedConnId) setRightTab('selection'); }, [selectedId, selectedConnId]);
 
-  // Keep a copy of unsaved work on this device.
+  // Drafts carry the complete drawing and the durable attachment references.
+  draftSnapshotRef.current = { payload: JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }), planFiles: sdk.storage.toUpdateFormat(planFile), photos: sdk.storage.toUpdateFormat(photos) };
+  function writeDraft() {
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({ version: 2, t: Date.now(), ...draftSnapshotRef.current }));
+      return true;
+    } catch { return false; }
+  }
   useEffect(() => {
-    if (!dirtyRef.current) return undefined;
-    const t = setTimeout(() => {
-      if (!dirtyRef.current) return; // already saved
-      try {
-        localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload: JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }) }));
-      } catch { /* storage full or blocked */ }
-    }, 800);
-    return () => clearTimeout(t);
-  }, [items, connections, joins, scale, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, draftKey]);
+    if (dirtyRef.current && !planBusy) writeDraft();
+  }, [items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy, draftKey]);
 
   // Saving is on this device now, so losing signal no longer matters.
   // Autosave: a couple of seconds after any change (drawing, plan, photos), save it.
@@ -1946,10 +1948,10 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (!dirtyRef.current || planBusy) return undefined;
     const t = setTimeout(() => { if (dirtyRef.current) saveRef.current?.({ auto: true }); }, 1500);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy]);
+  }, [items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy]);
   // Leaving the tab or closing the window: save straight away.
   useEffect(() => {
-    const flush = () => { if (dirtyRef.current) saveRef.current?.({ auto: true }); };
+    const flush = () => { if (dirtyRef.current && !restoringDraftRef.current) { writeDraft(); saveRef.current?.({ auto: true }); } };
     const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
     window.addEventListener('pagehide', flush);
     window.addEventListener('dp-save-now', flush); // UpdateBanner, before it reloads
@@ -2076,12 +2078,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     dirtyRef.current = false;
     let source = page.drawingJson_c || '[]';
     let restored = false;
+    let restoredFiles = null;
     try {
       const draft = JSON.parse(localStorage.getItem(`dp-draft-${page.Id}`) || 'null');
       const mod = Date.parse(page.ModifiedOn || '');
-      if (draft?.payload && draft.payload !== page.drawingJson_c && (Number.isNaN(mod) || draft.t > mod)) {
+      if (draft?.payload && (draft.version === 2 || (draft.payload !== page.drawingJson_c && (Number.isNaN(mod) || draft.t > mod)))) {
         source = draft.payload;
         restored = true;
+        restoredFiles = draft.version === 2 ? draft : null;
       } else if (draft) {
         localStorage.removeItem(`dp-draft-${page.Id}`);
       }
@@ -2120,9 +2124,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       setPendingPort(null);
       setScaleDraft(null);
       if (restored) {
+        revisionRef.current += 1;
         dirtyRef.current = true;
+        if (restoredFiles) {
+          restoringDraftRef.current = true;
+          setPlanBusy(true);
+          Promise.all([sdk.storage.resolveFiles(restoredFiles.planFiles || []), sdk.storage.resolveFiles(restoredFiles.photos || [])]).then(([plans, pics]) => {
+            setPlanFile(plans);
+            setPhotos(pics);
+            setBackground(plans[0]?.url || '');
+          }).catch(() => {
+            setPlanFile(restoredFiles.planFiles || []);
+            setPhotos(restoredFiles.photos || []);
+            setStatus('Draft attachments could not be restored — keep the draft.');
+          }).finally(() => { restoringDraftRef.current = false; setPlanBusy(false); });
+        }
         setStatus('Restored unsaved changes from last time · saving');
-        toast.message('Unsaved changes restored', { description: 'Work from your last session was kept and has been saved.' });
+        toast.message('Unsaved changes restored', { description: 'Work from your last session was recovered. Saving now.' });
       } else {
         setStatus('Loaded saved drawing');
       }
@@ -2184,7 +2202,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const a = portInfo(fromItem, conn.from.portId, ppm);
     const b = portInfo(toItem, conn.to.portId, ppm);
     const pts = simplifyRoute(conn.bends?.length ? orthoRoute(a, conn.bends, b) : routePoints(a, a.dir, b, b.dir));
-    const metres = scale || sketch.length ? pathLength(pts) / ppm : null;
+    const metres = scale ? pathLength(pts) / ppm : null;
     const size = conn.size || getDuct(conn.type).defaultSize;
     const ends = [
       { tag: fromItem.id, mm: portSizeMm(fromItem, a.id) },
@@ -2351,7 +2369,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         add(group, field.sheet ? `${field.sheet} — ${v}` : v);
       });
     });
-    const lengthsKnown = !!(scale || sketch.length);
+    const lengthsKnown = !!(scale);
     const bySize = new Map();
     const coils = new Map();
     const trunks = new Map();
@@ -2373,7 +2391,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         c.m += metres || 0;
         c.n += 1;
         coils.set(k, c);
-        if (conn.trunking && conn.trunking !== 'None') trunks.set(conn.trunking, (trunks.get(conn.trunking) || 0) + (Number(conn.trunkM) || metres || 0));
+        if (conn.trunking && conn.trunking !== 'None' && (Number(conn.trunkM) > 0 || metres > 0)) trunks.set(conn.trunking, (trunks.get(conn.trunking) || 0) + (Number(conn.trunkM) || metres || 0));
         if (conn.topUp && Number(conn.topUpKg) > 0) topUpKg += Number(conn.topUpKg);
         return;
       }
@@ -2415,18 +2433,17 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const nm = smRunName(s);
       const caps = (s.capA && !s.a ? 1 : 0) + (s.capB && !s.b ? 1 : 0);
       if (caps) add('Ductwork', `End cap — ${smSizeText(s)}${smMat(s) === 'spiral' ? '' : ' mm'}`, caps);
-      const m = smLenOf(P) / ppm;
+      const lay = smLayout(P, s, ppm / 1000);
+      const m = lay.length / ppm;
       const cur = sheet.get(nm) || { count: 0, metres: 0 };
       if (!cur.tally) cur.tally = new Map();
       cur.count += 1;
       cur.metres += m;
-      const { b45, b90 } = smBends({ pts: P });
-      if (b45) add('Ductwork', smBendLabel(s, 45, w, h), b45);
-      if (b90) add('Ductwork', smBendLabel(s, 90, w, h), b90);
+      for (const bend of lay.bends) add('Ductwork', smBendLabel(s, bend.deg, w, h, bend, lengthsKnown ? ppm / 1000 : null), 1);
       if (lengthsKnown) {
-        const pc = smPieces(smLayout(P, s, ppm / 1000).segs, ppm / 1000, s.sheetLen);
+        const pc = smPieces(lay.segs, ppm / 1000, s.sheetLen);
         pc.tally.forEach((q, len) => cur.tally.set(len, (cur.tally.get(len) || 0) + q));
-        const joints = Math.max(0, pc.count - 1) + b45 + b90 + (s.a ? 1 : 0) + (s.b ? 1 : 0);
+        const joints = Math.max(0, pc.count + lay.bends.length - 1) + (s.a ? 1 : 0) + (s.b ? 1 : 0);
         if (joints) add('Ductwork', smMat(s) === 'spiral' ? `Spiral coupling / joint — ${w}Ø` : smMat(s) === 'board' ? `Duct board joint (tape / H-bar) — ${w} x ${h} mm` : `TDF joint set — ${w} x ${h} mm`, joints);
       }
       sheet.set(nm, cur);
@@ -2482,7 +2499,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     sketch.forEach((x) => { if (x.kind === 'pin') { n += 1; m[x.id] = n; } });
     return m;
   }, [sketch]);
-  const showLoads = !!(scale || sketch.length);
+  const showLoads = !!(scale);
 
   const unitKw = (it) => {
     if (it.type === 'coilsection') return sectionKw(it);
@@ -2536,7 +2553,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const out = [];
     const byId = Object.fromEntries(items.map((i) => [i.id, i]));
     const isUnit = (i) => i && (i.type === 'indoor' || i.type === 'coilsection') && !i.remove;
-    const lengthsKnown = !!(scale || sketch.length);
+    const lengthsKnown = !!(scale);
     const smGroups = smNetworks({ sketch, items, ppm }); // parts tied together by sheet metal runs
     const network = (start) => {
       const seen = new Set([start]);
@@ -2701,11 +2718,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   // Send the parts list to WorkBrain, which prices it from the WorkBrain Rates sheet.
   function sendToWorkBrain() {
     const job = jobEquipment(equipment, page, levels);
-    const pkg = buildTakeoff({ equipment: job.equipment, project: project || {}, page, drawing: job.levels > 1 ? `All levels (${job.levels})` : undefined });
+    let pkg;
+    try { pkg = buildTakeoff({ equipment: job.equipment, project: project || {}, page, drawing: job.levels > 1 ? `All levels (${job.levels})` : undefined }); } catch (err) { toast.error(err.message); return; }
     if (!pkg.lines.length) { toast.error('Nothing to send yet.'); return; }
     const win = window.open(takeoffLink(pkg), 'workbrain');
     if (!win) { toast.error('Pop-up blocked', { description: 'Allow pop-ups for Ductplanner, then try again.' }); return; }
-    toast.success(`Sent ${pkg.lines.length} lines to WorkBrain${job.levels > 1 ? ` from ${job.levels} levels` : ''}`, { description: pkg.job.wbJobRef ? `Job ${pkg.job.wbJobRef}` : 'Not linked to a WorkBrain job yet — open this job from WorkBrain to link it.' });
+    toast.message(`Opened WorkBrain with ${pkg.lines.length} lines${job.levels > 1 ? ` from ${job.levels} levels` : ''}`, { description: pkg.job.wbJobRef ? `Job ${pkg.job.wbJobRef}` : 'Not linked to a WorkBrain job yet — open this job from WorkBrain to link it.' });
+    try { win.opener = null; } catch { /* cross-origin */ }
     if (job.missing.length) toast.warning(`Not included: ${job.missing.join(', ')}`, { description: 'Open each of those levels once so its parts are saved, then send again.', duration: 12000 });
   }
 
@@ -2749,6 +2768,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
 
   function markDirty(msg = 'Unsaved changes') {
+    revisionRef.current += 1;
     dirtyRef.current = true;
     setStatus(msg);
   }
@@ -3382,12 +3402,14 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     setStatus(isPdf ? 'Rendering PDF page 1…' : 'Preparing plan…');
     let blob;
     let note = '';
+    let nextSheet = null;
+    let nextText = '';
     try {
       if (isPdf) {
         const res = await pdfFileToJpeg(file);
         blob = res.blob;
-        setSheet(res.sheet);
-        onSavePageText?.(page.Id, res.text || '');
+        nextSheet = res.sheet;
+        nextText = res.text || '';
         note = ` (PDF page 1 of ${res.pages})`;
         if (res.pages > 1 && onAddLevelsWithPlans) {
           const used = new Set(levels.map((l) => String(l.Name || '').toLowerCase()));
@@ -3400,8 +3422,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         } else res.pdf?.destroy?.();
       } else {
         blob = await imageFileToJpeg(file);
-        setSheet(null); // a photo or scan: the sheet size is picked when setting the scale
-        onSavePageText?.(page.Id, '');
+
       }
     } catch (err) {
       const msg = err?.message || 'unknown error';
@@ -3410,23 +3431,25 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       setPlanBusy(false);
       return;
     }
-    setBackground(URL.createObjectURL(blob));
-    fitView();
     setStatus('Saving plan…');
     try {
       const uploaded = await sdk.storage.upload(new File([blob], 'plan.jpg', { type: 'image/jpeg' }));
       if (!uploaded) throw new Error('No file returned');
       setPlanFile([{ ...uploaded, size: uploaded.size || blob.size, name: uploaded.name || 'plan.jpg', type: uploaded.type || 'image/jpeg' }]);
-      dirtyRef.current = true;
-      setStatus(`Plan loaded${note} · saved automatically · now set the scale`);
+      setBackground(uploaded.url);
+      setSheet(nextSheet);
+      setScale(null);
+      setScaleDraft(null);
+      historyRef.current = { stack: [], index: -1 };
+      fitView();
+      onSavePageText?.(page.Id, nextText);
+      markDirty(`Plan loaded${note} · now set the scale`);
     } catch (err) {
-      setPlanFile([]);
-      setStatus(`Could not store plan: ${err?.message || 'unknown error'} · it will be lost on reload`);
+      setStatus(`Could not store plan: ${err?.message || 'unknown error'} · previous plan retained`);
       toast.error('Plan could not be stored', { description: `${err?.message || 'unknown error'} — try loading the plan again before you save.` });
     } finally {
       setPlanBusy(false);
     }
-    if (!scale) toast.message('Plan loaded', { description: 'Tap “Set scale” (K): type the scale from the title block, e.g. 1:100 @ A1, or mark a known dimension.' });
   }
 
   // ---- Scale from the drawing's stated scale (1:100 @ A1) ----
@@ -3580,7 +3603,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
     if (drag.kind === 'smpoint') {
       const run = sketch.find((x) => x.id === drag.id);
-      if (!run) return;
+      if (!run || !drag.moved) return;
       let x = skSnap(p.x);
       let y = skSnap(p.y);
       drag.target = null;
@@ -3588,17 +3611,17 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         const hit = smFindSnap(p, SM_SNAP_PX / (viewRef.current?.z || 1), smCtx, run.id);
         if (hit) { x = hit.x; y = hit.y; drag.target = hit; }
       }
-      const nb = run.pts[drag.idx === 0 ? 1 : drag.idx - 1];
+      const nb = drag.pts[drag.idx === 0 ? 1 : drag.idx - 1];
       if (!drag.target && nb && !event.shiftKey) {
         // Keep the segment to the neighbour at 0 / 45 / 90°.
         const len = Math.hypot(p.x - nb.x, p.y - nb.y);
-        const ang = Math.round(Math.atan2(p.y - nb.y, p.x - nb.x) / (Math.PI / 4)) * (Math.PI / 4);
+        const ang = snapToPlan(Math.atan2(p.y - nb.y, p.x - nb.x), planAngle);
         const g = (ppm * 50) / 1000;
         const l = Math.round(len / g) * g;
         x = nb.x + Math.cos(ang) * l;
         y = nb.y + Math.sin(ang) * l;
       }
-      setSketch((current) => current.map((r) => (r.id === drag.id ? { ...r, pts: r.pts.map((q, i) => (i === drag.idx ? { x, y } : q)) } : r)));
+      setSketch((current) => current.map((r) => (r.id === drag.id ? { ...r, ...(drag.freed ? { [drag.freed]: undefined } : {}), pts: drag.pts.map((q, i) => (i === drag.idx ? { x, y } : q)) } : r)));
       markDirty();
       return;
     }
@@ -3737,6 +3760,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             const pts = A.end === 'start' ? [{ x: d.x2, y: d.y2 }, ...x.pts] : [...x.pts, { x: d.x2, y: d.y2 }];
             return { ...x, pts, x1: pts[0].x, y1: pts[0].y, x2: pts[pts.length - 1].x, y2: pts[pts.length - 1].y };
           });
+          if (A.end === 'start') {
+            const shift = link => link?.kind === 'side' && link.id === ra.id ? { ...link, seg: link.seg + 1 } : link;
+            next = next.map(x => x.kind === 'smduct' && x.id !== ra.id ? { ...x, a: shift(x.a), b: shift(x.b) } : x);
+            setItems(current => current.map(i => i.onRun?.id === ra.id ? { ...i, onRun: { ...i.onRun, seg: i.onRun.seg + 1 } } : i));
+          }
           selId = ra.id;
           const rb = runOf(B);
           if (rb && freeEnd(rb, B.end) && fits(rb)) {
@@ -3795,7 +3823,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
     if (drag?.kind === 'sketchmove') return;
     if (drag?.kind === 'smpoint') {
-      if (drag.end && drag.target) {
+      if (drag.moved && drag.end && drag.target) {
         setSketch((current) => current.map((r) => (r.id === drag.id ? { ...r, [drag.end]: smLinkFrom(drag.target) } : r)));
         toast.message(drag.target.kind === 'side' ? 'Branch take-off added' : drag.target.kind === 'port' ? 'Connected to the part' : 'Joined');
       }
@@ -4305,8 +4333,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const pts = smPts(run, smCtx);
     // Moving a tied end frees it; it can re-tie where it's dropped.
     const freed = idx === 0 && run.a ? 'a' : idx === pts.length - 1 && run.b ? 'b' : null;
-    setSketch((current) => current.map((x) => (x.id === run.id ? { ...x, pts, ...(freed ? { [freed]: undefined } : {}) } : x)));
-    dragRef.current = { kind: 'smpoint', id: run.id, idx, end: idx === 0 ? 'a' : idx === pts.length - 1 ? 'b' : null, target: null, sx: event.clientX, sy: event.clientY, moved: false };
+    dragRef.current = { kind: 'smpoint', original: run, pts, freed, id: run.id, idx, end: idx === 0 ? 'a' : idx === pts.length - 1 ? 'b' : null, target: null, sx: event.clientX, sy: event.clientY, moved: false };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
 
@@ -4732,6 +4759,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     setConnections(s.connections);
     setJoins(s.joins);
     setSketch(s.sketch || []);
+    setScale(s.scale ?? null);
+    setPlanAngle(s.planAngle ?? 0);
     setSelectedSketchId(null);
     setSelectedId(null);
     setSelectedConnId(null);
@@ -4810,16 +4839,27 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
 
   async function save(opts = {}) {
+    if (savingRef.current || restoringDraftRef.current) return false;
     if (planBusy) {
       toast.message('Plan still loading — save again in a moment.');
       setStatus('Plan still loading…');
-      return;
+      return false;
     }
+    savingRef.current = true;
+    const revision = revisionRef.current;
+    const snapshot = draftSnapshotRef.current;
     setStatus('Saving…');
     const payload = JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate });
     lastSavedRef.current = payload;
     let ok = false;
     try { ok = await onSave(payload, planFile, photos, bomFor(equipment)); } catch { ok = false; }
+    finally { savingRef.current = false; }
+    if (ok && (revision !== revisionRef.current || JSON.stringify(snapshot) !== JSON.stringify(draftSnapshotRef.current))) {
+      writeDraft();
+      setStatus('Newer changes pending — saving again');
+      setTimeout(() => { if (dirtyRef.current) saveRef.current?.({ auto: true }); }, 0);
+      return false;
+    }
     if (ok) {
       dirtyRef.current = false;
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
@@ -4827,9 +4867,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (!opts.quiet && !opts.auto) toast.success('Drawing saved', { description: `${items.length} objects and ${connections.length} run(s) saved successfully.` });
       return true;
     }
-    try { localStorage.setItem(draftKey, JSON.stringify({ t: Date.now(), payload })); } catch { /* ignore */ }
-    setStatus('SAVE FAILED — a draft copy is kept');
-    if (!opts.auto || !saveFailToastRef.current) toast.error('Save failed', { description: 'A draft copy is kept. Try Save again.' });
+    const kept = writeDraft();
+    setStatus(kept ? 'SAVE FAILED — a draft copy is kept' : 'SAVE FAILED — draft could not be stored');
+    if (!opts.auto || !saveFailToastRef.current) toast.error('Save failed', { description: kept ? 'A draft copy is kept. Try Save again.' : 'Keep this drawing open and try Save again.' });
     if (opts.auto) saveFailToastRef.current = true;
     return false;
   }
@@ -4843,7 +4883,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       if (!name || !name.trim()) return;
       setLevelBusy(true);
       try {
-        if (dirtyRef.current) await save({ quiet: true });
+        if (planBusy || savingRef.current || (dirtyRef.current && !(await save({ quiet: true }))) || dirtyRef.current) return;
         await onAddLevel?.(name.trim());
       } finally {
         setLevelBusy(false);
@@ -4852,7 +4892,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
     setLevelBusy(true);
     try {
-      if (dirtyRef.current) await save({ quiet: true });
+      if (planBusy || savingRef.current || (dirtyRef.current && !(await save({ quiet: true }))) || dirtyRef.current) return;
       onSwitchLevel?.(value);
     } finally {
       setLevelBusy(false);
@@ -5058,7 +5098,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   .dp-page-break { break-before: page; }
 }`}</style>
       <header className="dp-noprint sticky top-11 z-30 border-b border-border bg-card px-2 py-1 flex items-center gap-2 h-[46px] [&_button]:h-8">
-        <Button variant="ghost" size="sm" onClick={async () => { if (dirtyRef.current && !planBusy) await save({ quiet: true }); onBack(); }} className="shrink-0">
+        <Button variant="ghost" size="sm" onClick={async () => { if (planBusy || savingRef.current || (dirtyRef.current && !(await save({ quiet: true }))) || dirtyRef.current) return; onBack(); }} className="shrink-0">
           <ApperIcon name="ArrowLeft" size={16} />
           <span className="hidden sm:inline">Projects</span>
         </Button>
@@ -5124,7 +5164,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             <span className="hidden xl:inline">{planBusy ? 'Loading…' : 'Plan'}</span>
           </Button>
           {background && (
-            <Button variant="ghost" size="sm" className="h-8 px-2" title="Remove the plan image" onClick={() => { setBackground(''); setPlanFile([]); markDirty('Plan removed · unsaved changes'); }}>
+            <Button variant="ghost" size="sm" className="h-8 px-2" title="Remove the plan image" onClick={() => { setBackground(''); setPlanFile([]); setScale(null); setScaleDraft(null); historyRef.current = { stack: [], index: -1 }; markDirty('Plan removed · unsaved changes'); }}>
               <ApperIcon name="ImageOff" size={15} />
             </Button>
           )}
@@ -5506,7 +5546,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const seg = clearSeg(P, items.filter((it) => it.type !== 'zonearea').map((it) => { const b = itemBox(it, ppm); return { x: it.cx, y: it.cy, r: Math.max(b.w, b.h) / 2 + 4 * inv }; }));
                     let ang = seg.ang ?? 0;
                     if (ang > 90 || ang < -90) ang += 180;
-                    const lenM = smLenOf(P) / ppm;
+                    const lenM = lay.length / ppm;
                     const mat = smMat(s);
                     const edge = sel ? '#2563eb' : mat === 'board' ? '#92400e' : (CASING[s.air] || CASING.supply);
                     const fillC = mat === 'board' ? '#fef3c7' : mat === 'spiral' ? '#e2e8f0' : (SM_FILL[s.air] || SM_FILL.supply);
@@ -5534,13 +5574,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       let no = 0;
                       lay.segs.forEach((g) => {
                         const { u } = g;
-                        for (let at = g.from; at < g.to - 20 * mm; at += sheetW) {
-                          const end = Math.min(g.to, at + sheetW);
+                        for (const part of stockSections(g, mm, s.sheetLen)) {
+                          const at = part.from, end = part.to;
                           no += 1;
-                          const lenMm = Math.round((end - at) / mm / 5) * 5;
+                          const lenMm = part.lenMm;
                           const p = (t, side) => `${g.a.x + u.x * t - u.y * hw * side},${g.a.y + u.y * t + u.x * hw * side}`;
                           const mid = (at + end) / 2;
-                          pieces.push({ no, full: end - at >= sheetW - 1e-6 || lenMm >= sheetStockLengthMm(s.sheetLen) - 5, lenMm, poly: `${p(at, 1)} ${p(end, 1)} ${p(end, -1)} ${p(at, -1)}`, cx: g.a.x + u.x * mid, cy: g.a.y + u.y * mid, ang: (Math.atan2(u.y, u.x) * 180) / Math.PI, room: (end - at) / inv });
+                          pieces.push({ no, full: part.full, lenMm, poly: `${p(at, 1)} ${p(end, 1)} ${p(end, -1)} ${p(at, -1)}`, cx: g.a.x + u.x * mid, cy: g.a.y + u.y * mid, ang: (Math.atan2(u.y, u.x) * 180) / Math.PI, room: (end - at) / inv });
                         }
                       });
                     }
@@ -5549,8 +5589,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       const gap = Math.max(0.8, 20 * mm);
                       lay.segs.forEach((g) => {
                         const { u } = g;
-                        for (let at = g.from + sheetW; at < g.to - 1; at += sheetW) {
-                          [0, gap].forEach((o) => {
+                        for (const part of stockSections(g, mm, s.sheetLen).slice(1)) {
+                          const at = part.from;
+                          [0, Math.min(gap, (part.to - part.from) / 2)].forEach((o) => {
                             const cx = g.a.x + u.x * (at + o);
                             const cy = g.a.y + u.y * (at + o);
                             ticks.push(`M${cx - u.y * (hw + ov)},${cy + u.x * (hw + ov)} L${cx + u.y * (hw + ov)},${cy - u.x * (hw + ov)}`);
@@ -7047,7 +7088,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               {selectedSketch.kind === 'smduct' && (() => {
                 const s = selectedSketch;
                 const P = smPts(s, smCtx);
-                const lenM = smLenOf(P) / ppm;
+                const lenM = smLayout(P, s, ppm / 1000).length / ppm;
                 const bends = smBends({ pts: P });
                 const pieces = smPieces(smLayout(P, s, ppm / 1000).segs, ppm / 1000, s.sheetLen);
                 const describe = (link) => {
@@ -7059,7 +7100,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 };
                 const net = smNetworks(smCtx).find((g) => g.runIds.includes(s.id));
                 const netRuns = (net?.runIds || []).map((id) => sketch.find((x) => x.id === id)).filter(Boolean);
-                const netLen = netRuns.reduce((n, r) => n + smLenOf(smPts(r, smCtx)), 0) / ppm;
+                const netLen = netRuns.reduce((n, r) => n + smLayout(smPts(r, smCtx), r, ppm / 1000).length, 0) / ppm;
                 const fits = smEndFittings(s, smCtx);
                 const linked = s.a || s.b || sketch.some((x) => x.kind === 'smduct' && ['a', 'b'].some((k) => x[k] && x[k].kind !== 'port' && x[k].id === s.id));
                 return (

@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 // Backup and restore: every project, level, drawing, plan image and site photo
 // in one zip. Restore merges and never replaces a different or newer job: see restorePlan.js.
 // JSZip is loaded only when a backup is made or restored, to keep the app's first load small.
@@ -156,11 +157,11 @@ export async function restoreBackup(file) {
   const entry = z.file('backup.json');
   if (!entry) throw new Error('This zip is not a Ductplanner backup (no backup.json inside).');
   const manifest = JSON.parse(await entry.async('string'));
-  if (manifest.app !== 'Ductplanner') throw new Error('This zip is not a Ductplanner backup.');
+  if (manifest.app !== 'Ductplanner' || manifest.format !== 1 || !Array.isArray(manifest.projects) || !Array.isArray(manifest.pages) || !Array.isArray(manifest.files)) throw new Error('This zip is not a Ductplanner backup.');
   const fileRows = [];
   for (const f of manifest.files || []) {
     const zf = z.file(f.path || `files/${f.key}`);
-    if (!zf) continue;
+    if (!zf) throw new Error('Backup is missing attachment: ' + f.name);
     const buf = await zf.async('arraybuffer');
     fileRows.push({ key: f.key, name: f.name, type: f.type, size: f.size, addedOn: f.addedOn, blob: new Blob([buf], { type: f.type || 'image/jpeg' }) });
   }
@@ -170,7 +171,27 @@ export async function restoreBackup(file) {
     summary = plan.summary;
     if (plan.projects.length) await db.projects.bulkPut(plan.projects);
     if (plan.pages.length) await db.plan_pages.bulkPut(plan.pages);
-    if (fileRows.length) await db.files.bulkPut(fileRows);
+    // A restore must not replace an existing image used by a live drawing.
+    for (const row of fileRows) {
+      const existing = await db.files.get(row.key);
+      if (existing) {
+        // Refuse ambiguous keys rather than attach the wrong image to either drawing.
+        const same = await Dexie.waitFor(Promise.all([existing.blob.arrayBuffer(), row.blob.arrayBuffer()]).then(([a, b]) => {
+          const x = new Uint8Array(a), y = new Uint8Array(b);
+          return x.length === y.length && x.every((v, i) => v === y[i]);
+        }));
+        if (!same) throw new Error('Conflicting backup attachment: ' + row.name);
+        continue;
+      }
+      await db.files.add(row);
+    }
+    for (const row of [...plan.projects, ...plan.pages]) {
+      for (const field of ['planFile_c', 'sitePhotos_c', 'specDocs_c']) {
+        for (const meta of row[field] || []) {
+          if (!(await db.files.get(meta.key))?.blob) throw new Error('Backup is missing referenced attachment: ' + meta.name);
+        }
+      }
+    }
   });
   return { ...summary, projects: manifest.projects?.length || 0, levels: manifest.pages?.length || 0, files: fileRows.length, exportedAt: manifest.exportedAt };
 }

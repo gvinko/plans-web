@@ -38,7 +38,7 @@ export function elbowJointStrokes({ bends = [], points = [], widthPx = 0, pixels
     if (Math.min(incoming, outgoing) < Math.max(4, 60 * pixelsPerMm)) continue;
     let start;
     let end;
-    if (b.radius) {
+    if (b.radius || (finitePoint(b.st) && finitePoint(b.en))) {
       if (!finitePoint(b.st) || !finitePoint(b.en)) continue;
       start = b.st;
       end = b.en;
@@ -52,4 +52,19 @@ export function elbowJointStrokes({ bends = [], points = [], widthPx = 0, pixels
     if (a && z) strokes.push(a, z);
   }
   return strokes;
+}
+
+// Split actual straight centreline lengths once; the SVG and cut tally use the
+// same boundaries. Keep short offcuts rather than rounding them away.
+export function stockSections(g, mm, sheetLen) {
+  if (!(mm > 0) || !Number.isFinite(g.from) || !Number.isFinite(g.to)) return [];
+  const stock = sheetStockLengthMm(sheetLen);
+  const length = (g.to - g.from) / mm;
+  if (length <= 1e-6 || !Number.isFinite(length)) return [];
+  const parts = [];
+  for (let start = 0; start < length - 1e-6; start += stock) {
+    const end = Math.min(length, start + stock);
+    parts.push({ from: g.from + start * mm, to: g.from + end * mm, lenMm: Math.min(stock, Math.max(1, Math.round(end - start))), full: end - start >= stock - 1e-6 });
+  }
+  return parts;
 }

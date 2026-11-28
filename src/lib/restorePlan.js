@@ -44,8 +44,15 @@ export function planRestore(manifest, local) {
     if (same) {
       const backupAt = latest(p, levels);
       const hereAt = latest(here, pagesOf(local.pages, here.Id));
-      if (backupAt === hereAt) { summary.skipped += 1; return; }
-      if (backupAt > hereAt) {
+      const hereLevels = pagesOf(local.pages, here.Id);
+      const sameRow = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      const conflictingLevel = levels.some(pg => {
+        const current = hereLevels.find(x => x.Id === pg.Id);
+        return current && (time(current) > time(pg) || (time(current) === time(pg) && !sameRow(current, pg)));
+      });
+      const unchanged = sameRow(p, here) && levels.length === hereLevels.length && levels.every(pg => hereLevels.some(x => sameRow(x, pg)));
+      if (unchanged) { summary.skipped += 1; return; }
+      if (backupAt > hereAt && !conflictingLevel && time(p) >= time(here)) {
         inPlace = true;
         summary.updated += 1;
       } else {
