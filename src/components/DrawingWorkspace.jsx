@@ -19,6 +19,8 @@ import AutoLayoutDialog from '@/components/AutoLayoutDialog';
 import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, WALLS, GLAZING, calcRoomLoad } from '@/lib/heatLoad';
 import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
+import { DRAWING_INK, ductCornerRadius, roomDraftStyle, zoneAreaStyle } from '@/lib/drawingAppearance';
+import { elbowJointStrokes, sheetStockLengthMm, shouldShowShopElbowJoints } from '@/lib/sheetMetalJoints';
 import { buildTakeoff, takeoffLink, bomFor, jobEquipment } from '@/lib/wbTakeoff';
 import { networkAirflow, unitScale } from '@/lib/airflow';
 import { normDeg, planAngleFrom, rotatePt, snapToPlan, squareToPlan } from '@/lib/angle';
@@ -269,7 +271,7 @@ const CATALOG = [
         }],
       },
       { type: 'sensor', label: 'Wall Sensor', tag: 'TS', role: 'none', noDuct: 'Wall sensors are wired, not ducted.', specs: [{ key: 'kind', label: 'Type', sheet: 'Sensor', options: ['Wired wall sensor', 'Wireless wall sensor'] }, { key: 'zone', label: 'Zone', options: [...ZONE_NAMES, 'Common'], noTakeoff: true, short: (v) => v.replace('Zone ', 'Z') }] },
-      { type: 'zonearea', label: 'Zone Area (colour a room)', tag: 'ZA', role: 'none', noDuct: 'Zone areas only colour a room.', specs: [{ key: 'zone', label: 'Zone', options: ZONE_NAMES, noTakeoff: true }] },
+      { type: 'zonearea', label: 'Zone Area (room outline)', tag: 'ZA', role: 'none', noDuct: 'Zone area outlines a room for zoning.', specs: [{ key: 'zone', label: 'Zone', options: ZONE_NAMES, noTakeoff: true }] },
     ],
   },
   {
@@ -1518,7 +1520,7 @@ function smLayout(P, s, mm) {
 
 // Straight pieces cut from stock sheet lengths: each straight between bends starts fresh.
 function smPieces(segs, mm, sheetLen) {
-  const sheet = Number(sheetLen) || SM_DEFAULT_SHEET;
+  const sheet = sheetStockLengthMm(sheetLen);
   const tally = new Map();
   let count = 0;
   segs.forEach((g) => {
@@ -5354,17 +5356,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 />
               )}
 
-              {/* zone areas: translucent room colouring, underneath ducts and parts */}
+              {/* Zone areas stay unfilled, preserving an architectural black-and-grey plan. */}
               {items.filter((i) => i.type === 'zonearea').map((item) => {
                 const box = itemBox(item, ppm);
-                const color = zoneColor(item.spec?.zone) || ZONE_COLORS[0];
                 const isSel = selectedId === item.id;
                 return (
                   <div
                     key={item.id}
                     aria-label={`${item.spec?.zone || 'Zone'} area`}
                     className="absolute rounded-sm touch-none cursor-move"
-                    style={{ left: item.cx - box.w / 2, top: item.cy - box.h / 2, width: box.w, height: box.h, backgroundColor: `${color}33`, border: `${isSel ? 3 : 2}px dashed ${color}` }}
+                    style={{ left: item.cx - box.w / 2, top: item.cy - box.h / 2, width: box.w, height: box.h, ...zoneAreaStyle(isSel) }}
                     onPointerDown={(event) => startItemDrag(event, item)}
                   />
                 );
@@ -5438,7 +5439,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     if (ang > 90 || ang < -90) ang += 180;
                     const mx = (s.x1 + s.x2) / 2;
                     const my = (s.y1 + s.y2) / 2;
-                    const dc = sel ? '#2563eb' : '#7c3aed';
+                    const dc = sel ? '#2563eb' : DRAWING_INK;
                     return (
                       <g key={s.id}>
                         <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke="transparent" strokeWidth={14} style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} />
@@ -5512,7 +5513,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const k = Math.min(inv, 2.5);
                     // TDF flange joints every sheet length, restarting on each straight between bends.
                     const ticks = [];
-                    const sheetW = (Number(s.sheetLen) || SM_DEFAULT_SHEET) * mm;
+                    const sheetW = sheetStockLengthMm(s.sheetLen) * mm;
                     const seams = [];
                     if (mat === 'spiral') {
                       // Spiral lock-seam: short diagonal lines every 150 mm.
@@ -5539,7 +5540,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                           const lenMm = Math.round((end - at) / mm / 5) * 5;
                           const p = (t, side) => `${g.a.x + u.x * t - u.y * hw * side},${g.a.y + u.y * t + u.x * hw * side}`;
                           const mid = (at + end) / 2;
-                          pieces.push({ no, full: end - at >= sheetW - 1e-6 || lenMm >= (Number(s.sheetLen) || SM_DEFAULT_SHEET) - 5, lenMm, poly: `${p(at, 1)} ${p(end, 1)} ${p(end, -1)} ${p(at, -1)}`, cx: g.a.x + u.x * mid, cy: g.a.y + u.y * mid, ang: (Math.atan2(u.y, u.x) * 180) / Math.PI, room: (end - at) / inv });
+                          pieces.push({ no, full: end - at >= sheetW - 1e-6 || lenMm >= sheetStockLengthMm(s.sheetLen) - 5, lenMm, poly: `${p(at, 1)} ${p(end, 1)} ${p(end, -1)} ${p(at, -1)}`, cx: g.a.x + u.x * mid, cy: g.a.y + u.y * mid, ang: (Math.atan2(u.y, u.x) * 180) / Math.PI, room: (end - at) / inv });
                         }
                       });
                     }
@@ -5557,6 +5558,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         }
                       });
                     }
+                    // Two visible SHOP flange joins isolate each square/radius elbow from the straight stock pieces.
+                    const elbowSeams = shouldShowShopElbowJoints({ showFab, scale, mat })
+                      ? elbowJointStrokes({ bends: lay.bends, points: P, widthPx: dw, pixelsPerMm: mm }) : [];
                     // Turning vanes: across the mitre on square bends, as arcs on radius bends.
                     const vanes = [];
                     const nV = smVaneCount(s);
@@ -5602,6 +5606,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         {showFab && <path d={dpath} fill="none" stroke={edge} strokeOpacity={0.45} strokeWidth={0.6 * pen} strokeDasharray={mat === 'spiral' ? `${14 * pen} ${4 * pen} ${2 * pen} ${4 * pen}` : `${8 * pen} ${4 * pen}`} style={{ pointerEvents: 'none' }} />}
                         {seams.length > 0 && <path d={seams.join(' ')} fill="none" stroke={edge} strokeOpacity={0.55} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />}
                         {ticks.length > 0 && <path d={ticks.join(' ')} fill="none" stroke={edge} strokeWidth={pen} style={{ pointerEvents: 'none' }} />}
+                        {elbowSeams.length > 0 && <path data-shop-elbow-joints={s.id} d={elbowSeams.join(' ')} fill="none" stroke={edge} strokeWidth={Math.max(1.6, 1.8 * pen)} style={{ pointerEvents: 'none' }} />}
                         {[[0, 1, s.capA && !s.a], [P.length - 1, P.length - 2, s.capB && !s.b]].map(([i, j, on]) => {
                           if (!on || !P[j]) return null;
                           const L = Math.hypot(P[i].x - P[j].x, P[i].y - P[j].y) || 1;
@@ -5784,8 +5789,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const h = Math.abs(d.y2 - d.y1);
                     return (
                       <g style={{ pointerEvents: 'none' }}>
-                        <rect x={x} y={y} width={w} height={h} fill="#2563eb" fillOpacity={0.08} stroke="#2563eb" strokeWidth={3} strokeDasharray="8 5" />
-                        <text x={x + w / 2} y={y + h / 2} textAnchor="middle" fontSize={13 * s} fontWeight="700" fill="#2563eb" stroke="#fff" strokeWidth={3} paintOrder="stroke">{`${fmtM(w / ppm)} × ${fmtM(h / ppm)} m`}</text>
+                        <rect x={x} y={y} width={w} height={h} {...roomDraftStyle()} />
+                        <text x={x + w / 2} y={y + h / 2} textAnchor="middle" fontSize={13 * s} fontWeight="700" fill={DRAWING_INK} stroke="#fff" strokeWidth={3} paintOrder="stroke">{`${fmtM(w / ppm)} × ${fmtM(h / ppm)} m`}</text>
                       </g>
                     );
                   }
@@ -5840,7 +5845,6 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                       </g>
                     );
                   }
-                  const d = roundedPath(pts, scale && isSheet(conn) ? 0 : conn.bends?.length ? 6 : 10);
                   const size = conn.size || getDuct(conn.type).defaultSize;
                   const st = statusOf(conn);
                   const sm = isSheet(conn);
@@ -5850,6 +5854,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                   const trueW = ((isRect(conn) ? Number(conn.w) || 300 : size) / 1000) * ppm;
                   const toScale = !!scale;
                   const w = toScale ? Math.max(2, trueW) : clamp(trueW, 5, 60);
+                  const d = roundedPath(pts, ductCornerRadius({ width: w, inv, isSheet: sm, scaled: toScale, isFlex: conn.type === 'flex', hasBends: !!conn.bends?.length }));
                   const squareEnds = toScale && sm;
                   const isSelected = selectedConnId === conn.id;
                   // Stamp size (and length) along the longest straight of the run
@@ -5991,6 +5996,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                         width: box.uw,
                         height: box.uh,
                         transform: (item.rot || 0) % 90 ? undefined : `rotate(${item.rot || 0}deg)`,
+                        color: DRAWING_INK,
+                        filter: 'grayscale(1)',
                       }}
                     >
                       {renderSymbol(item, box)}
@@ -6029,20 +6036,20 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     key={`${item.id}-tag`}
                     className={`absolute whitespace-nowrap touch-none ${tagErase ? 'cursor-not-allowed hover:line-through' : 'cursor-move'} leading-none font-bold tracking-wide ${isSel ? 'text-primary' : (item.labelColor || textStyle.color) ? '' : 'text-slate-900'}`}
                     title={tagErase ? 'Tap to hide this tag' : 'Drag to move this label'}
-                    style={{ left: item.cx + off.dx, top: item.cy + off.dy, fontSize: scale ? ann(2.5, 9) : 9 * tSize, color: !isSel && (item.labelColor || textStyle.color) ? (item.labelColor || textStyle.color) : undefined, transform: 'translate(-50%, -50%)', textShadow: '0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff' }}
+                    style={{ left: item.cx + off.dx, top: item.cy + off.dy, fontSize: scale ? ann(2.5, 9) : 9 * tSize, color: isSel ? undefined : (item.labelColor || textStyle.color || DRAWING_INK), transform: 'translate(-50%, -50%)', textShadow: '0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff' }}
                     onPointerDown={(event) => startLabelDrag(event, item)}
                   >
                     {item.type === 'zonearea' ? (
-                      <span className="text-[11px]" style={{ color: zoneColor(item.spec?.zone) || undefined }}>
+                      <span className="text-[11px]" style={{ color: DRAWING_INK }}>
                         {`${item.spec?.zone || 'Zone'}${item.room ? ` · ${item.room}` : ''}`}
                       </span>
                     ) : (
                       <>
-                        {zoneColor(item.spec?.zone) && <span className="inline-block size-2 rounded-full mr-0.5 align-middle" style={{ backgroundColor: zoneColor(item.spec.zone) }} />}
+                        {zoneColor(item.spec?.zone) && <span className="inline-block size-2 rounded-full mr-0.5 align-middle" style={{ backgroundColor: '#94a3b8' }} />}
                         {item.remove ? <span className="text-red-600">RM </span> : item.existing ? <span className="text-slate-500">EX </span> : null}
                         {tags[item.id]}
                         {sub && <span className={`font-medium ${(item.labelColor || textStyle.color) ? 'opacity-75' : 'text-slate-600'}`} style={{ fontSize: '0.85em' }}>{` ${sub}`}</span>}
-                        {(item.type === 'zone' || item.type === 'earclip') && zoneColor(item.spec?.zone) && <span className="font-bold" style={{ color: zoneColor(item.spec.zone) }}>{` ${item.spec.zone.replace('Zone ', 'Z')}`}</span>}
+                        {(item.type === 'zone' || item.type === 'earclip') && zoneColor(item.spec?.zone) && <span className="font-bold" style={{ color: DRAWING_INK }}>{` ${item.spec.zone.replace('Zone ', 'Z')}`}</span>}
                       </>
                     )}
                   </div>
@@ -6347,7 +6354,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
               </div>
             )}
 
-            {items.length === 0 && !background && !scaleDraft && (
+            {items.length === 0 && sketch.length === 0 && !background && !scaleDraft && (
               <div className="absolute inset-0 flex items-center justify-center text-center text-muted-foreground pointer-events-none">
                 <div>
                   <ApperIcon name="DraftingCompass" size={36} className="mx-auto mb-2" />
