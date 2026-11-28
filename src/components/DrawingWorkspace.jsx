@@ -20,6 +20,9 @@ import { CLIMATES, DEFAULT_CLIMATE, ROOM_TYPES, ORIENTS, SHADING, CEILINGS, WALL
 import { buildLayout } from '@/lib/autoLayout';
 import { createDxf } from '@/lib/dxf';
 import { DRAWING_INK, ductCornerRadius, roomDraftStyle, zoneAreaStyle } from '@/lib/drawingAppearance';
+import { mergeAttachment, splitSegmentAttachment, networkIssues } from '@/lib/ductNetwork';
+import { sheetMetalLayout } from '@/lib/sheetMetalGeometry';
+import { writeSheetMetalDxf } from '@/lib/dxf';
 import { elbowJointStrokes, sheetStockLengthMm, stockSections, shouldShowShopElbowJoints } from '@/lib/sheetMetalJoints';
 import { buildTakeoff, takeoffLink, bomFor, jobEquipment } from '@/lib/wbTakeoff';
 import { networkAirflow, unitScale } from '@/lib/airflow';
@@ -54,12 +57,12 @@ const coilShort = (idx) => (idx == null ? 'Pipe' : PAIR_COILS[idx].split(' - ')[
 // pdf.js reads PDFs in a background worker. Hosts don't always serve the worker's
 // .mjs file with a JavaScript type, and an open tab can point at a file from an
 // older deploy. So fetch the worker ourselves and hand pdf.js a blob URL with the
-// right type, falling back to the public CDN copy of the same pdf.js version.
+// right type, using the bundled, offline-cached PDF worker.
 let pdfWorkerReady = null;
 function ensurePdfWorker() {
   if (!pdfWorkerReady) {
     pdfWorkerReady = (async () => {
-      const sources = [pdfWorkerUrl, `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`];
+      const sources = [pdfWorkerUrl];
       for (const src of sources) {
         try {
           const res = await fetch(src, { cache: 'no-cache' });
@@ -1325,11 +1328,11 @@ function smSeat(item, ctx, reach) {
   return best;
 }
 
-const smReverse = (s) => ({ ...s, pts: [...s.pts].reverse(), a: s.b, b: s.a });
+const smReverse = (s) => ({ ...s, pts: [...s.pts].reverse(), a: s.b, b: s.a, capA: s.capB, capB: s.capA });
 
 // Join run X's end to run Y's end into one continuous run (same size), re-pointing
 // anything that was tied to Y. Returns the new sketch array.
-function smMerge(sketch, xId, xEnd, yId, yEnd, ctx) {
+function smMerge(sketch, xId, xEnd, yId, yEnd, ctx, remapItems) {
   let X = sketch.find((s) => s.id === xId);
   let Y = sketch.find((s) => s.id === yId);
   if (!X || !Y || X.id === Y.id) return sketch;
@@ -1340,27 +1343,14 @@ function smMerge(sketch, xId, xEnd, yId, yEnd, ctx) {
   const nX = X.pts.length;
   const nY = Y.pts.length;
   const pts = [...X.pts, ...Y.pts.slice(1)];
-  const merged = { ...X, pts, b: Y.b, x1: pts[0].x, y1: pts[0].y, x2: pts[pts.length - 1].x, y2: pts[pts.length - 1].y };
+  const merged = { ...X, pts, b: Y.b, capB: Y.capB, x1: pts[0].x, y1: pts[0].y, x2: pts[pts.length - 1].x, y2: pts[pts.length - 1].y };
   if (!merged.b) delete merged.b;
-  const remap = (link) => {
-    if (!link || link.kind === 'port') return link;
-    if (link.id === X.id) {
-      if (link.kind === 'run') {
-        const end = xRev ? (link.end === 'start' ? 'end' : 'start') : link.end;
-        return end === 'end' ? null : { ...link, end: 'start' }; // X's joined end is now inside the run
-      }
-      return xRev ? { ...link, seg: nX - 2 - link.seg, t: 1 - link.t } : link;
-    }
-    if (link.id === Y.id) {
-      if (link.kind === 'run') {
-        const end = yRev ? (link.end === 'start' ? 'end' : 'start') : link.end;
-        return end === 'start' ? null : { kind: 'run', id: X.id, end: 'end' };
-      }
-      const seg = yRev ? nY - 2 - link.seg : link.seg;
-      return { kind: 'side', id: X.id, seg: nX - 1 + seg, t: yRev ? 1 - link.t : link.t };
-    }
-    return link;
-  };
+  const remap = link => mergeAttachment(link, { xId, yId, nX, nY, xRev, yRev });
+  remapItems?.(current => current.map(it => {
+    if (!it.onRun || ![xId, yId].includes(it.onRun.id)) return it;
+    const onRun = remap(it.onRun);
+    return onRun ? { ...it, onRun } : { ...it, onRun: undefined };
+  }));
   return sketch
     .filter((s) => s.id !== Y.id)
     .map((s) => {
@@ -1476,51 +1466,7 @@ const smVaneCount = (s) => (s.vanes != null && s.vanes !== '' ? Number(s.vanes) 
 
 // Centre-line path plus, per segment, the straight part left once bends take their share.
 function smLayout(P, s, mm) {
-  const W = smDims(s).w * mm;
-  const n = P.length;
-  const lens = [];
-  const us = [];
-  for (let i = 0; i < n - 1; i += 1) {
-    const L = Math.hypot(P[i + 1].x - P[i].x, P[i + 1].y - P[i].y);
-    lens.push(L);
-    us.push(L ? { x: (P[i + 1].x - P[i].x) / L, y: (P[i + 1].y - P[i].y) / L } : { x: 1, y: 0 });
-  }
-  const cut = new Array(n).fill(0);
-  const bends = [];
-  const k = Number(s.bendR) || 1;
-  for (let i = 1; i < n - 1; i += 1) {
-    if (lens[i - 1] < 1 || lens[i] < 1) continue;
-    const u1 = us[i - 1];
-    const u2 = us[i];
-    const deg = (Math.acos(clamp(u1.x * u2.x + u1.y * u2.y, -1, 1)) * 180) / Math.PI;
-    if (deg < 10) continue;
-    const b = { i, v: P[i], u1, u2, deg, radius: false };
-    if (smIsRadius(s) && deg < 170) {
-      const tanH = Math.tan((deg * Math.PI) / 360);
-      const tl = Math.min(k * W * tanH, lens[i - 1] / 2, lens[i] / 2);
-      const R = tl / tanH;
-      const cross = u1.x * u2.y - u1.y * u2.x;
-      const nT = cross > 0 ? { x: -u1.y, y: u1.x } : { x: u1.y, y: -u1.x };
-      const st = { x: P[i].x - u1.x * tl, y: P[i].y - u1.y * tl };
-      const en = { x: P[i].x + u2.x * tl, y: P[i].y + u2.y * tl };
-      Object.assign(b, { radius: true, R, tl, st, en, c: { x: st.x + nT.x * R, y: st.y + nT.y * R }, sweep: cross > 0 ? 1 : 0 });
-      cut[i] = tl;
-    } else {
-      const tl = Math.min(W / 2, lens[i - 1] / 3, lens[i] / 3);
-      Object.assign(b, { tl, st: { x: P[i].x - u1.x * tl, y: P[i].y - u1.y * tl }, en: { x: P[i].x + u2.x * tl, y: P[i].y + u2.y * tl } });
-      cut[i] = tl;
-    }
-    bends.push(b);
-  }
-  let d = n ? `M${P[0].x},${P[0].y}` : '';
-  for (let i = 1; i < n - 1; i += 1) {
-    const b = bends.find((x) => x.i === i);
-    d += b?.radius ? ` L${b.st.x},${b.st.y} A${b.R},${b.R} 0 0 ${b.sweep} ${b.en.x},${b.en.y}` : ` L${P[i].x},${P[i].y}`;
-  }
-  if (n > 1) d += ` L${P[n - 1].x},${P[n - 1].y}`;
-  const segs = lens.map((L, i) => ({ a: P[i], u: us[i], from: cut[i], to: L - cut[i + 1] }));
-  const length = segs.reduce((sum, g) => sum + Math.max(0, g.to - g.from), 0) + bends.reduce((sum, b) => sum + (b.radius ? b.R * b.deg * Math.PI / 180 : 2 * b.tl), 0);
-  return { d, bends, segs, W, length };
+  return sheetMetalLayout(P, { width: smDims(s).w, bend: s.bend, bendR: s.bendR }, mm);
 }
 
 // Straight pieces cut from stock sheet lengths: each straight between bends starts fresh.
@@ -1609,9 +1555,9 @@ function smSplit(sketch, items, id, dist, dims, ctx, newId) {
     if (dist > acc + 1 && dist < acc + L - 1) {
       const t = (dist - acc) / L;
       const q = { x: P[i].x + (P[i + 1].x - P[i].x) * t, y: P[i].y + (P[i + 1].y - P[i].y) * t };
-      const first = { ...run, pts: [...P.slice(0, i + 1), q] };
+      const first = { ...run, pts: [...P.slice(0, i + 1), q], capB: false };
       delete first.b;
-      const second = { ...run, id: newId, pts: [q, ...P.slice(i + 1)], a: { kind: 'run', id, end: 'end' }, w: dims.w, h: dims.h, trKind: dims.trKind || 'con' };
+      const second = { ...run, capA: false, id: newId, pts: [q, ...P.slice(i + 1)], a: { kind: 'run', id, end: 'end' }, w: dims.w, h: dims.h, trKind: dims.trKind || 'con' };
       if (!run.b) delete second.b;
       const remap = (link) => {
         if (!link || link.id !== id) return link;
@@ -1630,7 +1576,7 @@ function smSplit(sketch, items, id, dist, dims, ctx, newId) {
       });
       const nextItems = items.map((it) => {
         if (it.onRun?.id !== id) return it;
-        const { kind, ...onRun } = remap({ kind: 'side', ...it.onRun }); // eslint-disable-line no-unused-vars
+        const { kind, ...onRun } = remap({ kind: it.onRun.end ? 'run' : 'side', ...it.onRun }); // eslint-disable-line no-unused-vars
         return { ...it, onRun };
       });
       return { sketch: nextSketch, items: nextItems };
@@ -1840,6 +1786,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const [view, setView] = useState({ x: 0, y: 0, z: 0.5 });
   const viewRef = useRef(view);
   const dragRef = useRef(null);
+  const rotateCleanupRef = useRef(null);
+  const [dragEpoch, setDragEpoch] = useState(0);
+  useEffect(() => () => rotateCleanupRef.current?.(), []);
   const pointersRef = useRef(new Map());
   const gestureRef = useRef(null);
   const fileRef = useRef(null);
@@ -1914,25 +1863,25 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   const photoInputRef = useRef(null);
   const [levelBusy, setLevelBusy] = useState(false);
 
-  // Undo history: snapshot the drawing shortly after each change settles.
+  // Undo history: record each committed edit, not intermediate pointer frames.
   useEffect(() => {
     if (restoringRef.current) { restoringRef.current = false; return undefined; }
-    const t = setTimeout(() => {
-      const snapshot = JSON.stringify({ items, connections, joins, sketch, scale, planAngle });
-      const h = historyRef.current;
-      if (h.stack[h.index] === snapshot) return;
-      h.stack = h.stack.slice(0, h.index + 1);
-      h.stack.push(snapshot);
-      if (h.stack.length > 80) h.stack.shift();
-      h.index = h.stack.length - 1;
-    }, 400);
-    return () => clearTimeout(t);
-  }, [items, connections, joins, sketch, scale, planAngle]);
+    if (dragRef.current || rotateCleanupRef.current) return undefined;
+    const snapshot = JSON.stringify({ items, connections, joins, sketch, scale, planAngle, photos });
+    const h = historyRef.current;
+    if (h.stack[h.index] === snapshot) return undefined;
+    h.stack = h.stack.slice(0, h.index + 1);
+    h.stack.push(snapshot);
+    if (h.stack.length > 80) h.stack.shift();
+    h.index = h.stack.length - 1;
+    return undefined;
+  }, [items, connections, joins, sketch, scale, planAngle, photos, dragEpoch]);
   useEffect(() => { if (selectedId || selectedConnId) setRightTab('selection'); }, [selectedId, selectedConnId]);
 
   // Drafts carry the complete drawing and the durable attachment references.
   draftSnapshotRef.current = { payload: JSON.stringify({ items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate }), planFiles: sdk.storage.toUpdateFormat(planFile), photos: sdk.storage.toUpdateFormat(photos) };
   function writeDraft() {
+    if (dragRef.current || rotateCleanupRef.current) return false;
     try {
       localStorage.setItem(draftKey, JSON.stringify({ version: 2, t: Date.now(), ...draftSnapshotRef.current }));
       return true;
@@ -1940,7 +1889,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
   useEffect(() => {
     if (dirtyRef.current && !planBusy) writeDraft();
-  }, [items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy, draftKey]);
+  }, [items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy, draftKey, dragEpoch]);
 
   // Saving is on this device now, so losing signal no longer matters.
   // Autosave: a couple of seconds after any change (drawing, plan, photos), save it.
@@ -1948,7 +1897,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (!dirtyRef.current || planBusy) return undefined;
     const t = setTimeout(() => { if (dirtyRef.current) saveRef.current?.({ auto: true }); }, 1500);
     return () => clearTimeout(t);
-  }, [items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy]);
+  }, [items, connections, joins, scale, sheet, planAngle, showLabels, showFab, textStyle, layout, pickEdit, sketch, climate, planFile, photos, planBusy, dragEpoch]);
   // Leaving the tab or closing the window: save straight away.
   useEffect(() => {
     const flush = () => { if (dirtyRef.current && !restoringDraftRef.current) { writeDraft(); saveRef.current?.({ auto: true }); } };
@@ -2554,6 +2503,13 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const byId = Object.fromEntries(items.map((i) => [i.id, i]));
     const isUnit = (i) => i && (i.type === 'indoor' || i.type === 'coilsection') && !i.remove;
     const lengthsKnown = !!(scale);
+    for (const issue of networkIssues(sketch, items)) out.push({ level: 'warn', group: 'Duct network', ...issue });
+    if (scale) for (const run of sketch.filter(r => r.kind === 'smduct')) {
+      const lay = smLayout(smPts(run, { sketch, items, ppm }), run, ppm / 1000);
+      if (lay.bends.some(b => b.requestedRadius && (!b.radius || b.R < b.requestedRadius - 0.01))) {
+        out.push({ level: 'warn', group: 'Duct network', title: 'Radius elbow needs more straight length', detail: 'The requested radius does not fit. Adjust the run or select a square elbow before fabrication.', sketchId: run.id });
+      }
+    }
     const smGroups = smNetworks({ sketch, items, ppm }); // parts tied together by sheet metal runs
     const network = (start) => {
       const seen = new Set([start]);
@@ -2740,7 +2696,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (i === all.length - 1) all.splice(all.length - 1, 0, { ...all[all.length - 1] });
     const interior = all.slice(1, -1);
     const p = toWorld(event.clientX, event.clientY);
-    dragRef.current = { kind: 'seg', connId: run.conn.id, i, horizontal: seg.horizontal, interior, px: p.x, py: p.y, sx: event.clientX, sy: event.clientY, moved: false };
+    beginDrag({ kind: 'seg', connId: run.conn.id, i, horizontal: seg.horizontal, interior, px: p.x, py: p.y, sx: event.clientX, sy: event.clientY, moved: false });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -3000,19 +2956,40 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const base = item.rot || 0;
     const sx = event.clientX;
     const sy = event.clientY;
+    if (dirtyRef.current) writeDraft();
+    const before = items;
+    const pointerId = event.pointerId;
     let moved = false;
-    const move = (e) => {
+    const move = e => {
+      if (e.pointerId !== pointerId) return;
       if (!moved && Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return;
       moved = true;
       setPartAngle(Math.round(base + at(e) - from), item.id);
     };
-    const up = () => {
+    const cleanup = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      if (!moved) rotateSelected();
+      window.removeEventListener('pointercancel', cancel);
+      rotateCleanupRef.current = null;
     };
+    const up = e => {
+      if (e.pointerId !== pointerId) return;
+      cleanup();
+      if (!moved) rotateSelected();
+      setDragEpoch(n => n + 1);
+    };
+    const cancel = e => {
+      if (e.pointerId !== pointerId) return;
+      cleanup();
+      setItems(before);
+      markDirty('Rotation cancelled');
+      setDragEpoch(n => n + 1);
+    };
+    rotateCleanupRef.current?.();
+    rotateCleanupRef.current = cleanup;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
   }
 
   // Rough outdoor footprint from the system's kW rating (edit to the spec sheet).
@@ -3194,8 +3171,20 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     updateItem(selected.id, { dims: which === 'w' ? { w: n, d } : { w, d: n } });
   }
 
+  function detachItemPorts(id) {
+    setSketch(current => current.map(run => {
+      if (run.kind !== 'smduct') return run;
+      const ends = ['a', 'b'].filter(k => run[k]?.kind === 'port' && run[k].itemId === id);
+      return ends.length ? smBake(run, { ...smCtx, sketch: current }, ends) : run;
+    }));
+  }
+  function detachRunFittings(id) {
+    setItems(current => current.map(it => it.onRun?.id === id ? { ...it, onRun: undefined } : it));
+  }
+
   function deleteSelectedItem() {
     if (!selected) return;
+    detachItemPorts(selected.id);
     setItems((current) => current.filter((item) => item.id !== selected.id));
     setConnections((current) => current.filter((conn) => conn.from.itemId !== selected.id && conn.to.itemId !== selected.id));
     setJoins((current) => current.filter((j) => j.a.itemId !== selected.id && j.b.itemId !== selected.id));
@@ -3255,7 +3244,9 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
   useEffect(() => {
     const onKey = (event) => {
+      if (event.defaultPrevented || event.target?.isContentEditable) return;
       const tag = event.target?.tagName;
+      if (tag === 'BUTTON' && (event.key === 'Enter' || event.key === ' ')) return;
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       const ctrl = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
@@ -3526,7 +3517,40 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     }
   }
 
+  // A gesture is a transaction: keep its pre-drag state until pointer-up.
+  function beginDrag(drag) {
+    if (dirtyRef.current) writeDraft();
+    dragRef.current = { ...drag, before: { items, connections, joins, sketch, photos } };
+  }
+  function cancelDrag() {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (drag?.before) {
+      setItems(drag.before.items);
+      setConnections(drag.before.connections);
+      setJoins(drag.before.joins);
+      setSketch(drag.before.sketch);
+      setPhotos(drag.before.photos);
+      markDirty('Gesture cancelled');
+    }
+    setSketchDraft(null);
+    setWire(null);
+    setDragEpoch(n => n + 1);
+  }
+  function onCanvasPointerCancel(event) {
+    if (dragRef.current) cancelDrag();
+    pointersRef.current.delete(event.pointerId);
+    gestureRef.current = null;
+  }
   // ---- Pointer handling ----
+  function selectPartByKeyboard(item) {
+    setSelectedId(item.id); setSelectedSketchId(null); setSelectedConnId(null); setPendingPort(null); setRightTab('selection');
+  }
+  function selectSketchByKeyboard(event, s) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault(); event.stopPropagation();
+    setSelectedSketchId(s.id); setSelectedId(null); setSelectedConnId(null); setPendingPort(null); setRightTab('selection');
+  }
   function startItemDrag(event, item) {
     if (fingerOnly(event)) return; // pen mode: fingers pan
     if (scaleDraft) return;
@@ -3556,7 +3580,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const group = groupOf(item.id);
     const starts = {};
     items.forEach((i) => { if (group.includes(i.id)) starts[i.id] = { cx: i.cx, cy: i.cy }; });
-    dragRef.current = { kind: 'item', id: item.id, group, starts, px: p.x, py: p.y, sx: event.clientX, sy: event.clientY, moved: false };
+    beginDrag({ kind: 'item', id: item.id, group, starts, px: p.x, py: p.y, sx: event.clientX, sy: event.clientY, moved: false });
     setSelectedId(item.id);
     setSelectedConnId(null);
     setPendingPort(null);
@@ -3570,7 +3594,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (tagErase) { updateItem(item.id, { hideLabel: true }); return; }
     const p = toWorld(event.clientX, event.clientY);
     const off = labelOffset(item, itemBox(item, ppm));
-    dragRef.current = { kind: 'label', id: item.id, px: p.x, py: p.y, ox: off.dx, oy: off.dy, sx: event.clientX, sy: event.clientY, moved: false };
+    beginDrag({ kind: 'label', id: item.id, px: p.x, py: p.y, ox: off.dx, oy: off.dy, sx: event.clientX, sy: event.clientY, moved: false });
     setSelectedId(item.id);
     setSelectedConnId(null);
     setPendingPort(null);
@@ -3634,6 +3658,11 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const dx = skSnap(p.x - drag.px);
       const dy = skSnap(p.y - drag.py);
       const o = drag.orig;
+      if (drag.disconnect) {
+        drag.disconnect = false;
+        setSketch(current => smDetachOthers(current, drag.id, { ...smCtx, sketch: current }).map(x => x.id === drag.id ? o : x));
+        toast.message('Run disconnected');
+      }
       setSketch((current) => current.map((s) => (s.id === drag.id ? { ...s, ...(o.x1 != null ? { x1: o.x1 + dx, y1: o.y1 + dy } : {}), ...(o.x2 != null ? { x2: o.x2 + dx, y2: o.y2 + dy } : {}), ...(o.pts ? { pts: o.pts.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : {}) } : s)));
       if (drag.riders?.length) {
         // Dampers, fans and spigots fitted to the run travel with it.
@@ -3698,6 +3727,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   function endDrag() {
     const drag = dragRef.current;
     dragRef.current = null;
+    setDragEpoch(n => n + 1);
     if (drag?.kind === 'sketch') {
       const d = drag.draft || sketchDraft;
       setSketchDraft(null);
@@ -3763,12 +3793,12 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           if (A.end === 'start') {
             const shift = link => link?.kind === 'side' && link.id === ra.id ? { ...link, seg: link.seg + 1 } : link;
             next = next.map(x => x.kind === 'smduct' && x.id !== ra.id ? { ...x, a: shift(x.a), b: shift(x.b) } : x);
-            setItems(current => current.map(i => i.onRun?.id === ra.id ? { ...i, onRun: { ...i.onRun, seg: i.onRun.seg + 1 } } : i));
+            setItems(current => current.map(i => i.onRun?.id === ra.id && Number.isInteger(i.onRun.seg) ? { ...i, onRun: { ...i.onRun, seg: i.onRun.seg + 1 } } : i));
           }
           selId = ra.id;
           const rb = runOf(B);
           if (rb && freeEnd(rb, B.end) && fits(rb)) {
-            next = smMerge(next, ra.id, A.end, rb.id, B.end, { ...smCtx, sketch: next });
+            next = smMerge(next, ra.id, A.end, rb.id, B.end, { ...smCtx, sketch: next }, setItems);
             notes.push('Joined into one run');
           } else if (B) {
             next = next.map((x) => (x.id === ra.id ? { ...x, [A.end === 'start' ? 'a' : 'b']: smLinkFrom(B) } : x));
@@ -3784,7 +3814,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           if (rb && freeEnd(rb, B.end) && fits(rb) && !el.a) {
             // Ran into the free end of a same-size run: make it one run.
             delete el.b;
-            next = smMerge(next.map((x) => (x.id === el.id ? { ...x, b: undefined } : x)), rb.id, B.end, el.id, 'end', { ...smCtx, sketch: next });
+            next = smMerge(next.map((x) => (x.id === el.id ? { ...x, b: undefined } : x)), rb.id, B.end, el.id, 'end', { ...smCtx, sketch: next }, setItems);
             selId = rb.id;
             chain = null;
             notes.push('Joined into one run');
@@ -4100,7 +4130,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const y = skSnap(p.y);
     if (sketchTool === 'erase') {
       eraseAt(p);
-      dragRef.current = { kind: 'erase', sx: event.clientX, sy: event.clientY, moved: false, last: 0 };
+      beginDrag({ kind: 'erase', sx: event.clientX, sy: event.clientY, moved: false, last: 0 });
       canvasRef.current.setPointerCapture(event.pointerId);
       return;
     }
@@ -4181,7 +4211,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         const st = at.kind === 'free' ? null : at;
         const r = smDraftEnd(at.x, at.y, p, event.shiftKey, st?.kind === 'end' ? st.id : null);
         const draft = { kind: 'smduct', x1: at.x, y1: at.y, x2: r.x2, y2: r.y2, snapA: st, snapB: r.target };
-        dragRef.current = { kind: 'sketch', tool, chain: true, x1: at.x, y1: at.y, startTarget: st, endTarget: r.target, draft, sx: event.clientX, sy: event.clientY, moved: true };
+        beginDrag({ kind: 'sketch', tool, chain: true, x1: at.x, y1: at.y, startTarget: st, endTarget: r.target, draft, sx: event.clientX, sy: event.clientY, moved: true });
         setSketchDraft(draft);
         canvasRef.current.setPointerCapture(event.pointerId);
         return;
@@ -4191,7 +4221,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       startTarget = opts.target || smFindSnap(p, SM_SNAP_PX / (viewRef.current?.z || 1), smCtx);
       if (startTarget) { sx = startTarget.x; sy = startTarget.y; }
     }
-    dragRef.current = { kind: 'sketch', tool, x1: sx, y1: sy, startTarget, endTarget: null, fromWire: !!opts.fromWire, sx: event.clientX, sy: event.clientY, moved: false };
+    beginDrag({ kind: 'sketch', tool, x1: sx, y1: sy, startTarget, endTarget: null, fromWire: !!opts.fromWire, sx: event.clientX, sy: event.clientY, moved: false });
     canvasRef.current.setPointerCapture(event.pointerId);
   }
 
@@ -4206,21 +4236,21 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     setSelectedSketchId(el.id);
     setRightTab('selection');
     let orig = { ...el };
+    let disconnect = false;
     if (el.kind === 'smduct' && (event.ctrlKey || event.metaKey) && (el.a || el.b || sketch.some((x) => x.kind === 'smduct' && ['a', 'b'].some((k) => x[k] && x[k].kind !== 'port' && x[k].id === el.id)))) {
       // Ctrl + drag breaks the run free of everything it's joined to.
       orig = smBake(el, smCtx);
-      setSketch((current) => smDetachOthers(current, el.id, { ...smCtx, sketch: current }).map((x) => (x.id === el.id ? orig : x)));
-      toast.message('Run disconnected');
+      disconnect = true;
     }
     const riders = el.kind === 'smduct' ? items.filter((i) => i.onRun?.id === el.id).map((i) => ({ id: i.id, cx: i.cx, cy: i.cy })) : [];
-    dragRef.current = { kind: 'sketchmove', id: el.id, orig, riders, px: p.x, py: p.y, sx: event.clientX, sy: event.clientY, moved: false };
+    beginDrag({ kind: 'sketchmove', id: el.id, orig, riders, disconnect, px: p.x, py: p.y, sx: event.clientX, sy: event.clientY, moved: false });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   // DXF for CAD: walls, rooms, sheet metal (both edges + centreline), flex and service runs,
   // parts as outlines with tags, text, callouts and dimensions — all in real millimetres.
   function exportDxf() {
-    if (!scale) toast.warning('Scale not set', { description: 'The DXF will not be in real millimetres until you set the scale.' });
+    if (!scale) { toast.warning('Set the scale before exporting DXF', { description: 'Accurate CAD dimensions require a calibrated drawing.' }); return; }
     const k = 1000 / ppm;
     const P = (q) => ({ x: q.x * k, y: q.y * k });
     const dxf = createDxf();
@@ -4240,15 +4270,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       } else if (x.kind === 'smduct') {
         const pts = smPts(x, smCtx).map(P);
         const hw = smDims(x).w / 2;
-        dxf.poly('DUCT-SM-CL', pts);
-        for (let i = 1; i < pts.length; i += 1) {
-          const a = pts[i - 1];
-          const b = pts[i];
-          const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-          const nx = -(b.y - a.y) / L;
-          const ny = (b.x - a.x) / L;
-          [-1, 1].forEach((sg) => dxf.line('DUCT-SM', a.x + nx * hw * sg, a.y + ny * hw * sg, b.x + nx * hw * sg, b.y + ny * hw * sg));
-        }
+        const lay = smLayout(pts, x, 1);
+        writeSheetMetalDxf(dxf, pts, lay, { shop: !!(showFab && scale && smMat(x) === 'sheet'), sheetLen: x.sheetLen });
         [[0, 1, x.capA && !x.a], [pts.length - 1, pts.length - 2, x.capB && !x.b], [0, 1, !x.capA && !x.a], [pts.length - 1, pts.length - 2, !x.capB && !x.b]].forEach(([i, j, on]) => {
           if (!on || !pts[j]) return;
           const L = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) || 1;
@@ -4333,7 +4356,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     const pts = smPts(run, smCtx);
     // Moving a tied end frees it; it can re-tie where it's dropped.
     const freed = idx === 0 && run.a ? 'a' : idx === pts.length - 1 && run.b ? 'b' : null;
-    dragRef.current = { kind: 'smpoint', original: run, pts, freed, id: run.id, idx, end: idx === 0 ? 'a' : idx === pts.length - 1 ? 'b' : null, target: null, sx: event.clientX, sy: event.clientY, moved: false };
+    beginDrag({ kind: 'smpoint', original: run, pts, freed, id: run.id, idx, end: idx === 0 ? 'a' : idx === pts.length - 1 ? 'b' : null, target: null, sx: event.clientX, sy: event.clientY, moved: false });
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
 
@@ -4350,24 +4373,16 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       const x = a.x + dx * t;
       const y = a.y + dy * t;
       const d = Math.hypot(x - p.x, y - p.y);
-      if (d < best.d) best = { d, i, x, y };
+      if (d < best.d) best = { d, i, x, y, t };
     }
     if (best.i < 0) return;
     const next = [...pts.slice(0, best.i + 1), { x: best.x, y: best.y }, ...pts.slice(best.i + 1)];
     setSketch((current) => current.map((x) => {
       if (x.id === run.id) return { ...x, pts: next };
-      // Branches off later segments shift up one.
       if (x.kind !== 'smduct') return x;
-      let y = x;
-      ['a', 'b'].forEach((k) => {
-        const l = x[k];
-        if (l?.kind === 'side' && l.id === run.id && l.seg >= best.i) {
-          if (l.seg > best.i) y = { ...y, [k]: { ...l, seg: l.seg + 1 } };
-          else y = smBake(y, { ...smCtx, sketch: current }, [k]);
-        }
-      });
-      return y;
+      return { ...x, a: splitSegmentAttachment(x.a, run.id, best.i, best.t), b: splitSegmentAttachment(x.b, run.id, best.i, best.t) };
     }));
+    setItems(current => current.map(it => it.onRun?.id === run.id ? { ...it, onRun: splitSegmentAttachment(it.onRun, run.id, best.i, best.t) } : it));
     markDirty();
     toast.message('Bend point added — drag it to shape the run');
   }
@@ -4385,12 +4400,18 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
         ['a', 'b'].forEach((k) => {
           const l = x[k];
           if (l?.kind !== 'side' || l.id !== run.id || l.seg < idx - 1) return;
-          if (l.seg >= idx) y = { ...y, [k]: { ...l, seg: l.seg - 1 } };
+          if (l.seg > idx) y = { ...y, [k]: { ...l, seg: l.seg - 1 } };
           else y = smBake(y, c, [k]);
         });
         return y;
       });
     });
+    setItems(current => current.map(it => {
+      const l = it.onRun;
+      if (l?.id !== run.id || !Number.isInteger(l.seg) || l.seg < idx - 1) return it;
+      if (l.seg > idx) return { ...it, onRun: { ...l, seg: l.seg - 1 } };
+      return { ...it, onRun: undefined };
+    }));
     markDirty();
   }
 
@@ -4543,6 +4564,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       .sort((a, b) => (a.type === 'zonearea') - (b.type === 'zonearea') || itemBox(a, ppm).w * itemBox(a, ppm).h - itemBox(b, ppm).w * itemBox(b, ppm).h);
     const it = hitItems[0];
     if (it && it.type !== 'zonearea') {
+      detachItemPorts(it.id);
       setItems((cur) => cur.filter((x) => x.id !== it.id).map((x) => (x.pairedWith === it.id ? { ...x, pairedWith: undefined, suits: '' } : x)));
       setConnections((cur) => cur.filter((c) => c.from.itemId !== it.id && c.to.itemId !== it.id));
       setJoins((cur) => cur.filter((j) => j.a.itemId !== it.id && j.b.itemId !== it.id));
@@ -4558,6 +4580,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       return Math.hypot(p.x - x.x1, p.y - x.y1) <= tol * 2.5; // text, note pins
     });
     if (sk) {
+      if (sk.kind === 'smduct') detachRunFittings(sk.id);
       if (sk.photo) setPhotos((cur) => cur.filter((f) => !photoMatches(f, sk.photo)));
       setSketch((cur) => smDetachOthers(cur, sk.id, { ...smCtx, sketch: cur }).filter((x) => x.id !== sk.id));
       if (selectedSketchId === sk.id) setSelectedSketchId(null);
@@ -4581,6 +4604,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
 
   function deleteSketch() {
     const gone = sketch.find((x) => x.id === selectedSketchId);
+    if (gone?.kind === 'smduct') detachRunFittings(gone.id);
     if (gone?.photo) setPhotos((cur) => cur.filter((f) => !photoMatches(f, gone.photo)));
     setSketch((current) => smDetachOthers(current, selectedSketchId, { ...smCtx, sketch: current }).filter((s) => s.id !== selectedSketchId));
     setSelectedSketchId(null);
@@ -4696,7 +4720,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     if (fingerOnly(event)) return; // pen mode: fingers pan
     event.stopPropagation();
     const box = itemBox(item, ppm);
-    dragRef.current = { kind: 'resize', id: item.id, left: item.cx - box.w / 2, top: item.cy - box.h / 2, turned: ((item.rot || 0) / 90) % 2 === 1, sx: event.clientX, sy: event.clientY, moved: false };
+    beginDrag({ kind: 'resize', id: item.id, left: item.cx - box.w / 2, top: item.cy - box.h / 2, turned: ((item.rot || 0) / 90) % 2 === 1, sx: event.clientX, sy: event.clientY, moved: false });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -4717,7 +4741,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
       startSketch(event, { tool: 'smduct', target: { kind: 'port', itemId, portId, x: q.x, y: q.y }, fromWire: true });
       return;
     }
-    dragRef.current = { kind: 'wire', itemId, portId, prevPending: pendingPort, sx: event.clientX, sy: event.clientY, moved: false };
+    beginDrag({ kind: 'wire', itemId, portId, prevPending: pendingPort, sx: event.clientX, sy: event.clientY, moved: false });
     setSelectedId(null);
     setSelectedConnId(null);
     setPendingPort({ itemId, portId });
@@ -4759,6 +4783,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
     setConnections(s.connections);
     setJoins(s.joins);
     setSketch(s.sketch || []);
+    if (s.photos) setPhotos(s.photos);
     setScale(s.scale ?? null);
     setPlanAngle(s.planAngle ?? 0);
     setSelectedSketchId(null);
@@ -4839,7 +4864,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
   }
 
   async function save(opts = {}) {
-    if (savingRef.current || restoringDraftRef.current) return false;
+    if (savingRef.current || restoringDraftRef.current || dragRef.current || rotateCleanupRef.current) return false;
     if (planBusy) {
       toast.message('Plan still loading — save again in a moment.');
       setStatus('Plan still loading…');
@@ -5351,7 +5376,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
             onPointerDown={onCanvasPointerDown}
             onPointerMove={onCanvasPointerMove}
             onPointerUp={onCanvasPointerUp}
-            onPointerCancel={onCanvasPointerUp}
+            onPointerCancel={onCanvasPointerCancel}
             onContextMenu={openContextMenu}
             onDragOver={(event) => {
               const types = event.dataTransfer.types;
@@ -5403,7 +5428,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                 return (
                   <div
                     key={item.id}
-                    aria-label={`${item.spec?.zone || 'Zone'} area`}
+                    aria-label={`${item.spec?.zone || 'Zone'} area`} role="button" tabIndex={0} aria-pressed={isSel} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); selectPartByKeyboard(item); } }}
                     className="absolute rounded-sm touch-none cursor-move"
                     style={{ left: item.cx - box.w / 2, top: item.cy - box.h / 2, width: box.w, height: box.h, ...zoneAreaStyle(isSel) }}
                     onPointerDown={(event) => startItemDrag(event, item)}
@@ -5634,7 +5659,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     const fits = smEndFittings(s, smCtx);
                     return (
                       <g key={s.id}>
-                        <path d={dpath} fill="none" stroke="transparent" strokeWidth={Math.max(22 * inv, dw + 12 * inv)} strokeLinejoin="miter" style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} onDoubleClick={(event) => { event.stopPropagation(); addSmPoint(s, toWorld(event.clientX, event.clientY)); }} />
+                        <path role="button" tabIndex={0} aria-label={`Sheet metal run ${smSizeText(s)}`} aria-pressed={sel} onKeyDown={event => selectSketchByKeyboard(event, s)} d={dpath} fill="none" stroke="transparent" strokeWidth={Math.max(22 * inv, dw + 12 * inv)} strokeLinejoin="miter" style={{ pointerEvents: live || 'stroke', cursor: 'move' }} onPointerDown={(event) => startSketchMove(event, s)} onDoubleClick={(event) => { event.stopPropagation(); addSmPoint(s, toWorld(event.clientX, event.clientY)); }} />
                         <path d={dpath} fill="none" stroke={edge} strokeWidth={dw} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                         <path d={dpath} fill="none" stroke={fillC} strokeWidth={Math.max(0.5, dw - 2 * pen)} strokeLinejoin="miter" strokeMiterlimit={4} strokeLinecap="butt" style={{ pointerEvents: 'none' }} />
                         {mat === 'board' && dw - 2 * BOARD_MM * mm > 3 && (
@@ -6028,6 +6053,8 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     className={`absolute touch-none transition-shadow ${scale ? 'bg-white' : 'rounded-sm bg-white/85 shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_1px_4px_rgba(0,0,0,0.35)]'} ${item.remove ? 'opacity-55 grayscale outline-2 outline-dashed outline-red-600' : item.existing ? 'opacity-65 grayscale outline-2 outline-dashed outline-slate-500' : ''} ${isSel ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent' : 'hover:ring-1 hover:ring-primary/40'}`}
                     style={(item.rot || 0) % 90 ? { left: item.cx - box.uw / 2, top: item.cy - box.uh / 2, width: box.uw, height: box.uh, transform: `rotate(${item.rot}deg)` } : { left: item.cx - box.w / 2, top: item.cy - box.h / 2, width: box.w, height: box.h }}
                     onPointerDown={(event) => startItemDrag(event, item)}
+                    aria-pressed={isSel}
+                    onClick={event => { if (event.detail === 0) selectPartByKeyboard(item); }}
                   >
                     <span
                       className="sym absolute flex"
@@ -6177,7 +6204,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
                     className="absolute size-9 rounded-full bg-primary text-primary-foreground shadow flex items-center justify-center touch-none"
                     style={{ left: selected.cx + box.w / 2 + 4 * s, top: selected.cy - box.h / 2 - 4 * s, transform: `translate(0, -100%) scale(${s})`, transformOrigin: 'bottom left' }}
                     onPointerDown={(event) => startRotateDrag(event, selected)}
-                    onClick={(event) => event.stopPropagation()}
+                    onClick={(event) => { event.stopPropagation(); if (event.detail === 0) rotateSelected(); }}
                   >
                     <ApperIcon name="RotateCw" size={15} />
                   </button>
@@ -7393,6 +7420,23 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           )}
           <datalist id="dp-to-len">{TO_LEN_PRESETS.map((x) => <option key={x} value={x} />)}</datalist>
           <datalist id="dp-to-count">{TO_COUNT_PRESETS.map((x) => <option key={x} value={x} />)}</datalist>
+          {rightTab === 'selection' && !selected && !selectedConn && !selectedSketch && !allSel && (items.length + sketch.length + connections.length > 0) && (
+            <label className="flex flex-col gap-1 text-xs mb-2">
+              <span className="text-muted-foreground">Select drawing element</span>
+              <select aria-label="Select drawing element" value="" className="h-9 rounded-md border border-input bg-background px-2" onChange={event => {
+                const n = event.target.value;
+                setPendingPort(null);
+                if (n.startsWith('item:')) selectPartByKeyboard(items.find(i => i.id === n.slice(5)));
+                else if (n.startsWith('sketch:')) { setSelectedId(null); setSelectedConnId(null); setSelectedSketchId(n.slice(7)); }
+                else if (n.startsWith('connection:')) { setSelectedId(null); setSelectedSketchId(null); setSelectedConnId(n.slice(11)); }
+              }}>
+                <option value="">Choose an object…</option>
+                <optgroup label="Equipment">{items.map(i => <option key={i.id} value={`item:${i.id}`}>{tags[i.id] || getTool(i.type).label}</option>)}</optgroup>
+                <optgroup label="Drawing">{sketch.map((r,i) => <option key={r.id} value={`sketch:${r.id}`}>{r.kind === 'smduct' ? `Duct ${smSizeText(r)}` : r.name || r.label || r.kind} · {i+1}</option>)}</optgroup>
+                <optgroup label="Connections">{connections.map((c,i) => <option key={c.id} value={`connection:${c.id}`}>{c.type} · {i+1}</option>)}</optgroup>
+              </select>
+            </label>
+          )}
           {rightTab === 'selection' && !selected && !selectedConn && !selectedSketch && !allSel && (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">Select a component or duct run. Drag empty space to pan, pinch or scroll to zoom.</p>
@@ -7403,7 +7447,7 @@ export default function DrawingWorkspace({ page, project, onSave, onSaveProject,
           {rightTab === 'checks' && (
             <div className="space-y-3">
               {checks.length === 0 && <p className="text-xs text-muted-foreground">Add a unit, outlets and a return grille to run the design checks.</p>}
-              {['Airflow', 'Duct sizing', 'Return air', 'Refrigerant', 'Heat load', 'Electrical'].map((grp) => {
+              {['Airflow', 'Duct sizing', 'Duct network', 'Return air', 'Refrigerant', 'Heat load', 'Electrical'].map((grp) => {
                 const rows = checks.filter((c) => c.group === grp);
                 if (!rows.length) return null;
                 return (

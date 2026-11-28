@@ -16,10 +16,12 @@ window.addEventListener('load', () => {
   setTimeout(() => { try { sessionStorage.removeItem('dp-reloaded-for-update'); } catch { /* ignore */ } }, 10000);
 });
 
-// Remove any offline service worker left by the old app on this address, plus its caches.
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister())).catch(() => {});
-  if (window.caches?.keys) caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
+// Only built releases install a versioned offline shell. Never clear unrelated caches
+// or force a reload of an open drawing when the service worker updates.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(err => console.warn('Offline setup unavailable:', err));
+  });
 }
 
 createRoot(document.getElementById('root')).render(<App />);
